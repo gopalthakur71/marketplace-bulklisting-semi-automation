@@ -40,6 +40,25 @@ def pick_colour_from_text(text, vocab, exclude=()):
     return best[2] if best else None
 
 
+def extract_after_marker(text, marker):
+    """Return the part of an HTML string after the heading containing `marker`
+    (e.g. 'Product Description'), dropping everything before it. If the marker is
+    absent, return the text unchanged."""
+    if not text or not marker:
+        return text
+    low = text.lower()
+    i = low.find(marker.lower())
+    if i == -1:
+        return text
+    # Skip to the end of the heading element that holds the marker.
+    close = low.find("</h", i)
+    if close != -1:
+        gt = text.find(">", close)
+        if gt != -1:
+            return text[gt + 1:].strip()
+    return text[i + len(marker):].strip()
+
+
 def pick_colour_synonym(text, synonyms):
     """Earliest whole-word match of a synonym keyword -> its canonical colour."""
     if not text or not synonyms:
@@ -101,6 +120,11 @@ def map_product(product, template, column_map, constants, rules=None):
     # 2. direct column-map copies (vocab-validated, flag-don't-guess)
     for field_key, header in column_map.items():
         _set(row, template, header, _shopify_value(product, field_key))
+
+    # 3a. Product Details from body HTML, keeping only the description section
+    marker = rules.get("product_details_after_marker")
+    details = extract_after_marker(product.body_html, marker) if marker else product.body_html
+    _set(row, template, "Product Details", details)
 
     # 3. derived identity duplicates
     _set(row, template, "SKUCode", product.sku)

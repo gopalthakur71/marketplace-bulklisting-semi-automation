@@ -1,7 +1,6 @@
 # Shopify Product field (left) -> Myntra Sarees header (right). Direct copies only.
-# Note: Prominent Colour and Saree/Blouse Fabric are NOT mapped here — they are
-# derived by rules (see config/rules.yaml).
+# Note: Prominent Colour, Saree/Blouse Fabric, and Product Details are NOT mapped
+# here — they are derived/transformed by rules (see config/rules.yaml).
 title: vendorArticleName
 sku: vendorSkuCode
 tags: tags
-body_html: Product Details

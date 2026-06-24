@@ -1,4 +1,5 @@
-from src.mapper import validate_value, map_product, pick_colour_from_text
+from src.mapper import (validate_value, map_product, pick_colour_from_text,
+                        extract_after_marker)
 from src.models import Product, TemplateInfo
 
 COLOUR_VOCAB = ["Red", "Blue", "Green", "Black", "Yellow", "Lavender", "Turquoise Blue", "NA"]
@@ -45,6 +46,20 @@ def test_map_product_fills_identity_and_pricing():
     assert "Saree Fabric" not in row.cells
     assert any(f.field == "Saree Fabric" for f in row.flags)
     assert "Occasion" in row.blanks
+
+
+def test_extract_after_marker_keeps_only_description():
+    html = ("<h3>Key Features</h3><p>Fabric: Silk</p>"
+            "<h3>Product Description</h3><p>Experience the elegance.</p>")
+    out = extract_after_marker(html, "Product Description")
+    assert out == "<p>Experience the elegance.</p>"
+    assert "Key Features" not in out
+    assert "Fabric: Silk" not in out
+
+
+def test_extract_after_marker_absent_returns_full():
+    html = "<p>Just a description, no headings.</p>"
+    assert extract_after_marker(html, "Product Description") == html
 
 
 def test_pick_colour_longest_earliest_wins():

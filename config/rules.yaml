@@ -33,3 +33,7 @@ brand_colour_remarks_from_prominent: true
 
 # Assign a sequential styleGroupId (1..N) to each product row.
 auto_style_group_id: true
+
+# Product Details: keep only the HTML after this heading (drops the Key Features
+# block, keeps the product description). Set to empty/remove to keep the full body.
+product_details_after_marker: "Product Description"
