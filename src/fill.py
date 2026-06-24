@@ -20,6 +20,50 @@ def _sheet_xml_name(xlsx_path, sheet_title):
     return f"xl/worksheets/sheet{idx + 1}.xml"
 
 
+def _parse_shared_strings(xlsx_path):
+    """Return shared strings as a list (index -> raw, already-XML-escaped text)."""
+    try:
+        with zipfile.ZipFile(xlsx_path) as z:
+            xml = z.read("xl/sharedStrings.xml").decode("utf-8")
+    except KeyError:
+        return []
+    out = []
+    for si in re.findall(r"<si>(.*?)</si>", xml, re.S):
+        # Concatenate all <t>..</t> runs (handles plain and rich-text strings).
+        parts = re.findall(r"<t[^>]*>(.*?)</t>", si, re.S)
+        out.append("".join(parts))
+    return out
+
+
+def _shared_to_inline(out_path, sheet_xml_name):
+    """Convert shared-string cells (t="s") in one sheet to inline strings
+    (t="inlineStr"). Myntra's upload parser does not resolve shared strings, so
+    text — including the column headers — must be embedded inline."""
+    strings = _parse_shared_strings(out_path)
+    if not strings:
+        return
+
+    def repl(m):
+        before, after, idx = m.group(1), m.group(2), int(m.group(3))
+        text = strings[idx] if idx < len(strings) else ""
+        return (f'<c {before}t="inlineStr"{after}>'
+                f'<is><t xml:space="preserve">{text}</t></is></c>')
+
+    # <c r=".." s=".." t="s"><v>N</v></c>  (t may sit anywhere in the attributes)
+    pattern = re.compile(r'<c ([^>]*?)t="s"([^>]*?)>\s*<v>(\d+)</v>\s*</c>')
+
+    tmp_fd, tmp_path = tempfile.mkstemp(suffix=".xlsx")
+    os.close(tmp_fd)
+    with zipfile.ZipFile(out_path) as zin, \
+            zipfile.ZipFile(tmp_path, "w", zipfile.ZIP_DEFLATED) as zout:
+        for item in zin.infolist():
+            data = zin.read(item.filename)
+            if item.filename == sheet_xml_name:
+                data = pattern.sub(repl, data.decode("utf-8")).encode("utf-8")
+            zout.writestr(item, data)
+    shutil.move(tmp_path, out_path)
+
+
 def _extract_validation_ext(template_path, sheet_xml_name):
     """Return the self-contained <ext>..</ext> x14 dataValidations block from the
     template's Sarees sheet, with xr:uid attributes stripped (so it needs no xr ns)."""
@@ -81,6 +125,11 @@ def fill_template(template_path, template, rows, out_path, preserve_dropdowns=Fa
 
     os.makedirs(os.path.dirname(os.path.abspath(out_path)), exist_ok=True)
     wb.save(out_path)
+
+    # Myntra's upload parser does not resolve shared strings; convert the Sarees
+    # sheet's text cells (including headers) to inline strings.
+    sarees_xml = _sheet_xml_name(template_path, SHEET_SAREES_NAME)
+    _shared_to_inline(out_path, sarees_xml)
 
     # Re-inject the dropdown validations openpyxl dropped on save (manual-edit copy
     # only — breaks Myntra's upload parser, so off by default).
