@@ -107,6 +107,19 @@ def fill_template(template_path, template, rows, out_path, preserve_dropdowns=Fa
     wb = openpyxl.load_workbook(template_path)
     ws = wb[SHEET_SAREES_NAME]
 
+    # Clear any pre-existing example/sample data the template ships with, so no
+    # stray rows (e.g. leftover image URLs with no brand) reach Myntra.
+    max_col = max(len(template.headers), ws.max_column)
+    for r in range(template.first_data_row, ws.max_row + 1):
+        for c in range(1, max_col + 1):
+            cell = ws.cell(row=r, column=c)
+            # cell(value=None) is a no-op in openpyxl; assign directly. Also drop
+            # the hyperlink, else openpyxl re-materialises the URL value on save.
+            if cell.value is not None:
+                cell.value = None
+            if cell.hyperlink is not None:
+                cell.hyperlink = None
+
     r = template.first_data_row
     for mapped, images in rows:
         for header, value in mapped.cells.items():
