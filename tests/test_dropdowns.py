@@ -23,5 +23,15 @@ def test_output_preserves_dropdowns(tmp_path):
     row = MappedRow(sku="S1", cells={"vendorSkuCode": "S1", "brand": "Ijor Ethnic Partners"})
     img = ImageResult(sku="S1")
     out = tmp_path / "filled.xlsx"
-    fill_template(TEMPLATE, t, [(row, img)], str(out))
+    fill_template(TEMPLATE, t, [(row, img)], str(out), preserve_dropdowns=True)
     assert _count_x14_validations(str(out)) == 37
+
+
+def test_upload_file_has_no_dropdowns_by_default(tmp_path):
+    """Default output must be clean (no x14 validations) so Myntra's parser reads it."""
+    warnings.filterwarnings("ignore")
+    t = read_template(TEMPLATE)
+    row = MappedRow(sku="S1", cells={"vendorSkuCode": "S1"})
+    out = tmp_path / "filled.xlsx"
+    fill_template(TEMPLATE, t, [(row, ImageResult(sku="S1"))], str(out))
+    assert _count_x14_validations(str(out)) == 0

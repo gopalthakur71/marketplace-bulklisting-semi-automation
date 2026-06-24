@@ -51,7 +51,14 @@ def _inject_validations(out_path, sheet_xml_name, ext_block):
     shutil.move(tmp_path, out_path)
 
 
-def fill_template(template_path, template, rows, out_path):
+def fill_template(template_path, template, rows, out_path, preserve_dropdowns=False):
+    """Fill the Sarees sheet and save.
+
+    preserve_dropdowns re-injects the template's x14 dropdown validations into the
+    saved file. This is OFF by default: Myntra's upload parser (Apache POI) rejects
+    the re-injected extension XML ("Error while reading and validating the input
+    file"), and the dropdowns are not needed for upload — only for manual editing.
+    """
     warnings.filterwarnings("ignore")
     wb = openpyxl.load_workbook(template_path)
     ws = wb[SHEET_SAREES_NAME]
@@ -75,8 +82,10 @@ def fill_template(template_path, template, rows, out_path):
     os.makedirs(os.path.dirname(os.path.abspath(out_path)), exist_ok=True)
     wb.save(out_path)
 
-    # Re-inject the dropdown validations openpyxl dropped on save.
-    sheet_xml = _sheet_xml_name(template_path, SHEET_SAREES_NAME)
-    ext_block = _extract_validation_ext(template_path, sheet_xml)
-    if ext_block:
-        _inject_validations(out_path, sheet_xml, ext_block)
+    # Re-inject the dropdown validations openpyxl dropped on save (manual-edit copy
+    # only — breaks Myntra's upload parser, so off by default).
+    if preserve_dropdowns:
+        sheet_xml = _sheet_xml_name(template_path, SHEET_SAREES_NAME)
+        ext_block = _extract_validation_ext(template_path, sheet_xml)
+        if ext_block:
+            _inject_validations(out_path, sheet_xml, ext_block)
