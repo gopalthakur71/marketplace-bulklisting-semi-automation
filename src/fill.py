@@ -62,11 +62,14 @@ def fill_template(template_path, template, rows, out_path):
             col = template.col_index_by_header.get(header)
             if col:
                 ws.cell(row=r, column=col, value=value)
-        passing_basenames = [os.path.basename(p) for p in images.passed]
-        for header, basename in zip(IMAGE_COLUMNS, passing_basenames):
+        # Myntra ingests images by URL, so write the validated CDN URLs (not local
+        # filenames) into the image columns. Falls back to local basenames only if
+        # no URLs were tracked.
+        image_values = images.passed_urls or [os.path.basename(p) for p in images.passed]
+        for header, value in zip(IMAGE_COLUMNS, image_values):
             col = template.col_index_by_header.get(header)
             if col:
-                ws.cell(row=r, column=col, value=basename)
+                ws.cell(row=r, column=col, value=value)
         r += 1
 
     os.makedirs(os.path.dirname(os.path.abspath(out_path)), exist_ok=True)

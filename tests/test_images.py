@@ -41,4 +41,5 @@ def test_process_images_names_and_counts(tmp_path):
     assert os.path.basename(res.jpgs[0]) == "S1_1.jpg"
     assert os.path.basename(res.jpgs[1]) == "S1_2.jpg"
     assert len(res.passed) == 2
+    assert res.passed_urls == ["u1", "u2"]   # CDN URLs tracked for the sheet
     assert res.failed == []

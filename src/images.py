@@ -54,4 +54,7 @@ def process_images(product, specs, out_dir, fetch=_http_fetch):
             res.failed.append((name, reason))
         else:
             res.passed.append(out_path)
+            # Myntra ingests images by URL. Shopify's CDN serves JPEG to standard
+            # clients, so the source CDN URL is what goes into the sheet.
+            res.passed_urls.append(url)
     return res

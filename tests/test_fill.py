@@ -15,7 +15,8 @@ def test_fill_writes_rows(tmp_path):
     t = read_template(TEMPLATE)
     r1 = MappedRow(sku="S1", cells={"vendorSkuCode": "S1", "vendorArticleName": "Blue Saree",
                                     "MRP": "3499", "ISP": "3199", "articleType": "Sarees"})
-    img = ImageResult(sku="S1", jpgs=["S1_1.jpg"], passed=["/x/S1_1.jpg"], failed=[])
+    img = ImageResult(sku="S1", jpgs=["S1_1.jpg"], passed=["/x/S1_1.jpg"],
+                      passed_urls=["https://cdn.shopify.com/x/Blue-1.webp?v=1"], failed=[])
     out = tmp_path / "filled.xlsx"
     fill_template(TEMPLATE, t, [(r1, img)], str(out))
     assert os.path.exists(out)
@@ -27,4 +28,4 @@ def test_fill_writes_rows(tmp_path):
     front_col = t.col_index_by_header["Front Image"]
     assert ws.cell(row=row, column=sku_col).value == "S1"
     assert ws.cell(row=row, column=name_col).value == "Blue Saree"
-    assert ws.cell(row=row, column=front_col).value == "S1_1.jpg"
+    assert ws.cell(row=row, column=front_col).value == "https://cdn.shopify.com/x/Blue-1.webp?v=1"

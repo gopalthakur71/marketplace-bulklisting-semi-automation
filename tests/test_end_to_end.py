@@ -32,3 +32,6 @@ def test_full_pipeline(tmp_path):
     ws = wb["Sarees"]
     assert ws.cell(row=4, column=3).value not in (None, "")
     assert any(f.endswith(".jpg") for f in os.listdir(out_dir / "images"))
+    # Front Image column (74) holds a CDN URL, not a local filename
+    front = ws.cell(row=4, column=74).value
+    assert front and front.startswith("http")

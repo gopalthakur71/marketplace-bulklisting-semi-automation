@@ -38,7 +38,8 @@ class MappedRow:
 class ImageResult:
     sku: str
     jpgs: list[str] = field(default_factory=list)
-    passed: list[str] = field(default_factory=list)
+    passed: list[str] = field(default_factory=list)        # local JPG paths that passed
+    passed_urls: list[str] = field(default_factory=list)   # CDN URLs that passed (written to sheet)
     failed: list[tuple] = field(default_factory=list)
 
 
