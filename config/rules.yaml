@@ -1,0 +1,18 @@
+# Deterministic per-row rules (no LLM). Applied by src/mapper.py.
+
+# If the product name contains a keyword (case-insensitive), write the HSN code.
+hsn_by_name_keyword:
+  cotton: "52081120"
+
+# Derive Prominent Colour by scanning the product name, then description,
+# for any value in the Prominent Colour dropdown (longest/earliest match wins).
+prominent_colour_from_name: true
+
+# Dropdown vocab values never considered as a colour match (false positives).
+colour_scan_exclude:
+  - "NA"
+
+# Deterministic colour synonyms: name keyword (left) -> Myntra dropdown value (right).
+# Only used when no direct dropdown colour is found in the text.
+colour_synonyms:
+  golden: "Gold"

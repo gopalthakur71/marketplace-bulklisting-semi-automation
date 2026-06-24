@@ -23,6 +23,7 @@ def main(template_path=None, csv_path=None, out_dir="output", config_dir="config
     column_map = yaml.safe_load(open(os.path.join(config_dir, "column_map.yaml")))
     constants = yaml.safe_load(open(os.path.join(config_dir, "constants.yaml")))
     specs = yaml.safe_load(open(os.path.join(config_dir, "image_specs.yaml")))
+    rules = yaml.safe_load(open(os.path.join(config_dir, "rules.yaml")))
 
     template = read_template(template_path)
     products = read_products(csv_path)
@@ -32,7 +33,7 @@ def main(template_path=None, csv_path=None, out_dir="output", config_dir="config
 
     rows = []
     for p in products:
-        mapped = map_product(p, template, column_map, constants)
+        mapped = map_product(p, template, column_map, constants, rules)
         if fetch is None:
             img = process_images(p, specs, images_dir)
         else:

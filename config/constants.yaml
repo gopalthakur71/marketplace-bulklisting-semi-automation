@@ -1,4 +1,14 @@
 # Myntra header -> fixed value applied to every row.
+# User-authoritative: written even if not in the dropdown vocab (flagged if not).
 articleType: Sarees
 Country Of Origin: India
-brand: Ijor
+brand: Ijor Ethnic Partners
+Manufacturer Name and Address with Pincode: Ijor Ethnic Partners
+Packer Name and Address with Pincode: Ijor Ethnic Partners
+Brand Size: One size
+Standard Size: Onesize           # Myntra dropdown spelling for "One size"
+is Standard Size present on Label: "Yes"
+AgeGroup: Adults-Women           # Myntra dropdown spelling for "Adult women"
+FashionType: Fashion
+Year: "2026"
+season: Summer

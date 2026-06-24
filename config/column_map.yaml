@@ -1,7 +1,8 @@
 # Shopify Product field (left) -> Myntra Sarees header (right). Direct copies only.
+# Note: Prominent Colour is NOT mapped here; it is derived from the product name
+# (see config/rules.yaml). Saree Fabric stays mapped but flags non-vocab values.
 title: vendorArticleName
 sku: vendorSkuCode
 tags: tags
 body_html: Product Details
-color: Prominent Colour
 fabric: Saree Fabric
