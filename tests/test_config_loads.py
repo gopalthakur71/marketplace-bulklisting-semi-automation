@@ -5,9 +5,9 @@ def test_column_map_has_core_fields():
     m = yaml.safe_load(open("config/column_map.yaml"))
     assert m["title"] == "vendorArticleName"
     assert m["sku"] == "vendorSkuCode"
-    assert m["fabric"] == "Saree Fabric"
-    # color is intentionally NOT mapped here; Prominent Colour is derived by rules.
+    # color and fabric are NOT mapped here; they are derived by rules.
     assert "color" not in m
+    assert "fabric" not in m
 
 
 def test_constants_and_specs():
@@ -25,5 +25,6 @@ def test_constants_and_specs():
 
 def test_rules_config():
     r = yaml.safe_load(open("config/rules.yaml"))
-    assert r["hsn_by_name_keyword"]["cotton"] == "52081120"
+    assert r["fabric_detection"]["cotton"]["HSN"] == "52081120"
+    assert r["fabric_detection"]["silk"]["Saree Fabric"] == "Pure Silk"
     assert r["prominent_colour_from_name"] is True

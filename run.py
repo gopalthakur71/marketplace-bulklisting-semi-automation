@@ -32,8 +32,11 @@ def main(template_path=None, csv_path=None, out_dir="output", config_dir="config
     os.makedirs(images_dir, exist_ok=True)
 
     rows = []
-    for p in products:
+    for i, p in enumerate(products, start=1):
         mapped = map_product(p, template, column_map, constants, rules)
+        # Sequential styleGroupId (each product its own group).
+        if rules.get("auto_style_group_id") and "styleGroupId" in template.col_index_by_header:
+            mapped.cells["styleGroupId"] = str(i)
         if fetch is None:
             img = process_images(p, specs, images_dir)
         else:

@@ -5,10 +5,24 @@ Country Of Origin: India
 brand: Ijor Ethnic Partners
 Manufacturer Name and Address with Pincode: Ijor Ethnic Partners
 Packer Name and Address with Pincode: Ijor Ethnic Partners
-Brand Size: One size
-Standard Size: Onesize           # Myntra dropdown spelling for "One size"
+Brand Size: One Size
+Standard Size: Onesize            # Myntra dropdown spelling for "One size"
 is Standard Size present on Label: "Yes"
-AgeGroup: Adults-Women           # Myntra dropdown spelling for "Adult women"
+AgeGroup: Adults-Women            # Myntra dropdown spelling for "Adult women"
 FashionType: Fashion
 Year: "2026"
 season: Summer
+
+# --- Mandatory attribute defaults (proven values from the working upload) ---
+materialCareDescription: Dry clean or dry wash only
+Type: NA
+Blouse: NA
+Sustainable: Regular
+Multipack Set: NA
+Net Quantity Unit: Piece
+Net Quantity: "1"
+
+# --- Content defaults copied from the working file — REVIEW per product ---
+Pattern: Solid
+Border: Solid
+Occasion: Work

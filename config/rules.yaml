@@ -1,8 +1,20 @@
 # Deterministic per-row rules (no LLM). Applied by src/mapper.py.
 
-# If the product name contains a keyword (case-insensitive), write the HSN code.
-hsn_by_name_keyword:
-  cotton: "52081120"
+# Fabric detection: first keyword found in the product name (then the Shopify
+# fabric field) selects the fabric block. Each block fills Saree Fabric,
+# Blouse Fabric, Wash Care, and HSN with Myntra-valid values (from the working file).
+fabric_detection:
+  order: [cotton, silk]   # check in this order; first match wins
+  cotton:
+    Saree Fabric: Pure Cotton
+    Blouse Fabric: Pure Cotton
+    Wash Care: Hand Wash
+    HSN: "52081120"
+  silk:
+    Saree Fabric: Pure Silk
+    Blouse Fabric: Pure Silk
+    Wash Care: Dry Clean
+    HSN: "50072010"
 
 # Derive Prominent Colour by scanning the product name, then description,
 # for any value in the Prominent Colour dropdown (longest/earliest match wins).
@@ -13,6 +25,11 @@ colour_scan_exclude:
   - "NA"
 
 # Deterministic colour synonyms: name keyword (left) -> Myntra dropdown value (right).
-# Only used when no direct dropdown colour is found in the text.
 colour_synonyms:
   golden: "Gold"
+
+# Write lowercase prominent colour into the free-text "Brand Colour (Remarks)".
+brand_colour_remarks_from_prominent: true
+
+# Assign a sequential styleGroupId (1..N) to each product row.
+auto_style_group_id: true

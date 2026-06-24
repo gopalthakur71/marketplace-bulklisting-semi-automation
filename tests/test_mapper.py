@@ -56,36 +56,50 @@ def test_pick_colour_longest_earliest_wins():
                                  COLOUR_VOCAB, ["NA"]) is None
 
 
+FABRIC_RULES = {
+    "fabric_detection": {
+        "order": ["cotton", "silk"],
+        "cotton": {"Saree Fabric": "Pure Cotton", "Wash Care": "Hand Wash", "HSN": "52081120"},
+        "silk": {"Saree Fabric": "Pure Silk", "Wash Care": "Dry Clean", "HSN": "50072010"},
+    },
+    "prominent_colour_from_name": True,
+    "colour_scan_exclude": ["NA"],
+}
+
+
 def _template_with_rules():
-    headers = ["vendorSkuCode", "MRP", "ISP", "HSN", "Prominent Colour", "brand"]
+    headers = ["vendorSkuCode", "MRP", "ISP", "HSN", "Prominent Colour", "brand",
+               "Saree Fabric", "Wash Care"]
     return TemplateInfo(
         headers=headers, header_row=3, first_data_row=4,
         col_index_by_header={h: i + 1 for i, h in enumerate(headers)},
         vocab_by_header={"Prominent Colour": COLOUR_VOCAB,
-                         "brand": ["Reebok", "Puma"]},
+                         "brand": ["Reebok", "Puma"],
+                         "Saree Fabric": ["Pure Cotton", "Pure Silk"],
+                         "Wash Care": ["Hand Wash", "Dry Clean"]},
     )
 
 
-def test_hsn_and_colour_and_forced_brand():
+def test_cotton_fabric_block_and_colour_and_forced_brand():
     p = Product(handle="h", sku="S1", title="Lavender Pure Cotton Saree", vendor="V",
                 tags="", body_html="", price=2000.0, compare_at_price=None,
                 color=None, fabric=None, size=None, status="active", images=[])
-    rules = {"hsn_by_name_keyword": {"cotton": "52081120"},
-             "prominent_colour_from_name": True, "colour_scan_exclude": ["NA"]}
     consts = {"brand": "Ijor Ethnic Partners"}
-    row = map_product(p, _template_with_rules(), {}, consts, rules)
+    row = map_product(p, _template_with_rules(), {}, consts, FABRIC_RULES)
     assert row.cells["HSN"] == "52081120"               # name has 'cotton'
+    assert row.cells["Saree Fabric"] == "Pure Cotton"
+    assert row.cells["Wash Care"] == "Hand Wash"
     assert row.cells["Prominent Colour"] == "Lavender"  # from name
     assert row.cells["brand"] == "Ijor Ethnic Partners"  # forced even if not in vocab
     assert any(f.field == "brand" for f in row.flags)    # but flagged
 
 
-def test_hsn_skipped_when_not_cotton():
+def test_silk_fabric_block():
     p = Product(handle="h", sku="S2", title="Banarasi Silk Saree Blue", vendor="V",
                 tags="", body_html="", price=3000.0, compare_at_price=None,
                 color=None, fabric=None, size=None, status="active", images=[])
-    rules = {"hsn_by_name_keyword": {"cotton": "52081120"},
-             "prominent_colour_from_name": True, "colour_scan_exclude": ["NA"]}
-    row = map_product(p, _template_with_rules(), {}, {}, rules)
-    assert "HSN" not in row.cells
+    row = map_product(p, _template_with_rules(), {}, {}, FABRIC_RULES)
+    assert row.cells["HSN"] == "50072010"
+    assert row.cells["Saree Fabric"] == "Pure Silk"
+    assert row.cells["Wash Care"] == "Dry Clean"
     assert row.cells["Prominent Colour"] == "Blue"

@@ -112,10 +112,13 @@ def map_product(product, template, column_map, constants, rules=None):
     _set(row, template, "MRP", _fmt_num(mrp))
     _set(row, template, "ISP", _fmt_num(product.price))
 
-    # 5. HSN by name keyword
-    for keyword, hsn in (rules.get("hsn_by_name_keyword") or {}).items():
-        if keyword.lower() in (product.title or "").lower():
-            _set(row, template, "HSN", hsn)
+    # 5. Fabric detection -> Saree/Blouse Fabric, Wash Care, HSN
+    fabric_cfg = rules.get("fabric_detection") or {}
+    haystack = f"{product.title or ''} {product.fabric or ''}".lower()
+    for keyword in (fabric_cfg.get("order") or []):
+        if keyword.lower() in haystack:
+            for header, value in (fabric_cfg.get(keyword) or {}).items():
+                _set(row, template, header, value)
             break
 
     # 6. Prominent Colour from name, then description
@@ -129,6 +132,9 @@ def map_product(product, template, column_map, constants, rules=None):
                   or pick_colour_synonym(product.body_html, synonyms))
         if colour:
             row.cells["Prominent Colour"] = colour
+            # Brand Colour (Remarks) is free text; use the lowercase colour.
+            if rules.get("brand_colour_remarks_from_prominent"):
+                _set(row, template, "Brand Colour (Remarks)", colour.lower())
         else:
             row.flags.append(Flag(sku=row.sku, field="Prominent Colour",
                                   reason="no dropdown colour found in name/description",
