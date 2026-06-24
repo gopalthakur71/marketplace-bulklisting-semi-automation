@@ -1,0 +1,7 @@
+# Shopify Product field (left) -> Myntra Sarees header (right). Direct copies only.
+title: vendorArticleName
+sku: vendorSkuCode
+tags: tags
+body_html: Product Details
+color: Prominent Colour
+fabric: Saree Fabric
