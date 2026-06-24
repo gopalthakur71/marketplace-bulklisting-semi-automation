@@ -1,0 +1,8 @@
+__pycache__/
+*.pyc
+.venv/
+venv/
+output/
+_docx_extract/
+_tpl/
+.pytest_cache/
