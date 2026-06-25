@@ -17,7 +17,7 @@ def _resolve(name, subdir="input"):
 
 
 def main(template_path=None, csv_path=None, out_dir="output", config_dir="config/myntra",
-         fetch=None, upload=None):
+         fetch=None, upload=None, style_group_id_start=None):
     template_path = template_path or _resolve(
         "Myntra-Sku-Template-2026-06-16.xlsx", "templates/myntra")
     csv_path = csv_path or _resolve("products_export.csv")
@@ -47,7 +47,8 @@ def main(template_path=None, csv_path=None, out_dir="output", config_dir="config
         # Sequential styleGroupId (each product its own group), continuing from
         # the seller's existing catalog so ids don't collide with listed products.
         if rules.get("auto_style_group_id") and "styleGroupId" in template.col_index_by_header:
-            start = rules.get("style_group_id_start", 1)
+            start = (style_group_id_start if style_group_id_start is not None
+                     else rules.get("style_group_id_start", 1))
             mapped.cells["styleGroupId"] = str(start + i - 1)
         if fetch is None:
             img = process_images(p, specs, images_dir)
