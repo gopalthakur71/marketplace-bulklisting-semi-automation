@@ -1,6 +1,6 @@
 import pandas as pd
 
-from src.models import Product
+from src.core.models import Product
 
 COLOR_COL = "Color (product.metafields.shopify.color-pattern)"
 FABRIC_COL = "Fabric (product.metafields.shopify.fabric)"

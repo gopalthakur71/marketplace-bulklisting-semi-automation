@@ -4,11 +4,11 @@ import zipfile
 
 import openpyxl
 
-from src.template_reader import read_template
-from src.models import MappedRow, ImageResult
-from src.fill import fill_template
+from src.myntra.template_reader import read_template
+from src.core.models import MappedRow, ImageResult
+from src.myntra.fill import fill_template
 
-TEMPLATE = "Myntra-Sku-Template-2026-06-16.xlsx"
+TEMPLATE = "templates/myntra/Myntra-Sku-Template-2026-06-16.xlsx"
 
 
 def test_sarees_sheet_uses_inline_strings(tmp_path):

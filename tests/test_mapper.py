@@ -1,6 +1,6 @@
-from src.mapper import (validate_value, map_product, pick_colour_from_text,
+from src.myntra.mapper import (validate_value, map_product, pick_colour_from_text,
                         extract_after_marker)
-from src.models import Product, TemplateInfo
+from src.core.models import Product, TemplateInfo
 
 COLOUR_VOCAB = ["Red", "Blue", "Green", "Black", "Yellow", "Lavender", "Turquoise Blue", "NA"]
 

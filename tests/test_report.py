@@ -1,5 +1,5 @@
-from src.models import MappedRow, ImageResult, Flag
-from src.report import write_report
+from src.core.models import MappedRow, ImageResult, Flag
+from src.myntra.report import write_report
 
 
 def test_report_lists_flags_and_blanks(tmp_path):

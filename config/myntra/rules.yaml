@@ -25,14 +25,19 @@ colour_scan_exclude:
   - "NA"
 
 # Deterministic colour synonyms: name keyword (left) -> Myntra dropdown value (right).
+# Used when the raw colour word isn't itself a Myntra dropdown value.
 colour_synonyms:
   golden: "Gold"
+  ivory: "White"   # Myntra has no Ivory; list it as White
 
 # Write lowercase prominent colour into the free-text "Brand Colour (Remarks)".
 brand_colour_remarks_from_prominent: true
 
-# Assign a sequential styleGroupId (1..N) to each product row.
+# Assign a sequential styleGroupId to each product row, continuing from the
+# seller's existing Myntra catalog. styleGroupId of row i = style_group_id_start + (i-1).
+# 8 products already listed -> next group starts at 9. Bump this before each new batch.
 auto_style_group_id: true
+style_group_id_start: 9
 
 # Product Details: keep only the HTML after this heading (drops the Key Features
 # block, keeps the product description). Set to empty/remove to keep the full body.

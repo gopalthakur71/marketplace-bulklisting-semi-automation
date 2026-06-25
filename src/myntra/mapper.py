@@ -1,6 +1,6 @@
 import re
 
-from src.models import MappedRow, Flag
+from src.core.models import MappedRow, Flag
 
 
 def _fmt_num(x):

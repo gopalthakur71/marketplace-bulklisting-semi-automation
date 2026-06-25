@@ -1,0 +1,18 @@
+min_width: 700
+min_height: 700
+max_bytes: 10485760   # 10 MB
+quality: 90
+max_images: 7         # image columns 74-80
+
+# Myntra rejects image links whose URL does not end in .jpg/.jpeg (it checks the
+# extension literally, so Shopify's .webp CDN URLs fail). We upload the converted
+# JPGs to S3 and write these public URLs instead. The S3 key is myntra/<sku>_<n>.jpg,
+# matching the local filenames. Leave empty to fall back to the source CDN URL.
+public_base_url: "https://ijorethnicpartners.s3.ap-south-1.amazonaws.com/myntra"
+
+# Auto-upload the converted JPGs to S3 on each run (run.py). The bucket's myntra/*
+# prefix is public-read; the key basename matches public_base_url above.
+s3_upload: true
+s3_bucket: ijorethnicpartners
+s3_region: ap-south-1
+s3_prefix: myntra

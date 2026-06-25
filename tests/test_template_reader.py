@@ -1,6 +1,6 @@
-from src.template_reader import read_template
+from src.myntra.template_reader import read_template
 
-TEMPLATE = "Myntra-Sku-Template-2026-06-16.xlsx"
+TEMPLATE = "templates/myntra/Myntra-Sku-Template-2026-06-16.xlsx"
 
 
 def test_headers_and_data_row():

@@ -3,4 +3,5 @@ openpyxl
 Pillow
 PyYAML
 requests
+boto3
 pytest

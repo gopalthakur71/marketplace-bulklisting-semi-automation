@@ -1,0 +1,4 @@
+Handle,Title,Vendor,Tags,Body (HTML),Variant SKU,Variant Price,Variant Compare At Price,Image Src,Image Position,Status,Color (product.metafields.shopify.color-pattern),Fabric (product.metafields.shopify.fabric),Size (product.metafields.shopify.size)
+test-cotton-saree-red,Test Cotton Saree Red,TestVendor,"Cotton, Saree","<h2>Product Description</h2><p>A lovely red cotton saree.</p>",TST001,1200,1500,https://example.com/test-cotton-saree-red-1.webp,1,active,red,cotton,Free
+test-cotton-saree-red,,,,,,,,https://example.com/test-cotton-saree-red-2.webp,2,,,,
+test-silk-saree-blue,Test Silk Saree Blue,TestVendor,"Silk, Saree","<h2>Product Description</h2><p>An elegant blue silk saree.</p>",TST002,2500,,https://example.com/test-silk-saree-blue-1.webp,1,active,blue,silk,Free

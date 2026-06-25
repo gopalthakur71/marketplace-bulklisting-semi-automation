@@ -10,7 +10,23 @@ import openpyxl
 IMAGE_COLUMNS = ["Front Image", "Side Image", "Back Image", "Detail Angle",
                  "Look Shot Image", "Additional Image 1", "Additional Image 2"]
 
+# Headers Myntra validates as numbers — store them as real numeric cells, not text.
+# (A known-good upload stores these as numbers; text "1" for Net Quantity etc. is
+# rejected as "non numeric".)
+NUMERIC_HEADERS = {"styleGroupId", "HSN", "MRP", "ISP", "Year", "Net Quantity"}
+
 SHEET_SAREES_NAME = "Sarees"
+
+
+def _coerce_numeric(header, value):
+    """Return value as int/float for numeric Myntra columns, else unchanged."""
+    if header in NUMERIC_HEADERS and value not in (None, ""):
+        try:
+            f = float(value)
+            return int(f) if f.is_integer() else f
+        except (TypeError, ValueError):
+            return value
+    return value
 
 
 def _sheet_xml_name(xlsx_path, sheet_title):
@@ -125,7 +141,7 @@ def fill_template(template_path, template, rows, out_path, preserve_dropdowns=Fa
         for header, value in mapped.cells.items():
             col = template.col_index_by_header.get(header)
             if col:
-                ws.cell(row=r, column=col, value=value)
+                ws.cell(row=r, column=col, value=_coerce_numeric(header, value))
         # Myntra ingests images by URL, so write the validated CDN URLs (not local
         # filenames) into the image columns. Falls back to local basenames only if
         # no URLs were tracked.

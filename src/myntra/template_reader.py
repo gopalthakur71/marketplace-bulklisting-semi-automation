@@ -5,7 +5,7 @@ import warnings
 import openpyxl
 from openpyxl.utils import column_index_from_string
 
-from src.models import TemplateInfo
+from src.core.models import TemplateInfo
 
 SHEET_SAREES_NAME = "Sarees"
 MASTERDATA_NAME = "masterdata"

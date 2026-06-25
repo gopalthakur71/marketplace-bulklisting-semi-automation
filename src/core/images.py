@@ -3,7 +3,7 @@ import os
 
 from PIL import Image
 
-from src.models import ImageResult
+from src.core.models import ImageResult
 
 
 def _http_fetch(url):
@@ -34,27 +34,32 @@ def validate_image(path, specs):
 
 
 def process_images(product, specs, out_dir, fetch=_http_fetch):
-    os.makedirs(out_dir, exist_ok=True)
     res = ImageResult(sku=product.sku)
     max_images = specs.get("max_images", 7)
     quality = specs.get("quality", 90)
+    public_base = (specs.get("public_base_url") or "").rstrip("/")
+    # Each SKU's images live in their own folder: <out_dir>/<sku>/<n>.jpg, mirrored
+    # to S3 as <prefix>/<sku>/<n>.jpg.
+    sku_dir = os.path.join(out_dir, product.sku)
+    os.makedirs(sku_dir, exist_ok=True)
     for i, url in enumerate(product.images[:max_images], start=1):
-        name = f"{product.sku}_{i}.jpg"
-        out_path = os.path.join(out_dir, name)
+        relkey = f"{product.sku}/{i}.jpg"   # path under the images dir == S3 key tail
+        out_path = os.path.join(sku_dir, f"{i}.jpg")
         try:
             data = fetch(url)
             with Image.open(io.BytesIO(data)) as im:
                 flatten_to_jpg(im, quality, out_path)
         except Exception as e:  # download/convert failure
-            res.failed.append((name, f"convert error: {e}"))
+            res.failed.append((relkey, f"convert error: {e}"))
             continue
         reason = validate_image(out_path, specs)
         res.jpgs.append(out_path)
         if reason:
-            res.failed.append((name, reason))
+            res.failed.append((relkey, reason))
         else:
             res.passed.append(out_path)
-            # Myntra ingests images by URL. Shopify's CDN serves JPEG to standard
-            # clients, so the source CDN URL is what goes into the sheet.
-            res.passed_urls.append(url)
+            # Myntra ingests images by URL and requires a .jpg/.jpeg extension. Write
+            # the public S3 URL of the converted JPG (key mirrors the local path);
+            # fall back to the source CDN URL only if no public host is configured.
+            res.passed_urls.append(f"{public_base}/{relkey}" if public_base else url)
     return res

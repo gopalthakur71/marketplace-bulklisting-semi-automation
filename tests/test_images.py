@@ -3,8 +3,8 @@ import os
 
 from PIL import Image
 
-from src.images import flatten_to_jpg, validate_image, process_images
-from src.models import Product
+from src.core.images import flatten_to_jpg, validate_image, process_images
+from src.core.models import Product
 
 
 def test_flatten_transparency_not_black(tmp_path):
@@ -38,8 +38,28 @@ def test_process_images_names_and_counts(tmp_path):
     specs = {"min_width": 700, "min_height": 700, "max_bytes": 10485760,
              "quality": 90, "max_images": 7}
     res = process_images(p, specs, str(tmp_path), fetch=fake_fetch)
-    assert os.path.basename(res.jpgs[0]) == "S1_1.jpg"
-    assert os.path.basename(res.jpgs[1]) == "S1_2.jpg"
+    # Per-SKU folder layout: <out_dir>/<sku>/<n>.jpg
+    assert res.jpgs[0].endswith(os.path.join("S1", "1.jpg"))
+    assert res.jpgs[1].endswith(os.path.join("S1", "2.jpg"))
     assert len(res.passed) == 2
     assert res.passed_urls == ["u1", "u2"]   # CDN URLs tracked for the sheet
     assert res.failed == []
+
+
+def test_process_images_uses_public_base_url(tmp_path):
+    buf = io.BytesIO()
+    Image.new("RGB", (1000, 1000), (10, 20, 30)).save(buf, "PNG")
+    data = buf.getvalue()
+
+    p = Product(handle="h", sku="S1", title="t", vendor="v", tags="", body_html="",
+                price=1.0, compare_at_price=None, color=None, fabric=None,
+                size=None, status="active", images=["u1", "u2"])
+    specs = {"min_width": 700, "min_height": 700, "max_bytes": 10485760,
+             "quality": 90, "max_images": 7,
+             "public_base_url": "https://b.s3.ap-south-1.amazonaws.com/myntra/"}
+    res = process_images(p, specs, str(tmp_path), fetch=lambda u: data)
+    # Sheet gets the public .jpg S3 URLs in per-SKU folders, not the source URLs.
+    assert res.passed_urls == [
+        "https://b.s3.ap-south-1.amazonaws.com/myntra/S1/1.jpg",
+        "https://b.s3.ap-south-1.amazonaws.com/myntra/S1/2.jpg",
+    ]

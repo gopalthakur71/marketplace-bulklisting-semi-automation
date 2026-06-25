@@ -1,4 +1,4 @@
-from src.models import Product, Flag, MappedRow, ImageResult, TemplateInfo
+from src.core.models import Product, Flag, MappedRow, ImageResult, TemplateInfo
 
 
 def test_product_defaults_images_list():
