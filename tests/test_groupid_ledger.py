@@ -1,0 +1,54 @@
+import json
+from src.myntra.groupid_ledger import read_ledger, reserve, confirm
+
+
+class FakeStore:
+    """In-memory stand-in for S3JsonStore."""
+    def __init__(self):
+        self.data = {}
+
+    def get_json(self, key):
+        return self.data.get(key)
+
+    def put_json(self, key, data):
+        self.data[key] = json.loads(json.dumps(data))  # deep copy, JSON-round-trip
+
+
+def test_empty_ledger_starts_at_1():
+    s = FakeStore()
+    led = read_ledger(s)
+    assert led["next_style_group_id"] == 1
+    assert led["batches"] == []
+
+
+def test_reserve_does_not_advance_counter():
+    s = FakeStore()
+    start, batch_id = reserve(s, count=3, filename="a.xlsx")
+    assert start == 1
+    # counter NOT advanced until confirm
+    assert read_ledger(s)["next_style_group_id"] == 1
+    # a second reserve before confirm reuses the same start (documented limitation)
+    start2, _ = reserve(s, count=2, filename="b.xlsx")
+    assert start2 == 1
+    pend = [b for b in read_ledger(s)["batches"] if b["status"] == "pending"]
+    assert len(pend) == 2
+
+
+def test_confirm_advances_past_range():
+    s = FakeStore()
+    start, batch_id = reserve(s, count=3, filename="a.xlsx")   # range 1..3
+    new_next = confirm(s, batch_id)
+    assert new_next == 4
+    assert read_ledger(s)["next_style_group_id"] == 4
+    b = read_ledger(s)["batches"][0]
+    assert b["status"] == "confirmed"
+    # next reserve now starts at 4
+    start2, _ = reserve(s, count=1, filename="c.xlsx")
+    assert start2 == 4
+
+
+def test_confirm_unknown_batch_raises():
+    s = FakeStore()
+    import pytest
+    with pytest.raises(KeyError):
+        confirm(s, "does-not-exist")

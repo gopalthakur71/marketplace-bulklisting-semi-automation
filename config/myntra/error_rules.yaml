@@ -1,0 +1,38 @@
+# Maps a Myntra SYSTEM ERROR MESSAGE substring (case-insensitive) to a plain-English
+# explanation and an action. First matching rule wins. Add new wordings here, no code.
+# action: auto_fix | manual_choice | drop_sku | explain_only
+rules:
+  - match: "already registered"
+    category: duplicate
+    action: drop_sku
+    explanation: "This SKU is already listed on Myntra, so it cannot be created again. It will be removed from this upload."
+  - match: "pincode is missing"
+    category: pincode
+    action: auto_fix
+    explanation: "The manufacturer/packer address was missing a 6-digit pincode. Filled automatically from your settings."
+  - match: "mrp cannot be empty or non numeric"
+    category: numeric
+    action: auto_fix
+    explanation: "MRP must be a number. Corrected automatically."
+  - match: "isp cannot be empty"
+    category: numeric
+    action: auto_fix
+    explanation: "Selling price (ISP) was empty. Filled automatically from your price."
+  - match: "extension is not jpg"
+    category: image
+    action: explain_only
+    explanation: "Image links must end in .jpg. Re-generate this sheet from your Shopify export (the app now hosts images as .jpg), or replace the image links with their .jpg versions, then re-upload."
+  - match: "brand colour (remarks) cannot be null"
+    category: colour
+    action: manual_choice
+    field: "Prominent Colour"
+    explanation: "Myntra needs a colour it recognises. Please pick the closest match."
+  - match: "style sku count"
+    category: stylegroupid
+    action: explain_only
+    explanation: "The style-group numbering clashes with products already in your catalog. Re-generate the sheet with a higher starting style-group number (continue from your existing catalog count), then re-upload."
+
+unknown:
+  category: unknown
+  action: explain_only
+  explanation: "Myntra reported an error we don't recognise yet. Please read the original message and fix it in the sheet."
