@@ -20,8 +20,8 @@ rules:
     explanation: "Selling price (ISP) was empty. Filled automatically from your price."
   - match: "extension is not jpg"
     category: image
-    action: auto_fix
-    explanation: "Image links must end in .jpg. The app now hosts images as .jpg, so this is corrected."
+    action: explain_only
+    explanation: "Image links must end in .jpg. Re-generate this sheet from your Shopify export (the app now hosts images as .jpg), or replace the image links with their .jpg versions, then re-upload."
   - match: "brand colour (remarks) cannot be null"
     category: colour
     action: manual_choice
@@ -29,8 +29,8 @@ rules:
     explanation: "Myntra needs a colour it recognises. Please pick the closest match."
   - match: "style sku count"
     category: stylegroupid
-    action: auto_fix
-    explanation: "The style group numbering was off. Renumbered automatically from your catalog counter."
+    action: explain_only
+    explanation: "The style-group numbering clashes with products already in your catalog. Re-generate the sheet with a higher starting style-group number (continue from your existing catalog count), then re-upload."
 
 unknown:
   category: unknown
