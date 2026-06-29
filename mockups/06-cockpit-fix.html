@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Ijor · Listing — Cockpit (Fix errors, input-driven)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=Inter:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#13161B;
+    --panel:#1B1F26;
+    --panel-2:#222732;
+    --line:#2B313C;
+    --text:#C5CCD6;
+    --dim:#79828F;
+    --head:#EEF1F5;
+    --accent:#6E8BFF;
+    --accent-dim:rgba(110,139,255,.14);
+    --green:#3FB68B;
+    --amber:#E0A458;
+    --red:#E06B5E;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%}
+  body{font-family:Inter,system-ui,sans-serif;color:var(--text);background:var(--bg);
+       -webkit-font-smoothing:antialiased;display:grid;grid-template-columns:230px 1fr 320px;min-height:100vh}
+  .mono{font-family:'IBM Plex Mono',monospace}
+
+  /* left: error queue */
+  aside.queue{background:var(--panel);border-right:1px solid var(--line);padding:18px 0}
+  .logo{padding:0 18px 16px;border-bottom:1px solid var(--line);font-family:'Space Grotesk';color:var(--head);font-weight:700;font-size:17px}
+  .logo i{color:var(--accent);font-style:normal}
+  .qh{padding:14px 18px 6px;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--dim)}
+  .qitem{padding:12px 18px;border-left:3px solid transparent;cursor:pointer}
+  .qitem .r{font-family:'IBM Plex Mono';font-size:12px;color:var(--dim)}
+  .qitem .d{font-size:13px;color:var(--text);margin-top:2px}
+  .qitem.active{border-left-color:var(--accent);background:var(--accent-dim)}
+  .qitem.active .d{color:var(--head)}
+  .qitem.done .r{color:var(--green)}
+  .qitem.done .d{color:var(--dim);text-decoration:line-through}
+
+  /* center: the fix — INPUT driven, no option buttons */
+  main{padding:26px 30px}
+  .crumb{font-family:'IBM Plex Mono';font-size:12px;color:var(--dim)}
+  h1{font-family:'Space Grotesk',sans-serif;font-size:24px;color:var(--head);margin:8px 0 6px;font-weight:600}
+  .why{font-size:14px;color:var(--dim);line-height:1.6;max-width:56ch}
+
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:22px;margin-top:22px}
+  .rowctx{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:18px}
+  .chip{font-family:'IBM Plex Mono';font-size:12px;background:var(--panel-2);border:1px solid var(--line);border-radius:6px;padding:6px 10px}
+  .chip b{color:var(--head)}
+  .chip.bad b{color:var(--red)}
+
+  label.fld{display:block;font-size:13px;color:var(--text);margin-bottom:8px;font-weight:500}
+  .inputrow{display:flex;gap:10px}
+  input[type=text]{flex:1;background:var(--bg);border:1.5px solid var(--accent);border-radius:8px;color:var(--head);
+                   font-family:'IBM Plex Mono';font-size:15px;padding:13px 14px;outline:none}
+  input[type=text]::placeholder{color:var(--dim)}
+  .apply{background:var(--accent);border:none;border-radius:8px;color:#0c1020;font-weight:700;padding:0 22px;font-size:14px;cursor:pointer}
+  .valnote{display:flex;align-items:center;gap:8px;margin-top:10px;font-size:12.5px;color:var(--dim)}
+  .valnote .ic{color:var(--accent)}
+  .hintline{margin-top:8px;font-size:12.5px;color:var(--dim)}
+  .hintline code{font-family:'IBM Plex Mono';background:var(--panel-2);padding:1px 6px;border-radius:4px;color:var(--text)}
+
+  .navbtns{display:flex;justify-content:space-between;margin-top:24px}
+  .ghost{background:none;border:1px solid var(--line);color:var(--text);border-radius:8px;padding:10px 16px;font-size:13px;cursor:pointer}
+
+  /* right: explain / activity log */
+  aside.log{background:var(--panel);border-left:1px solid var(--line);padding:18px}
+  .lh{font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--dim);margin-bottom:14px}
+  .logline{font-family:'IBM Plex Mono';font-size:12px;line-height:1.7;color:var(--text);border-bottom:1px solid var(--line);padding:8px 0}
+  .logline .ts{color:var(--dim)}
+  .logline .ok{color:var(--green)} .logline .wn{color:var(--amber)} .logline .ac{color:var(--accent)}
+</style>
+</head>
+<body>
+  <aside class="queue">
+    <div class="logo">ijor<i>·</i>fix</div>
+    <div class="qh">Rejected · 3 to resolve</div>
+    <div class="qitem done"><div class="r">row 2</div><div class="d">Pincode missing</div></div>
+    <div class="qitem active"><div class="r">row 4</div><div class="d">Colour “Ivory” not valid</div></div>
+    <div class="qitem"><div class="r">row 6</div><div class="d">MRP not numeric</div></div>
+  </aside>
+
+  <main>
+    <div class="crumb">fix ❯ batch 2026-06-25 ❯ row 4</div>
+    <h1>Enter a Myntra colour for this saree</h1>
+    <p class="why">Myntra rejected “Ivory” — it isn't in their colour list, so it can't be guessed.
+       Type the colour you want and we'll check it against Myntra's allowed values before writing it.</p>
+
+    <div class="card">
+      <div class="rowctx">
+        <span class="chip">SKU <b>IJR-S-017</b></span>
+        <span class="chip">Product <b>Off-White Linen Saree</b></span>
+        <span class="chip bad">Rejected value <b>Ivory</b></span>
+      </div>
+
+      <label class="fld" for="col">Colour</label>
+      <div class="inputrow">
+        <input id="col" type="text" placeholder="Type a colour, e.g. Off White" value="Off White" />
+        <button class="apply">Apply</button>
+      </div>
+      <div class="valnote"><span class="ic">✓</span> Matches Myntra’s colour list — safe to write.</div>
+      <div class="hintline">Tip: Myntra’s closest names here are <code>Off White</code>, <code>Cream</code>, <code>White</code>. Type whichever fits.</div>
+
+      <div class="navbtns">
+        <button class="ghost">‹ Previous</button>
+        <button class="ghost">Skip for now</button>
+      </div>
+    </div>
+  </main>
+
+  <aside class="log">
+    <div class="lh">Activity</div>
+    <div class="logline"><span class="ts">10:14</span> loaded resubmission file <span class="ac">(3 errors)</span></div>
+    <div class="logline"><span class="ts">10:15</span> row 2 · pincode → <span class="ok">121006 auto-filled</span></div>
+    <div class="logline"><span class="ts">10:16</span> row 4 · awaiting <span class="wn">colour input</span></div>
+    <div class="logline"><span class="ts">—</span> row 6 · MRP <span class="wn">pending</span></div>
+  </aside>
+</body>
+</html>

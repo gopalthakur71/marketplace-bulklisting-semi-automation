@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Ijor · Listing — Carbon Terminal</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=JetBrains+Mono:wght@400;500;700&family=Inter:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#0E0F12;
+    --panel:#15171B;
+    --panel-2:#1B1E23;
+    --line:#262A31;
+    --text:#B7BDC7;
+    --dim:#6C7480;
+    --head:#F2F4F7;
+    --phos:#54E0B0;     /* phosphor mint accent */
+    --phos-dim:rgba(84,224,176,.14);
+    --amber:#E0A458;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%}
+  body{font-family:Inter,system-ui,sans-serif;color:var(--text);background:var(--bg);
+       -webkit-font-smoothing:antialiased;display:grid;grid-template-columns:230px 1fr;min-height:100vh;
+       background-image:linear-gradient(var(--line) 1px,transparent 1px),linear-gradient(90deg,var(--line) 1px,transparent 1px);
+       background-size:46px 46px;background-position:-1px -1px;background-blend-mode:normal}
+  .mono{font-family:'JetBrains Mono',monospace}
+
+  aside{background:var(--panel);border-right:1px solid var(--line);padding:20px 0;display:flex;flex-direction:column}
+  .logo{padding:0 20px 18px;border-bottom:1px solid var(--line)}
+  .logo b{font-family:'JetBrains Mono',monospace;color:var(--phos);font-size:16px;letter-spacing:1px}
+  .logo .blink{color:var(--phos);animation:bl 1.1s steps(2) infinite}
+  @keyframes bl{50%{opacity:0}}
+  .logo span{display:block;font-size:10px;color:var(--dim);letter-spacing:.2em;text-transform:uppercase;margin-top:4px}
+  .spine{padding:18px 0;flex:1}
+  .stage{position:relative;padding:12px 20px 12px 42px;font-size:13px}
+  .stage::before{content:"";position:absolute;left:22px;top:16px;width:8px;height:8px;background:var(--panel-2);border:2px solid var(--line)}
+  .stage::after{content:"";position:absolute;left:25px;top:24px;bottom:-8px;width:2px;background:var(--line)}
+  .stage:last-child::after{display:none}
+  .stage.done::before{background:var(--phos);border-color:var(--phos)}
+  .stage.active::before{background:var(--amber);border-color:var(--amber);box-shadow:0 0 10px var(--amber)}
+  .stage .t{color:var(--head);font-family:'JetBrains Mono',monospace;font-size:12px}
+  .stage .s{color:var(--dim);font-size:11px;margin-top:2px}
+
+  .topbar{display:flex;align-items:center;justify-content:space-between;padding:14px 26px;border-bottom:1px solid var(--line);
+          background:rgba(14,15,18,.86);backdrop-filter:blur(4px)}
+  .cmd{font-family:'JetBrains Mono',monospace;font-size:13px;color:var(--text)}
+  .cmd .p{color:var(--phos)}
+  .btn{font-family:'JetBrains Mono',monospace;border:1px solid var(--line);background:var(--panel-2);color:var(--text);
+       padding:8px 14px;font-size:12px;cursor:pointer}
+  .btn.pri{background:var(--phos);border-color:var(--phos);color:#062018;font-weight:700}
+
+  .content{padding:22px 26px;display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
+  .stat{background:rgba(21,23,27,.92);border:1px solid var(--line);padding:15px}
+  .stat .k{font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--dim)}
+  .stat .v{font-family:'JetBrains Mono',monospace;font-size:24px;color:var(--head);margin-top:6px}
+  .stat .v.ph{color:var(--phos)} .stat .v.am{color:var(--amber)}
+
+  .tablewrap{grid-column:1/-1;background:rgba(21,23,27,.92);border:1px solid var(--line);margin-top:4px}
+  .twhead{display:flex;justify-content:space-between;align-items:center;padding:12px 16px;border-bottom:1px solid var(--line)}
+  .twhead h2{font-family:'JetBrains Mono',monospace;font-size:13px;margin:0;color:var(--head)}
+  table{width:100%;border-collapse:collapse}
+  th,td{text-align:left;padding:10px 16px;font-size:12px;border-bottom:1px solid var(--line)}
+  th{font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--dim)}
+  tr:last-child td{border-bottom:none}
+  td.m{font-family:'JetBrains Mono',monospace}
+  td.num{font-family:'JetBrains Mono',monospace;text-align:right;color:var(--head)}
+  .tag{font-family:'JetBrains Mono',monospace;font-size:11px;padding:2px 7px}
+  .tag.ok{background:var(--phos-dim);color:var(--phos)}
+  .tag.warn{background:rgba(224,164,88,.14);color:var(--amber)}
+</style>
+</head>
+<body>
+  <aside>
+    <div class="logo"><b>ijor<span class="blink">_</span></b><span>// listing.term</span></div>
+    <div class="spine">
+      <div class="stage done"><div class="t">ingest_csv</div><div class="s">7 products</div></div>
+      <div class="stage done"><div class="t">map_template</div><div class="s">80 cols</div></div>
+      <div class="stage done"><div class="t">push_s3</div><div class="s">42 jpg</div></div>
+      <div class="stage active"><div class="t">fill_validate</div><div class="s">running…</div></div>
+      <div class="stage"><div class="t">emit_xlsx</div><div class="s">queued</div></div>
+    </div>
+  </aside>
+  <main>
+    <div class="topbar">
+      <span class="cmd"><span class="p">ijor&nbsp;❯</span> fill --template sarees-v16 --batch 2026-06-29</span>
+      <button class="btn pri">download .xlsx</button>
+    </div>
+    <div class="content">
+      <div class="stat"><div class="k">rows</div><div class="v">7</div></div>
+      <div class="stat"><div class="k">validated</div><div class="v ph">7</div></div>
+      <div class="stat"><div class="k">flagged</div><div class="v am">0</div></div>
+      <div class="stat"><div class="k">sgid</div><div class="v">16–22</div></div>
+      <div class="tablewrap">
+        <div class="twhead"><h2>filled_rows.tsv</h2><span class="tag ok">EXIT 0</span></div>
+        <table>
+          <thead><tr><th>sku</th><th>colour</th><th>fabric</th><th class="num">mrp</th><th class="num">isp</th><th>state</th></tr></thead>
+          <tbody>
+            <tr><td class="m">IJR-S-014</td><td>Navy Blue</td><td>Cotton</td><td class="num">2499</td><td class="num">1799</td><td><span class="tag ok">ok</span></td></tr>
+            <tr><td class="m">IJR-S-015</td><td>Mustard</td><td>Cotton</td><td class="num">2199</td><td class="num">1599</td><td><span class="tag ok">ok</span></td></tr>
+            <tr><td class="m">IJR-S-016</td><td>Maroon</td><td>Cotton</td><td class="num">2899</td><td class="num">2099</td><td><span class="tag ok">ok</span></td></tr>
+            <tr><td class="m">IJR-S-017</td><td>Off White</td><td>Linen</td><td class="num">3199</td><td class="num">2299</td><td><span class="tag warn">colour:review</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </main>
+</body>
+</html>
