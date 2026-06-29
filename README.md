@@ -228,6 +228,22 @@ S3 upload (stubbed, incl. per-SKU key mirroring), and an end-to-end run.
 
 ---
 
+## CI/CD
+
+On every push to `main`, GitHub Actions runs the test suite and, if it passes,
+builds a Docker image and pushes it to a private Amazon ECR repo
+(`marketplace-bulklisting`, `ap-south-1`). Authentication uses GitHub OIDC —
+**no AWS keys are stored in GitHub**. Pull requests run the test job only.
+
+- Workflow: `.github/workflows/ci-cd.yml`
+- One-time AWS setup: `docs/runbooks/cicd-aws-setup.md`
+- Design: `docs/superpowers/specs/2026-06-25-listing-app-cicd-deploy.md`
+
+Deferred to a later phase: running the image on a start-on-demand EC2 t3.micro
+(spec §7) and the FastAPI web server it serves.
+
+---
+
 ## Project docs
 - Design spec: `docs/superpowers/specs/2026-06-24-myntra-phase1-deterministic-fill-design.md`
 - Implementation plan: `docs/superpowers/plans/2026-06-24-myntra-phase1-deterministic-fill.md`
