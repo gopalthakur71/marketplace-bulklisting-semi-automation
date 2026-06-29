@@ -2,6 +2,13 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
+> **Two ways to execute this plan (reminder for Gopal):**
+>
+> - **Subagent-Driven Development (the one we chose):** Claude runs the plan itself, but spins up a *fresh helper agent per task* — one writes the code+tests, another independently reviews it against the spec, a fixer patches any findings — then moves to the next task automatically. Each helper starts with a clean slate (only its task brief), so context stays focused and quality gates are built in. You don't get asked between tasks; Claude executes straight through and reports at the end.
+> - **Inline Execution:** Claude does every task itself in *this same conversation*, in order, pausing at checkpoints for you to review before continuing. No helper agents — one continuous thread. Simpler to follow, but the main context fills up and there's no independent reviewer.
+>
+> Rule of thumb: Subagent-Driven = faster, isolated, auto-reviewed, hands-off. Inline = one thread, you watch it happen, you approve checkpoints.
+
 **Goal:** Wrap the already-built, already-tested Shopify→Myntra pipeline in a FastAPI web UI so non-technical teammates can generate Myntra sheets and fix rejected rows, with Cognito auth and SSM/Secrets config layered in (EC2 deploy deferred).
 
 **Architecture:** A new presentation layer `src/web/` (FastAPI + Jinja + plain CSS + htmx) that *calls* the existing `src/myntra` and `src/core` Python functions directly — no change to that logic. A layered settings loader reads env vars first and falls back to SSM Parameter Store / Secrets Manager, and an `AUTH_DISABLED=1` flag bypasses Cognito locally, so the whole app builds and tests with no AWS reachable. Generate runs as an in-process background job tracked in an in-memory store and polled by htmx.
@@ -218,26 +225,27 @@ class Settings:
 
 
 def _ssm_getter():
-    import boto3
-    client = boto3.client("ssm")
-
+    """Lazy + fail-soft: build the client on first call; return None on any boto
+    error (missing param, no creds, no region) so import never crashes offline."""
     def get(name):
         try:
+            import boto3
+            client = boto3.client("ssm")
             r = client.get_parameter(Name=name, WithDecryption=True)
             return r["Parameter"]["Value"]
-        except client.exceptions.ParameterNotFound:
+        except Exception:
             return None
     return get
 
 
 def _secrets_getter():
-    import boto3
-    client = boto3.client("secretsmanager")
-
+    """Lazy + fail-soft (see _ssm_getter)."""
     def get(name):
         try:
+            import boto3
+            client = boto3.client("secretsmanager")
             return client.get_secret_value(SecretId=name)["SecretString"]
-        except client.exceptions.ResourceNotFoundException:
+        except Exception:
             return None
     return get
 
@@ -737,10 +745,9 @@ def create_app(settings=None) -> FastAPI:
     app.state.settings = settings or load_settings()
     app.mount("/static", StaticFiles(directory=os.path.join(_HERE, "static")), name="static")
 
-    from src.web.routers import pages, generate, fix
+    from src.web.routers import pages
     app.include_router(pages.router)
-    app.include_router(generate.router)
-    app.include_router(fix.router)
+    # generate + fix routers are added in Tasks 5 and 6 (see those tasks).
 
     @app.exception_handler(AuthError)
     async def _auth_handler(request: Request, exc: AuthError):
@@ -799,6 +806,7 @@ git commit -m "feat(web): app factory, home page, Marigold Ops static assets"
 **Files:**
 - Create: `src/web/routers/generate.py`
 - Create: `src/web/templates/generate.html`, `_stepper.html`, `_result.html`
+- Modify: `src/web/main.py` (register the generate router)
 - Test: `tests/web/test_generate.py`
 
 **Interfaces:**
@@ -878,6 +886,17 @@ def test_generate_runs_job_and_confirm_advances_ledger(tmp_path, monkeypatch):
 
 Run: `python -m pytest tests/web/test_generate.py -v`
 Expected: FAIL — `ModuleNotFoundError: No module named 'src.web.routers.generate'`.
+
+- [ ] **Step 2b: Register the generate router in `main.py`**
+
+In `src/web/main.py`, inside `create_app`, change the router import/include block to also include generate:
+
+```python
+    from src.web.routers import pages, generate
+    app.include_router(pages.router)
+    app.include_router(generate.router)
+    # fix router is added in Task 6.
+```
 
 - [ ] **Step 3: Write the templates**
 
@@ -1085,6 +1104,7 @@ git commit -m "feat(web): Flow A generate — upload, background job, result, le
 **Files:**
 - Create: `src/web/routers/fix.py`
 - Create: `src/web/templates/fix.html`, `_fix_review.html`, `_fix_result.html`
+- Modify: `src/web/main.py` (register the fix router)
 - Test: `tests/web/test_fix.py`
 
 **Interfaces:**
@@ -1181,6 +1201,17 @@ def test_fix_apply_calls_correct_with_typed_answer(monkeypatch, tmp_path):
 
 Run: `python -m pytest tests/web/test_fix.py -v`
 Expected: FAIL — `ModuleNotFoundError: No module named 'src.web.routers.fix'`.
+
+- [ ] **Step 2b: Register the fix router in `main.py`**
+
+In `src/web/main.py`, inside `create_app`, change the router block to also include fix:
+
+```python
+    from src.web.routers import pages, generate, fix
+    app.include_router(pages.router)
+    app.include_router(generate.router)
+    app.include_router(fix.router)
+```
 
 - [ ] **Step 3: Write the templates**
 
