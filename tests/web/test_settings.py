@@ -12,7 +12,15 @@ def test_env_takes_precedence_over_ssm():
     s = load_settings(env=env, ssm=fake_ssm, secrets=lambda n: "secret")
     assert s.s3_bucket == "from-env"      # env wins
     assert s.auth_disabled is True
-    assert calls == []                    # SSM never consulted when env is set
+    assert "/marketplace-listing/s3_bucket" not in calls   # env-provided field skips SSM
+    assert "/marketplace-listing/s3_region" not in calls   # env-provided field skips SSM
+
+
+def test_secret_resolves_even_when_some_env_set():
+    env = {"S3_BUCKET": "x", "AUTH_DISABLED": "1"}
+    s = load_settings(env=env, ssm=lambda n: None, secrets=lambda n: "the-secret")
+    assert s.s3_bucket == "x"
+    assert s.cognito_client_secret == "the-secret"   # secret falls back despite env present
 
 
 def test_falls_back_to_ssm_and_secrets_when_env_missing():
