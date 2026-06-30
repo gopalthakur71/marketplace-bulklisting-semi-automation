@@ -19,6 +19,25 @@ Same outcome as the CLI runbook, done through the AWS web console. This sets up 
 
 > Sign in with an IAM user that has Cognito admin permissions.
 
+> **Console UI note (redesigned console, 2026).** AWS reworked the Cognito console.
+> Key differences from older guides:
+> - After you create a pool you may land on a **"Set up resources for your application" /
+>   Quick setup guide** page offering sample Flask/authlib code — **ignore and skip it**;
+>   our app is FastAPI and already implements JWT verification.
+> - The app client now lives under **Applications → App clients** (not "Integrations →
+>   App clients and analytics"), and the create-pool wizard often **auto-creates an app
+>   client** for you.
+> - The Cognito domain now lives under **Branding → Domain**.
+> - Callback/sign-out URLs, identity providers, grant types and scopes are configured on
+>   the **app client → Login pages tab → Managed login pages configuration**, and that
+>   section only fully appears **after a Cognito domain exists** (so if the callback
+>   fields are missing, do step 3 first, then come back to step 2).
+> - "Confidential client" is now called **Traditional web application** in the app-type picker.
+>
+> The values below (account, region, pool ID `ap-south-1_NdxNQ1plz`, client ID
+> `29oo5dtqh8j50k2481lmffqb0e`, domain `ijor-marketplace`) reflect the actual setup
+> completed 2026-06-30.
+
 ---
 
 ## 1. Create the user pool
@@ -43,34 +62,48 @@ Wait for the pool to finish creating (a few seconds).
 
 ---
 
-## 2. Create the app client (confidential, OAuth2)
+## 2. App client (confidential / "Traditional web application") + callback URLs
 
-1. Open the new `marketplace-listing-pool` → **Integrations** → **App integration** →
-   **App clients and analytics**.
-2. **Create app client**.
-3. App type: **Confidential client** (required for OAuth2 code grant with a secret).
-4. App client name: `marketplace-listing-web`.
-5. Client secret: Cognito will auto-generate (keep the default).
-6. **Next**.
-7. Allowed callback URLs: paste exactly (one per line):
+In the redesigned console the app client is often **created automatically** with the pool,
+and its OAuth settings (callback URLs, grants, scopes) are edited afterward on the
+**Login pages** tab — which only appears once a domain exists. So the practical order is:
+check/create the client here, then do step 3 (domain), then come back to set the URLs.
+
+**2a. Find or create the app client**
+
+1. Open the pool → left nav **Applications → App clients**.
+2. If a client already exists (auto-created with the pool), click it and skip to 2b.
+3. Otherwise **Create app client**:
+   - Application type: **Traditional web application** (the confidential, server-side
+     type that gets a client secret — equivalent to the old "Confidential client").
+   - App client name: `marketplace-listing-web`.
+   - Client secret: keep the auto-generated default.
+   - Create.
+4. On the app client page, copy the **Client ID** and reveal/copy the **Client secret**
+   (**Show client secret**) — you'll need both in step 5.
+
+**2b. Set the OAuth / callback settings** *(do this after step 3 if the section is missing)*
+
+1. App client page → **Login pages** tab → **Managed login pages configuration** → **Edit**.
+2. **Allowed callback URLs:**
    ```
    http://localhost:8000/auth/callback
    ```
-8. Allowed sign-out URLs:
+3. **Allowed sign-out URLs:**
    ```
    http://localhost:8000/
    ```
-9. **Next**.
-10. Grant types: uncheck all except **Authorization code** (for web apps).
-11. **Create app client**.
-
-Copy and save the **Client ID** and **Client secret** from the success screen — you'll need them in step 5.
+4. **Identity providers:** select **Cognito user pool** (required, or the hosted login won't work).
+5. **OAuth 2.0 grant types:** **Authorization code grant** only.
+6. **OpenID Connect scopes:** `openid`, `email`, `profile` (`phone` is harmless if already set;
+   the app only needs `openid`+`email`).
+7. **Save changes.**
 
 ---
 
 ## 3. Create the Cognito domain
 
-1. On the user pool → **Integrations** → **Domain** → **Create Cognito domain**.
+1. On the user pool → left nav **Branding → Domain** → **Create Cognito domain**.
 2. Cognito domain prefix: `ijor-marketplace`.
    - This creates the login URL:
      `https://ijor-marketplace.auth.ap-south-1.amazoncognito.com/`
@@ -78,11 +111,14 @@ Copy and save the **Client ID** and **Client secret** from the success screen �
 
 Wait for the domain to be **Active** (a few seconds).
 
+> Now that the domain exists, **go back to step 2b** to set the callback/sign-out URLs on
+> the app client's Login pages tab if you couldn't earlier.
+
 ---
 
 ## 4. Create a test user
 
-1. On the user pool → **Users** → **Create user**.
+1. On the user pool → left nav **User management → Users** → **Create user**.
 2. Username: `gopalthakur71` (or another email).
 3. Email address: `gopalthakur71@gmail.com` (or your test email).
 4. Mark email as verified: **check**.
@@ -166,11 +202,11 @@ If you see Cognito pool/client errors, check that:
 
 ## 7. Teardown (only if you need to undo this)
 
-- **App client**: on the user pool → **Integrations** → **App clients and analytics** → select
-  the app → **Delete app client**.
-- **Cognito domain**: on the user pool → **Integrations** → **Domain** → **Delete Cognito domain**.
-- **User pool**: on Cognito → **User pools** → select `marketplace-listing-pool` → **Delete user
-  pool** (this also deletes all users and app clients in it).
+- **App client**: on the user pool → **Applications → App clients** → select the app →
+  **Delete app client**.
+- **Cognito domain**: on the user pool → **Branding → Domain** → **Delete Cognito domain**.
+- **User pool**: on Cognito → **User pools** → select the pool → **Delete user pool**
+  (this also deletes all users and app clients in it).
 
 ---
 

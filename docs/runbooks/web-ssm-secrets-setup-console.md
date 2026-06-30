@@ -2,6 +2,13 @@
 
 Same outcome as the CLI runbook, done through the AWS web console. This sets up the configuration parameters and secrets that the Marigold Ops web app reads on startup when environment variables are not set. The settings loader falls back per-field: each config value is read from the environment first, then from AWS Systems Manager Parameter Store (SSM) or Secrets Manager if absent. Do the steps in order.
 
+> **New to SSM / Secrets Manager, or wondering why there are 7 parameters and whether this
+> is over-engineered?** Read the plain-English rationale first:
+> [`docs/decisions/2026-06-30-config-ssm-secrets-rationale.md`](../decisions/2026-06-30-config-ssm-secrets-rationale.md).
+> It explains what each service is, how the count of 7 was derived (one per non-secret
+> field), why we chose this design, and the leaner future alternative (env vars + 1 SSM
+> SecureString).
+
 **Values used throughout (don't substitute — these are this project's):**
 
 | Thing | Value |
@@ -91,13 +98,23 @@ Same outcome as the CLI runbook, done through the AWS web console. This sets up 
 
 ## 2. Create the Secrets Manager secret
 
+> **Console UI note (2026).** "Plaintext" is no longer a top-level secret type. On the
+> **Choose secret type** screen, the top-level options are RDS/DocumentDB/Redshift/other-DB
+> credentials and **Other type of secret**. Plaintext lives inside that last one.
+
 1. Open **Secrets Manager** → **Secrets** → **Store a new secret**.
-2. Secret type: **Plaintext**.
-3. Secret name: `/marketplace-listing/cognito_client_secret`
-4. Secret value: `<paste the Client secret from the Cognito runbook, Task 8>`
+2. Secret type: select **Other type of secret** ("API key, OAuth token, other"). The
+   credentials editor changes to a **Key/value | Plaintext** toggle — click the
+   **Plaintext** tab.
+3. Secret value: paste **only the raw client secret** (the `cognito_client_secret` string
+   from the Cognito runbook, Task 8). No JSON, no quotes, no key name — the app reads the
+   secret string verbatim via `get_secret_value(...)["SecretString"]`.
+4. **Encryption key:** leave the default `aws/secretsmanager`.
 5. **Next**.
-6. Leave **Automatic rotation** unchecked (optional for dev; configure for production).
-7. **Next** → **Store secret**.
+6. Secret name: `/marketplace-listing/cognito_client_secret`
+7. **Next**.
+8. Leave **Automatic rotation** unchecked (optional for dev; configure for production).
+9. **Next** → **Store secret**.
 
 ---
 
@@ -105,30 +122,29 @@ Same outcome as the CLI runbook, done through the AWS web console. This sets up 
 
 The settings loader (`src/web/settings.py`) reads each config value from the environment first, then falls back per-field to SSM Parameter Store (non-secret values) or Secrets Manager (the `cognito_client_secret`). This means you can set some values via environment and leave the rest to AWS.
 
-1. Unset the env vars so the loader falls back to AWS:
+> **What you can and can't verify today.** The hosted-UI login redirect and the
+> `/auth/callback` route are **not built yet** (deferred to the deploy phase). So running
+> the app with auth enabled will **not** redirect you to the Cognito login page — with no
+> token, `current_user` (`src/web/auth.py`) raises `AuthError`. What you *can* verify now
+> is that the settings loader reads your new SSM/Secrets values back from AWS.
+
+1. Ensure your AWS credentials are active and your IAM user can read SSM + Secrets Manager:
 
    ```bash
-   unset S3_BUCKET S3_REGION S3_PREFIX COGNITO_POOL_ID COGNITO_CLIENT_ID COGNITO_CLIENT_SECRET COGNITO_DOMAIN COGNITO_REDIRECT_URI
-   ```
-
-2. Ensure your AWS credentials are set in the shell (your IAM user must have permissions to read SSM and Secrets Manager):
-
-   ```bash
-   # Verify AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, or AWS_PROFILE are set
    aws sts get-caller-identity
    ```
 
-3. Run the app:
+2. Confirm per-field fallback resolves the values from AWS (env vars popped so it must hit AWS):
 
-   ```bash
-   uvicorn src.web.main:app --reload
+   ```powershell
+   $env:AWS_REGION="ap-south-1"
+   python -c "import os; [os.environ.pop(k, None) for k in ('S3_BUCKET','S3_REGION','S3_PREFIX','COGNITO_POOL_ID','COGNITO_CLIENT_ID','COGNITO_CLIENT_SECRET','COGNITO_DOMAIN','COGNITO_REDIRECT_URI')]; from src.web.settings import load_settings; s=load_settings(); print('pool:', s.cognito_pool_id); print('client:', s.cognito_client_id); print('secret loaded:', bool(s.cognito_client_secret))"
    ```
 
-4. The app should boot successfully. Check the logs — you should see no "missing config" errors.
+   Seeing the pool id, client id, and `secret loaded: True` confirms the SSM parameters and
+   the Secrets Manager secret are stored and readable.
 
-5. Open `http://localhost:8000/` in a browser. If using Cognito (not dev bypass), you should be redirected to the Cognito login page. If you see it, the settings loaded correctly.
-
-**Note:** In production (Phase 4), the EC2 instance will have an IAM instance role that grants `ssm:GetParameter*` and `secretsmanager:GetSecretValue` permissions. Locally, your IAM user provides those permissions.
+**Note:** In production (Phase 4), the EC2 instance will have an IAM instance role that grants `ssm:GetParameter*` and `secretsmanager:GetSecretValue` permissions. Locally, your IAM user provides those permissions. The end-to-end login check (redirect to Cognito → `/auth/callback` → cookie) becomes possible only once that route is implemented in the deploy phase.
 
 ---
 
