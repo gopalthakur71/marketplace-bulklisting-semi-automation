@@ -12,8 +12,5 @@ COPY config ./config
 COPY templates ./templates
 COPY run.py ./
 
-# The web server (uvicorn src.web.app:app) arrives in a later phase. Until then
-# the image's default entrypoint is the existing CLI; this CI-only phase builds
-# and pushes the image but does NOT run the container, so this CMD is just a
-# valid default (swapped to uvicorn when the FastAPI app lands).
-CMD ["python", "run.py"]
+EXPOSE 8080
+CMD ["uvicorn", "src.web.main:app", "--host", "0.0.0.0", "--port", "8080"]
