@@ -275,6 +275,14 @@ Code + cutover:
 - [ ] Register prod callback URL in Cognito; drop `AUTH_DISABLED`; restart (Step 6).
 - [ ] (Later) TLS + stable URL/domain.
 
+Docs (do this whenever the above changes the system, not optional):
+- [ ] After building `/login` + `/auth/callback` + `/logout`: update `docs/ARCHITECTURE.md`
+      §5 (web routes/flow) and §7 (Cognito boundary — drop the "not built yet" caveat), and
+      the deferred-auth note in §6. Update the `AGENTS.md` invariants if the auth model changes.
+- [ ] When adding a new marketplace (e.g. Amazon) or any new module/integration: update
+      `docs/ARCHITECTURE.md` §2 (layout), the relevant layer section, and §7 (boundaries);
+      add an ADR under `docs/decisions/` for any non-obvious choice.
+
 Related: `docs/runbooks/web-cognito-setup-console.md`,
 `docs/runbooks/web-ssm-secrets-setup-console.md`,
 `docs/runbooks/cicd-aws-setup-console.md`,
