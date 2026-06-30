@@ -126,25 +126,41 @@ unset AUTH_DISABLED
 
 ## 6. Verify the setup
 
-1. Run the web app:
+> **Important — what works today vs. what is deferred:**
+>
+> The `/auth/callback` OAuth callback route (which exchanges the authorization code for tokens and
+> sets the `id_token` cookie) is **not yet built**. It is deferred to the deploy phase. Until that
+> route exists, there is no in-app way to obtain a token via the Cognito hosted-UI round-trip.
+>
+> **For local development now:** use `AUTH_DISABLED=1`. The app will accept a synthetic
+> `dev@local` user and skip all JWT checks — no Cognito interaction needed.
+>
+> **When the callback route lands (deploy phase):** the JWT-validation path in
+> `src/web/auth.py` will be exercised in production once the `/auth/callback` route is added and
+> the app is deployed behind the configured callback URL.
+
+To smoke-test the Cognito pool configuration itself (pool exists, client is correct, domain is
+active) without the callback route:
+
+1. Run the web app with `AUTH_DISABLED=1`:
 
    ```bash
-   uvicorn src.web.main:app --reload
+   AUTH_DISABLED=1 uvicorn src.web.main:app --reload
    ```
 
-2. Open `http://localhost:8000/` in a browser.
-3. You should be **redirected to the Cognito hosted login page** (at
-   `https://ijor-marketplace.auth.ap-south-1.amazoncognito.com/login`).
-4. Sign in with the test user email and password from step 4.
-5. Cognito redirects back to `http://localhost:8000/auth/callback`, sets the `id_token` cookie,
-   and redirects to the home page.
-6. You should now see the Marigold Ops dashboard.
+2. Open `http://localhost:8000/` — you should see the Marigold Ops dashboard logged in as
+   `dev@local`. This confirms the app starts and static assets load.
 
-If instead you see a 401 "login required" error, check that:
+3. To manually verify Cognito is reachable, open the hosted-UI login URL directly in a browser:
+   `https://ijor-marketplace.auth.ap-south-1.amazoncognito.com/login?client_id=<CLIENT_ID>&response_type=code&redirect_uri=http://localhost:8000/auth/callback`
 
-- The callback URL in step 2 matches exactly (`http://localhost:8000/auth/callback`).
+   You should see the Cognito login page. Sign-in will attempt to redirect to
+   `/auth/callback` — that redirect will 404 until the callback route is implemented.
+
+If you see Cognito pool/client errors, check that:
+
 - `COGNITO_POOL_ID`, `COGNITO_CLIENT_ID`, and `COGNITO_CLIENT_SECRET` are set correctly.
-- `AUTH_DISABLED` is **not** set to `1`.
+- The callback URL in step 2 matches exactly (`http://localhost:8000/auth/callback`).
 
 ---
 
@@ -157,6 +173,23 @@ If instead you see a 401 "login required" error, check that:
   pool** (this also deletes all users and app clients in it).
 
 ---
+
+## Port note — local (8000) vs. container (8080)
+
+| Context | Port | How it starts |
+|---|---|---|
+| Local `uvicorn` (plain) | **8000** | `uvicorn src.web.main:app` uses uvicorn's default |
+| Docker container | **8080** | `CMD ["uvicorn", "...", "--port", "8080"]` in `Dockerfile` |
+
+The callback and sign-out URLs in this runbook (`http://localhost:8000/auth/callback`,
+`http://localhost:8000/`) are correct for **local uvicorn** runs.
+
+When the app is deployed in a container (or behind a load-balancer/reverse-proxy), the callback
+URL registered in Cognito and the `COGNITO_REDIRECT_URI` environment variable **must match the
+host and port the container is actually reachable on** — typically port 8080 internally, or a
+standard 443 HTTPS URL externally. A mismatch between the registered callback URL and
+`COGNITO_REDIRECT_URI` will cause Cognito to reject the redirect with an `invalid_redirect_uri`
+error.
 
 ## Next: Production Callback URL
 
