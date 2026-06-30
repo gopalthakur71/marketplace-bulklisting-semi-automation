@@ -72,3 +72,10 @@ def test_fix_apply_calls_correct_with_typed_answer(monkeypatch, tmp_path):
     assert captured["answers"] == {"78SAZ": {"Prominent Colour": "Off White"}}
     assert captured["drops"] == {"81COT"}
     assert "corrected" in r.text.lower() or "Download" in r.text
+
+
+def test_fix_apply_bogus_fix_id_returns_404():
+    """Path traversal attempt with a non-hex fix_id must return 404."""
+    client = _client()
+    r = client.post("/fix/apply/../etc", data={})
+    assert r.status_code == 404
