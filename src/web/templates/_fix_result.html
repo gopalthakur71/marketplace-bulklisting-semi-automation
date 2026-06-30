@@ -1,0 +1,10 @@
+<div class="panel">
+  <h3 class="ok">✅ Corrected sheet ready</h3>
+  <ul class="mono">
+    <li>{{ summary.written }} rows written</li>
+    <li>{{ summary.dropped|length }} dropped: {{ summary.dropped|join(', ') }}</li>
+    <li>{{ summary.changed|length }} changed</li>
+    {% if summary.rejected %}<li class="flag">rejected (not valid Myntra values): {{ summary.rejected }}</li>{% endif %}
+  </ul>
+  <a class="btn" href="/fix/download/{{ fix_id }}">⬇ Download corrected xlsx</a>
+</div>
