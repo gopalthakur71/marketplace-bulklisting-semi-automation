@@ -1,0 +1,59 @@
+/* Vendored web fonts — no CDN dependency */
+@font-face {
+  font-family: 'Space Grotesk';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url('/static/fonts/space-grotesk-500.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Space Grotesk';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url('/static/fonts/space-grotesk-600.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'IBM Plex Mono';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('/static/fonts/ibm-plex-mono-400.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('/static/fonts/inter-400.woff2') format('woff2');
+}
+
+:root{
+  --bg:#191613; --panel:#221E1A; --line:#3a342c; --ink:#efe7d8; --mut:#8a8276;
+  --marigold:#E8A33D; --green:#7BB87A;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);
+  font-family:'Inter',system-ui,sans-serif;line-height:1.5}
+a{color:var(--marigold);text-decoration:none}
+.wrap{max-width:1000px;margin:0 auto;padding:24px}
+.nav{display:flex;gap:18px;align-items:center;padding:14px 24px;
+  border-bottom:1px solid var(--line);background:var(--panel)}
+.nav .brand{font-family:'Space Grotesk',sans-serif;font-weight:600;color:var(--marigold)}
+.nav a{color:var(--ink)}
+h1,h2,h3{font-family:'Space Grotesk',sans-serif}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:20px;margin:16px 0}
+.btn{background:var(--marigold);color:var(--bg);border:none;border-radius:8px;
+  padding:10px 16px;font-weight:600;cursor:pointer;font-size:14px}
+.btn.green{background:var(--green)}
+.drop{border:2px dashed var(--line);border-radius:10px;padding:30px;text-align:center;color:var(--mut)}
+.mono{font-family:'IBM Plex Mono',monospace}
+.stepper{list-style:none;padding:0;margin:0}
+.stepper li{display:flex;gap:10px;align-items:center;padding:10px 0;border-bottom:1px dashed var(--line);color:var(--mut)}
+.stepper li.done{color:var(--green)} .stepper li.active{color:var(--marigold)}
+.flag{color:var(--marigold)} .ok{color:var(--green)}
+.card{border:1px solid var(--line);border-radius:8px;padding:12px;margin:8px 0}
+.card.auto{border-color:var(--green)} .card.need{border-color:var(--marigold)} .card.expl{border-color:var(--mut)}
+input[type=text]{background:var(--bg);border:1px solid var(--marigold);color:var(--ink);
+  border-radius:6px;padding:8px;font-family:'IBM Plex Mono',monospace;width:100%}
+.hint{font-size:12px;color:var(--mut);margin-top:4px}

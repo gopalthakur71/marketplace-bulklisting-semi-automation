@@ -1,0 +1,11 @@
+<div hx-get="/jobs/{{ job.id }}" hx-trigger="load delay:1s" hx-swap="outerHTML">
+  <h3>Working… {{ count }} products</h3>
+  <ul class="stepper">
+    {% for s in job.steps %}
+    <li class="{{ 'done' if s.state=='done' else 'active' if s.state=='active' else '' }}">
+      {{ '✓' if s.state=='done' else '●' if s.state=='active' else '○' }} {{ s.name }}
+      {% if s.count is not none %}<span style="margin-left:auto" class="mono">{{ s.count }}</span>{% endif %}
+    </li>
+    {% endfor %}
+  </ul>
+</div>

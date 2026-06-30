@@ -1,0 +1,11 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Fix Myntra errors</h1>
+<form class="panel" hx-post="/fix" hx-encoding="multipart/form-data"
+      hx-target="#review" hx-swap="innerHTML">
+  <div class="drop">⬆ Drop the rejection <span class="mono">.xlsx</span> Myntra sent back
+    <input type="file" name="file" accept=".xlsx" required></div>
+  <button class="btn" type="submit">Check errors →</button>
+</form>
+<div id="review"></div>
+{% endblock %}

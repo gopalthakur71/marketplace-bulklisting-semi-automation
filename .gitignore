@@ -9,3 +9,7 @@ _docx_extract/
 _tpl/
 .pytest_cache/
 ~$*
+
+.superpowers/
+src/web/runtime/*
+!src/web/runtime/.gitkeep

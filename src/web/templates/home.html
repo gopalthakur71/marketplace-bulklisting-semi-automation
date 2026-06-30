@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Myntra bulk listing</h1>
+<p>Two things this app does, no code required:</p>
+<div class="panel">
+  <h3>Generate a Myntra sheet</h3>
+  <p>Upload your Shopify <span class="mono">products_export.csv</span> and download a ready-to-upload Myntra file.</p>
+  <a class="btn" href="/generate">Generate →</a>
+</div>
+<div class="panel">
+  <h3>Fix rejected rows</h3>
+  <p>Upload the rejection file Myntra sent back and get plain-language fixes.</p>
+  <a class="btn" href="/fix">Fix errors →</a>
+</div>
+{% endblock %}

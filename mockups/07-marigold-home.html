@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Ijor · Listings — Home</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=Inter:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#191613;            /* warm near-black */
+    --panel:#221E1A;
+    --panel-2:#2A2520;
+    --line:#37302A;
+    --text:#CFC6BB;
+    --dim:#8A7F72;
+    --head:#F6F0E8;
+    --gold:#E8A33D;          /* Ijor marigold accent */
+    --gold-dim:rgba(232,163,61,.15);
+    --green:#7BB87A;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0}
+  body{font-family:Inter,system-ui,sans-serif;color:var(--text);background:var(--bg);
+       -webkit-font-smoothing:antialiased;min-height:100vh}
+  .mono{font-family:'IBM Plex Mono',monospace}
+
+  /* top nav */
+  .topnav{display:flex;align-items:center;justify-content:space-between;padding:16px 40px;border-bottom:1px solid var(--line);background:var(--panel)}
+  .brand{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:19px;color:var(--head);letter-spacing:.3px}
+  .brand i{color:var(--gold);font-style:normal}
+  nav a{color:var(--text);text-decoration:none;font-size:14px;margin-left:26px;opacity:.8}
+  nav a.active{opacity:1;color:var(--gold);border-bottom:2px solid var(--gold);padding-bottom:4px}
+
+  .wrap{max-width:1080px;margin:0 auto;padding:54px 40px 80px}
+
+  /* hero — what the app does */
+  .eyebrow{font-family:'IBM Plex Mono',monospace;font-size:12px;letter-spacing:.18em;text-transform:uppercase;color:var(--gold)}
+  h1{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:44px;line-height:1.08;letter-spacing:-.5px;color:var(--head);margin:16px 0 14px}
+  h1 .g{color:var(--gold)}
+  .lede{font-size:17px;max-width:62ch;color:var(--text);line-height:1.65}
+  .lede b{color:var(--head);font-weight:600}
+
+  /* two flows */
+  .flows{display:flex;gap:14px;margin-top:22px}
+  .flowtag{display:flex;align-items:center;gap:8px;background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:9px 14px;font-size:13px}
+  .flowtag .b{font-family:'IBM Plex Mono';color:var(--gold);font-weight:600}
+
+  /* primary action grid */
+  .grid{display:grid;grid-template-columns:1.4fr .9fr;gap:24px;margin-top:40px}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:12px}
+  .card .head{padding:16px 22px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:12px}
+  .card .head .step{font-family:'IBM Plex Mono';font-weight:600;color:var(--gold);font-size:15px}
+  .card .head h2{font-size:15px;margin:0;color:var(--head);font-weight:600}
+  .card .body{padding:22px}
+
+  /* drag & drop (from loom, restyled) */
+  .drop{border:1.5px dashed var(--gold);border-radius:10px;background:var(--gold-dim);padding:38px 22px;text-align:center;
+        transition:background .15s}
+  .drop:hover{background:rgba(232,163,61,.22)}
+  .drop .ic{font-family:'Space Grotesk';font-size:30px;color:var(--gold)}
+  .drop p{margin:12px 0 4px;font-weight:600;color:var(--head);font-size:16px}
+  .drop small{color:var(--dim)}
+  .btn{display:inline-block;background:var(--gold);color:#2a1c06;border:none;border-radius:8px;padding:13px 24px;font-size:14px;
+       font-weight:700;cursor:pointer;margin-top:20px;font-family:Inter}
+
+  .meta{list-style:none;margin:0;padding:0}
+  .meta li{display:flex;justify-content:space-between;padding:12px 0;border-bottom:1px solid var(--line);font-size:14px}
+  .meta li:last-child{border-bottom:none}
+  .meta .k{color:var(--dim)}
+  .meta .v{font-weight:600;font-family:'IBM Plex Mono';color:var(--head)}
+  .pill{display:inline-block;background:var(--gold-dim);color:var(--gold);border:1px solid var(--gold);border-radius:4px;padding:2px 9px;font-size:12px;font-weight:600}
+
+  /* how it works — the flow, written clearly */
+  .flowsec{margin-top:54px}
+  .flowsec .lbl{font-family:'IBM Plex Mono';font-size:12px;letter-spacing:.16em;text-transform:uppercase;color:var(--dim);margin-bottom:18px}
+  .steps{display:grid;grid-template-columns:repeat(5,1fr);gap:0;background:var(--panel);border:1px solid var(--line);border-radius:12px;overflow:hidden}
+  .stp{padding:20px 18px;border-right:1px solid var(--line);position:relative}
+  .stp:last-child{border-right:none}
+  .stp .n{font-family:'IBM Plex Mono';font-size:13px;color:var(--gold);font-weight:600}
+  .stp .t{font-family:'Space Grotesk';font-size:15px;color:var(--head);margin:8px 0 6px;font-weight:600}
+  .stp .d{font-size:12.5px;color:var(--dim);line-height:1.55}
+
+  .note{margin-top:22px;font-size:13.5px;color:var(--dim);line-height:1.6;border-left:2px solid var(--gold);padding-left:14px}
+  .note b{color:var(--text)}
+</style>
+</head>
+<body>
+  <div class="topnav">
+    <div class="brand">ijor<i>·</i>listings</div>
+    <nav>
+      <a href="#" class="active">Generate</a>
+      <a href="#">Fix errors</a>
+      <a href="#">History</a>
+    </nav>
+  </div>
+
+  <div class="wrap">
+    <!-- HERO: what the app does -->
+    <div class="eyebrow">Shopify → Myntra · Sarees</div>
+    <h1>Turn your Shopify catalogue<br><span class="g">into a Myntra-ready sheet.</span></h1>
+    <p class="lede">Ijor Listings reads your Shopify product export and maps every saree onto Myntra's
+       Sarees template — <b>pricing, HSN, colour, images and all</b> — then hands back an
+       <b>.xlsx that passes validation the first time</b>. Nothing is guessed: values are filled
+       by rule, and anything Myntra won't accept is flagged for you, never invented.</p>
+
+    <div class="flows">
+      <div class="flowtag"><span class="b">A</span> Generate a listing sheet from Shopify</div>
+      <div class="flowtag"><span class="b">B</span> Fix rows Myntra rejected, in plain language</div>
+    </div>
+
+    <!-- PRIMARY ACTION -->
+    <div class="grid">
+      <div class="card">
+        <div class="head"><span class="step">01</span><h2>Upload your Shopify export</h2></div>
+        <div class="body">
+          <div class="drop">
+            <div class="ic">⌗</div>
+            <p>Drag <strong>products_export.csv</strong> here</p>
+            <small>or click to browse · the CSV from your Shopify admin</small>
+          </div>
+          <button class="btn">Generate Myntra sheet →</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="head"><span class="step">02</span><h2>This batch</h2></div>
+        <div class="body">
+          <ul class="meta">
+            <li><span class="k">Products found</span><span class="v">7 sarees</span></li>
+            <li><span class="k">Template</span><span class="v">Sarees v16</span></li>
+            <li><span class="k">Style group IDs</span><span class="v">16 – 22</span></li>
+            <li><span class="k">Images → S3</span><span class="v">42 jpg</span></li>
+            <li><span class="k">Status</span><span><span class="pill">Ready to fill</span></span></li>
+          </ul>
+        </div>
+      </div>
+    </div>
+
+    <!-- HOW IT WORKS: the flow -->
+    <div class="flowsec">
+      <div class="lbl">// How it works</div>
+      <div class="steps">
+        <div class="stp"><div class="n">01</div><div class="t">Upload</div><div class="d">Drop your Shopify <code>products_export.csv</code>. We read every product and variant.</div></div>
+        <div class="stp"><div class="n">02</div><div class="t">Map</div><div class="d">Each saree mapped onto Myntra's 80-column template, all 37 dropdowns honoured.</div></div>
+        <div class="stp"><div class="n">03</div><div class="t">Images</div><div class="d">Gallery images converted to JPG and hosted on S3 with Myntra-valid URLs.</div></div>
+        <div class="stp"><div class="n">04</div><div class="t">Fill &amp; validate</div><div class="d">Pricing, HSN and colours filled by rule. Invalid values flagged, not guessed.</div></div>
+        <div class="stp"><div class="n">05</div><div class="t">Download</div><div class="d">Get <code>myntra_filled.xlsx</code>, ready to upload to Myntra Seller.</div></div>
+      </div>
+      <p class="note">Got a rejection back from Myntra? Head to <b>Fix errors</b> — upload the
+         resubmission file and resolve each flagged row by typing the right value. We check it
+         against Myntra's allowed list, rebuild the sheet, and you re-upload.</p>
+    </div>
+  </div>
+</body>
+</html>

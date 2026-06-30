@@ -5,3 +5,9 @@ PyYAML
 requests
 boto3
 pytest
+fastapi
+uvicorn[standard]
+jinja2
+python-multipart
+python-jose[cryptography]
+httpx

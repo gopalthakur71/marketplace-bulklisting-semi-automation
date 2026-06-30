@@ -1,0 +1,26 @@
+<form hx-post="/fix/apply/{{ fix_id }}" hx-target="#review" hx-swap="innerHTML">
+  {% for r in rows %}
+    {% for issue in r.issues %}
+      {% if issue.action == 'auto_fix' %}
+        <div class="card auto"><strong class="mono">{{ r.sku }}</strong>
+          <span class="ok">auto-fixed</span><div>{{ issue.explanation }}</div></div>
+      {% elif issue.action == 'manual_choice' %}
+        <div class="card need"><strong class="mono">{{ r.sku }}</strong>
+          <span class="flag">needs you</span>
+          <div>{{ issue.explanation }} — field <strong>{{ issue.field }}</strong></div>
+          <input type="text" name="answer__{{ r.sku }}__{{ issue.field }}"
+                 value="{{ r.cells.get(issue.field, '') }}">
+          <div class="hint">Type the correct Myntra value. It is checked before writing.</div></div>
+      {% elif issue.action == 'drop_sku' %}
+        <div class="card need"><strong class="mono">{{ r.sku }}</strong>
+          <span class="flag">needs you</span><div>{{ issue.explanation }}</div>
+          <label><input type="checkbox" name="drop__{{ r.sku }}"> Drop this SKU</label></div>
+      {% else %}
+        <div class="card expl"><strong class="mono">{{ r.sku }}</strong>
+          <span>explain only</span><div>{{ issue.explanation }}</div>
+          <div class="hint mono">raw: {{ issue.raw }}</div></div>
+      {% endif %}
+    {% endfor %}
+  {% endfor %}
+  <button class="btn" type="submit">Apply &amp; regenerate →</button>
+</form>

@@ -1,0 +1,16 @@
+<div class="panel">
+  {% if job.status == 'error' %}
+    <h3 class="flag">⚠ Generation failed</h3>
+    <pre class="mono">{{ job.error }}</pre>
+  {% else %}
+    <h3 class="ok">✅ Sheet ready — {{ job.result.products }} SKUs</h3>
+    <p class="mono">{{ job.result.uploaded }} images uploaded</p>
+    <pre class="mono">{{ report }}</pre>
+    <p class="flag mono">styleGroupId range assigned: {{ job.range[0] }} – {{ job.range[1] }}</p>
+    <a class="btn" href="/generate/download/{{ job.id }}">⬇ Download xlsx</a>
+    <div style="margin-top:14px">
+      <button class="btn green" hx-post="/generate/confirm/{{ job.id }}"
+              hx-swap="outerHTML">✓ Mark upload successful</button>
+    </div>
+  {% endif %}
+</div>
