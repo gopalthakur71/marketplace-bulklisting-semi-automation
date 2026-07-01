@@ -20,4 +20,4 @@ def get_user(request: Request):
 def home(request: Request):
     from src.web.main import templates
     user = get_user(request)
-    return templates.TemplateResponse("home.html", {"request": request, "user": user})
+    return templates.TemplateResponse(request, "home.html", {"user": user})

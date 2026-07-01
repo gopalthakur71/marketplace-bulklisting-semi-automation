@@ -35,7 +35,7 @@ def generate_form(request: Request):
     from src.myntra.groupid_ledger import read_ledger
     next_id = read_ledger(ledger_store(settings))["next_style_group_id"]
     return _templates().TemplateResponse(
-        "generate.html", {"request": request, "user": get_user(request), "next_id": next_id})
+        request, "generate.html", {"user": get_user(request), "next_id": next_id})
 
 
 @router.post("/generate", response_class=HTMLResponse)
@@ -60,7 +60,7 @@ def generate_submit(request: Request, file: UploadFile = File(...)):
     _spawn(job.id, csv_path, job_dir, start, settings)
 
     resp = _templates().TemplateResponse(
-        "_stepper.html", {"request": request, "job": job, "count": count})
+        request, "_stepper.html", {"job": job, "count": count})
     resp.headers["x-job-id"] = job.id
     return resp
 
@@ -92,13 +92,13 @@ def job_status(request: Request, job_id: str):
     if job.status == "running":
         count = sum(1 for _ in [s for s in job.steps if s["state"] == "done"]) or ""
         return _templates().TemplateResponse(
-            "_stepper.html", {"request": request, "job": job, "count": count})
+            request, "_stepper.html", {"job": job, "count": count})
     report = ""
     if job.result and os.path.exists(job.result.get("report", "")):
         with open(job.result["report"], encoding="utf-8") as fh:
             report = fh.read()
     return _templates().TemplateResponse(
-        "_result.html", {"request": request, "job": job, "report": report})
+        request, "_result.html", {"job": job, "report": report})
 
 
 @router.get("/generate/download/{job_id}")

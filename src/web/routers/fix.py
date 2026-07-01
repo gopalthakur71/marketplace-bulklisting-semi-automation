@@ -46,7 +46,7 @@ def _load_constants():
 @router.get("/fix", response_class=HTMLResponse)
 def fix_form(request: Request):
     get_user(request)
-    return _templates().TemplateResponse("fix.html", {"request": request, "user": get_user(request)})
+    return _templates().TemplateResponse(request, "fix.html", {"user": get_user(request)})
 
 
 @router.post("/fix", response_class=HTMLResponse)
@@ -66,7 +66,7 @@ def fix_upload(request: Request, file: UploadFile = File(...)):
         json.dump([dataclasses.asdict(r) for r in rows], fh)
 
     resp = _templates().TemplateResponse(
-        "_fix_review.html", {"request": request, "rows": rows, "fix_id": fix_id})
+        request, "_fix_review.html", {"rows": rows, "fix_id": fix_id})
     resp.headers["x-fix-id"] = fix_id
     return resp
 
@@ -98,7 +98,7 @@ async def fix_apply(request: Request, fix_id: str):
     summary = correct(rows, template, _resolve_template_path(), _load_constants(),
                       answers, drops, out_path)
     return _templates().TemplateResponse(
-        "_fix_result.html", {"request": request, "summary": summary, "fix_id": fix_id})
+        request, "_fix_result.html", {"summary": summary, "fix_id": fix_id})
 
 
 @router.get("/fix/download/{fix_id}")
