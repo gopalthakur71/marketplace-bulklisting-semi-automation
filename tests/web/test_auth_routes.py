@@ -83,3 +83,22 @@ def test_callback_without_code_redirects_to_login_without_exchange(monkeypatch):
     r = c.get("/auth/callback?state=s1")
     assert r.status_code == 302
     assert r.headers["location"] == "/login"
+
+
+def _protected_client():
+    # auth on, no token -> get_user raises AuthError on any protected page
+    s = Settings(auth_disabled=False, cognito_pool_id="p", cognito_client_id="c",
+                 s3_region="ap-south-1", s3_bucket="b")
+    return TestClient(create_app(s), follow_redirects=False)
+
+
+def test_unauthed_navigation_redirects_to_login():
+    r = _protected_client().get("/")
+    assert r.status_code == 302
+    assert r.headers["location"] == "/login"
+
+
+def test_unauthed_htmx_gets_hx_redirect():
+    r = _protected_client().get("/", headers={"HX-Request": "true"})
+    assert r.status_code == 200
+    assert r.headers["HX-Redirect"] == "/login"

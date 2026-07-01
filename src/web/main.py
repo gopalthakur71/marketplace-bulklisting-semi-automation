@@ -1,7 +1,7 @@
 import os
 
 from fastapi import FastAPI, Request
-from fastapi.responses import RedirectResponse, JSONResponse
+from fastapi.responses import RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
@@ -25,7 +25,11 @@ def create_app(settings=None) -> FastAPI:
 
     @app.exception_handler(AuthError)
     async def _auth_handler(request: Request, exc: AuthError):
-        return JSONResponse({"detail": "login required"}, status_code=401)
+        if request.headers.get("HX-Request") == "true":
+            resp = Response(status_code=200)
+            resp.headers["HX-Redirect"] = "/login"
+            return resp
+        return RedirectResponse("/login", status_code=302)
 
     return app
 
