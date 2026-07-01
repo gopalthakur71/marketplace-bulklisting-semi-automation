@@ -31,6 +31,8 @@ def callback(request: Request, code: str = "", state: str = ""):
     settings = _settings(request)
     if not state or state != request.cookies.get(STATE_COOKIE):
         return JSONResponse({"detail": "invalid state"}, status_code=400)
+    if not code:
+        return RedirectResponse("/login", status_code=302)
     try:
         tokens = oauth.exchange_code(settings, code)
         verify_jwt(tokens["id_token"], settings, _get_jwks(settings))

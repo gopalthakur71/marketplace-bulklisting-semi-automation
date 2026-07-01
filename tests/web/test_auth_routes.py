@@ -69,3 +69,17 @@ def test_logout_clears_cookie_and_redirects_to_cognito():
     r = c.get("/logout")
     assert r.status_code == 302
     assert "/logout?" in r.headers["location"]
+    set_cookie = r.headers.get("set-cookie", "")
+    assert "id_token=" in set_cookie and ("Max-Age=0" in set_cookie or 'id_token=""' in set_cookie)
+
+
+def test_callback_without_code_redirects_to_login_without_exchange(monkeypatch):
+    def must_not_call(settings, code):
+        raise AssertionError("exchange_code should not be called when code is missing")
+
+    monkeypatch.setattr(oauth, "exchange_code", must_not_call)
+    c = _client()
+    c.cookies.set("oauth_state", "s1")
+    r = c.get("/auth/callback?state=s1")
+    assert r.status_code == 302
+    assert r.headers["location"] == "/login"
