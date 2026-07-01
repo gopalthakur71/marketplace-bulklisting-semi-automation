@@ -155,13 +155,15 @@ htmx. **No business logic here** — routers call `src/myntra` / `src/core`.
 
 | File | Responsibility |
 |---|---|
-| `src/web/main.py` | `create_app()`: settings on `app.state` **before** routers; mounts `/static`; includes routers (`pages`, `generate`, `fix`); maps `AuthError → 401`. Module-level `app` + shared `Jinja2Templates`. |
+| `src/web/main.py` | `create_app()`: settings on `app.state` **before** routers; mounts `/static`; includes routers (`pages`, `generate`, `fix`, `auth_routes`); maps `AuthError → redirect to /login (HX-Redirect for HTMX)`. Module-level `app` + shared `Jinja2Templates`. |
 | `src/web/settings.py` | `Settings` dataclass + `load_settings(env, ssm, secrets)`: each field resolves **env-first, then per-field fallback** to SSM (non-secret) / Secrets Manager (the client secret). `SSM_PREFIX="/marketplace-listing/"`. AWS getters are **lazy + fail-soft** (import never crashes offline). `ledger_store()` → `LocalJsonStore` if `LEDGER_LOCAL_PATH` else `S3JsonStore`. |
 | `src/web/auth.py` | `current_user(settings, token)`: returns `dev@local` when `AUTH_DISABLED`, else `verify_jwt` (RS256 pinned; audience = client id; issuer from pool id + region; JWKS looked up by `kid`, cached; jose errors → `AuthError`). **Gotcha:** the Cognito region is taken from `settings.s3_region` (both are `ap-south-1`). |
 | `src/web/jobs.py` | Thread-safe in-memory `JobStore` + `Job` dataclass + `STEPS`. Backs the Generate background job + htmx polling. **In-memory only → all jobs are lost on app restart.** |
 | `src/web/routers/pages.py` | `GET /` home; `get_user` (reads `id_token` cookie or `Authorization: Bearer`) and `get_settings` helpers reused by other routers. |
 | `src/web/routers/generate.py` | Flow A (below). |
 | `src/web/routers/fix.py` | Flow B (below); `_safe_fix_id` guards path traversal. |
+| `src/web/oauth.py` | Hosted-UI OAuth helpers (`authorize_url`/`exchange_code`/`logout_url`); stdlib urllib, injectable `http` so unit tests never hit the network. |
+| `src/web/routers/auth_routes.py` | `GET /login` (state CSRF cookie → hosted UI), `GET /auth/callback` (verify state, exchange code, set `id_token` cookie), `GET /logout`. Sessions are **re-login-on-stale** (no refresh tokens). |
 
 ### Routes
 
@@ -271,7 +273,7 @@ This is the section to read when something *outside* the code changes.
 | **Myntra template (.xlsx)** | `src/myntra/template_reader.py`, `fill.py` | Dropdowns are **x14 extension data-validations** openpyxl drops silently — read from raw `xl/worksheets/*.xml`. Headers row 3 / data row 4 (rejection files). A new template version can shift columns/vocab. |
 | **Myntra vocabulary** | `mapper.validate_value` | Dropdown values must match template spelling exactly — flagged, never guessed. |
 | **S3 (images + ledger)** | `src/core/s3_upload.py`, `groupid_ledger.S3JsonStore` | Bucket `ijorethnicpartners`, region `ap-south-1`, image prefix `myntra/`, ledger key `state/myntra_groupid.json`. Images must be `.jpg` and public-read. |
-| **Cognito (auth)** | `src/web/auth.py`, `settings.py` | Pool/client/domain in SSM; JWT validated by JWKS. Hosted-UI login round-trip (`/auth/callback`) not built yet. |
+| **Cognito (auth)** | `src/web/auth.py`, `settings.py`, `oauth.py`, `auth_routes.py` | Pool/client/domain in SSM; JWT validated by JWKS. Hosted-UI login round-trip (/login → /auth/callback → /logout) built; enable by dropping AUTH_DISABLED. |
 | **ECR (image registry)** | `ci-cd.yml`, deploy systemd | Repo `marketplace-bulklisting`, `:latest` pulled on boot. |
 | **SSM / Secrets Manager (config)** | `src/web/settings.py` | Per-field env→AWS fallback; prefix `/marketplace-listing/`; read on EC2 via instance role. |
 
