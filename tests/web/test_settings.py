@@ -44,3 +44,15 @@ def test_ledger_store_local_when_path_set(tmp_path):
     assert store.get_json("anything") is None
     store.put_json("state/myntra_groupid.json", {"next_style_group_id": 5})
     assert store.get_json("state/myntra_groupid.json")["next_style_group_id"] == 5
+
+
+def test_cookie_secure_from_env():
+    s = load_settings(env={"AUTH_DISABLED": "1", "COOKIE_SECURE": "1"},
+                      ssm=lambda n: None, secrets=lambda n: None)
+    assert s.cookie_secure is True
+
+
+def test_cookie_secure_defaults_off():
+    s = load_settings(env={"AUTH_DISABLED": "1"},
+                      ssm=lambda n: None, secrets=lambda n: None)
+    assert s.cookie_secure is False
