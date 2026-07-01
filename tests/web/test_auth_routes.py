@@ -48,6 +48,7 @@ def test_callback_happy_path_sets_token_cookie(monkeypatch):
     assert r.status_code == 302
     assert r.headers["location"] == "/"
     assert r.cookies.get("id_token") == "TOK"
+    assert "Max-Age=28800" in r.headers.get("set-cookie", "")
 
 
 def test_callback_redirects_to_login_on_exchange_failure(monkeypatch):

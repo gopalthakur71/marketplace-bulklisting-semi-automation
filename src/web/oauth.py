@@ -23,7 +23,8 @@ def authorize_url(settings, state):
 
 
 def logout_url(settings):
-    logout_uri = urllib.parse.urljoin(settings.cognito_redirect_uri, "/")
+    parts = urllib.parse.urlsplit(settings.cognito_redirect_uri)
+    logout_uri = urllib.parse.urlunsplit((parts.scheme, parts.netloc, "/", "", ""))
     q = urllib.parse.urlencode({
         "client_id": settings.cognito_client_id,
         "logout_uri": logout_uri,

@@ -10,6 +10,8 @@ router = APIRouter()
 
 STATE_COOKIE = "oauth_state"
 TOKEN_COOKIE = "id_token"
+# Match the Cognito app-client id-token validity (~8h; see deploy runbook).
+TOKEN_MAX_AGE = 8 * 60 * 60
 
 
 def _settings(request):
@@ -39,8 +41,8 @@ def callback(request: Request, code: str = "", state: str = ""):
     except AuthError:
         return RedirectResponse("/login", status_code=302)
     resp = RedirectResponse("/", status_code=302)
-    resp.set_cookie(TOKEN_COOKIE, tokens["id_token"], httponly=True,
-                    samesite="lax", secure=settings.cookie_secure, path="/")
+    resp.set_cookie(TOKEN_COOKIE, tokens["id_token"], max_age=TOKEN_MAX_AGE,
+                    httponly=True, samesite="lax", secure=settings.cookie_secure, path="/")
     resp.delete_cookie(STATE_COOKIE, path="/")
     return resp
 
