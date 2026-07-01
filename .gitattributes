@@ -1,0 +1,4 @@
+# Shell scripts must keep Unix (LF) line endings on all platforms.
+# A stray CR in a #!/bin/bash shebang makes the script fail silently
+# (notably as EC2 user-data). Force LF regardless of core.autocrlf.
+*.sh text eol=lf

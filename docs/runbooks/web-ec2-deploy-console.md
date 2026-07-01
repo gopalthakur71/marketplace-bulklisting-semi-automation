@@ -53,12 +53,22 @@ Done through the AWS web console. Do the steps in order.
 The instance role lets the box pull from ECR and lets the app read S3 / SSM / Secrets —
 **without any access keys**. It replaces the local IAM-user keys used during development.
 
+> **Note on the console flow:** the "create the policy inline while creating the role" path
+> isn't reliable in the current console — it's cleaner to do it in **three separate steps**:
+> **(A) create the role**, **(B) create the policy**, **(C) attach the policy to the role**.
+> That's the order below.
+
+**A. Create the role (no policy yet):**
+
 1. Region selector → **Asia Pacific (Mumbai) ap-south-1**.
 2. Open **IAM** → **Roles** → **Create role**.
 3. Trusted entity type: **AWS service**. Use case: **EC2** → **Next**.
-4. Skip attaching managed policies for now → **Next**.
+4. Skip attaching permissions for now (don't select anything) → **Next**.
 5. Role name: `listing-app-ec2-role` → **Create role**.
-6. Open the new role → **Add permissions** → **Create inline policy** → **JSON** tab → paste:
+
+**B. Create the policy separately:**
+
+6. **IAM** → **Policies** → **Create policy** → **JSON** tab → replace the contents with:
 
    ```json
    {
@@ -105,7 +115,16 @@ The instance role lets the box pull from ECR and lets the app read S3 / SSM / Se
    - **Secrets Manager ARN note:** Secrets Manager appends a random 6-char suffix to secret
      ARNs. The `secret:/marketplace-listing/*` wildcard covers it. If access is still denied,
      widen to `secret:*marketplace-listing*` or paste the exact ARN from the secret's page.
-7. Name the inline policy `listing-app-runtime` → **Create policy**.
+7. **Next** → policy name: `listing-app-runtime` → **Create policy**.
+
+**C. Attach the policy to the role:**
+
+8. **IAM** → **Roles** → open `listing-app-ec2-role` → **Add permissions** → **Attach policies**.
+9. Search for `listing-app-runtime`, tick it → **Add permissions**.
+
+   The role now has the runtime policy attached (as a customer-managed policy rather than an
+   inline one — functionally identical for this instance; it's also reusable if you add more
+   boxes later).
 
 ---
 
@@ -172,6 +191,11 @@ The instance role lets the box pull from ECR and lets the app read S3 / SSM / Se
 
    - Host port **80** maps to the container's **8080** (the Dockerfile's `CMD --port 8080`).
    - The `aws` CLI is preinstalled on Amazon Linux 2023 and authenticates via the instance role.
+   - ⚠️ **Pasting from Windows:** make sure the user-data has **Unix (LF) line endings, not
+     CRLF**. If a `\r` sneaks into the `#!/bin/bash` shebang line, the whole script fails
+     **silently** (Docker never installs, no service is created — symptom: port 80 refuses and
+     `systemctl status listing-app` says *"Unit could not be found"*). The console text box
+     normally preserves what you paste, so paste from a plain-text source, not a rich editor.
 8. **Launch instance.**
 
 ---
@@ -185,12 +209,36 @@ The instance role lets the box pull from ECR and lets the app read S3 / SSM / Se
    logged in as **`dev@local`** (because `AUTH_DISABLED=1`).
 4. If it doesn't load, SSH in (or use **EC2 Instance Connect**) and check:
    ```bash
+   # 0. Is the instance role actually attached? (returns an ARN with
+   #    assumed-role/listing-app-ec2-role/... — if it errors, the profile wasn't attached)
+   aws sts get-caller-identity --region ap-south-1
+
    sudo systemctl status listing-app
    sudo journalctl -u listing-app -n 50 --no-pager
    sudo docker ps
    ```
    Common causes: image pull denied (instance role / ECR), port not 8080, security group
    doesn't allow your IP on 80.
+
+   **If `systemctl status` says "Unit listing-app.service could not be found" or `docker` is
+   "command not found" → user-data never ran** (most often CRLF in the shebang — see Step 3).
+   Confirm and recover **without relaunching**:
+   ```bash
+   # Did user-data run / error? What was actually delivered?
+   sudo cat /var/log/cloud-init-output.log | tail -60
+   sudo cat /var/lib/cloud/instance/user-data.txt | head -5   # check the shebang line
+
+   # First make sure the instance role is attached (Step 0 above). Then re-run the
+   # Step 3 script by hand — paste the same #!/bin/bash … block, e.g.:
+   sudo bash -s <<'EOF'
+   set -euo pipefail
+   dnf install -y docker
+   systemctl enable --now docker
+   # …paste the rest of the Step 3 user-data body here (ACCOUNT=… through
+   #   systemctl enable --now listing-app.service)…
+   EOF
+   ```
+   Running it manually is equivalent to what user-data would have done; no relaunch needed.
 
 **Stage 1 done = the deploy mechanism works.** You can stop the box now; starting it again
 re-pulls `:latest` and redeploys.
@@ -265,7 +313,8 @@ Once Step 5 is built and deployed:
 ## 9. Deploy checklist
 
 One-time AWS (console):
-- [ ] Instance role `listing-app-ec2-role` with the inline runtime policy (Step 1).
+- [ ] Instance role `listing-app-ec2-role` created, `listing-app-runtime` policy created and
+      attached to it (Step 1 A/B/C).
 - [ ] Security group `listing-app-sg` (port 80 from your IP) (Step 2).
 - [ ] Launch `t3.micro` (Amazon Linux 2023) with the role + user-data (Step 3).
 - [ ] Verify the app on `http://<public-ip>/` with `AUTH_DISABLED=1` (Step 4).
