@@ -245,6 +245,37 @@ re-pulls `:latest` and redeploys.
 
 ---
 
+## Stage 2 — enable real auth (My-IP-only, no TLS)
+
+Prereq: the app image includes the /login, /auth/callback, /logout routes
+(plan 2026-07-01-web-auth-stage2-cognito-login).
+
+1. **Cognito app client** (`marketplace-listing-pool`, pool `ap-south-1_NdxNQ1plz`):
+   - Token expiration → set **ID token** validity to **8 hours** (keeps re-logins rare).
+   - Allowed callback URLs → add `http://<EC2_PUBLIC_IP>/auth/callback`
+     (keep `http://localhost:8000/auth/callback` for local dev).
+   - Allowed sign-out URLs → add `http://<EC2_PUBLIC_IP>/`.
+2. **SSM Parameter Store** (`/marketplace-listing/`): confirm `cognito_domain`,
+   `cognito_client_id`, `cognito_pool_id`, `s3_region` are set, and set
+   `cognito_redirect_uri = http://<EC2_PUBLIC_IP>/auth/callback`. The client
+   secret stays in Secrets Manager. Confirm the `listing-app-ec2-role` policy
+   allows `ssm:GetParameter` + `secretsmanager:GetSecretValue` on those paths.
+3. **systemd unit** `listing-app.service`: remove `AUTH_DISABLED=1`. Leave
+   `COOKIE_SECURE` unset (off) — there is no TLS yet.
+4. **Redeploy:** `sudo systemctl restart listing-app` (re-pulls `:latest`).
+5. **Verify** from the allowed IP: hit `/` → bounced to Cognito hosted UI →
+   log in → land back on the dashboard; `/logout` clears the session.
+6. **Keep access My-IP-only.** Do NOT open the SG to `0.0.0.0/0` — with no TLS
+   the id_token cookie is sniffable in transit (a later chunk adds TLS + public).
+
+**IP-change caveat:** stopping/starting the instance changes its public IP,
+which breaks the registered callback. On restart, update the Cognito callback +
+sign-out URLs and the `cognito_redirect_uri` SSM param to the new IP. (Add an
+Elastic IP later only if restarts become frequent — it is free while attached to
+a running instance, but billed while the instance is stopped.)
+
+---
+
 ## 5. (Code task) Build the `/auth/callback` + login route
 
 > This is **application code, not AWS** — it's the missing piece that makes Cognito login

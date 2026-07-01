@@ -28,6 +28,7 @@ class Settings:
     cognito_domain: str = ""
     cognito_redirect_uri: str = ""
     auth_disabled: bool = False
+    cookie_secure: bool = False
     ledger_local_path: str | None = None
 
 
@@ -68,6 +69,7 @@ def load_settings(env=None, ssm=None, secrets=None) -> Settings:
     env = os.environ if env is None else env
     s = Settings()
     s.auth_disabled = env.get("AUTH_DISABLED", "") in ("1", "true", "True")
+    s.cookie_secure = env.get("COOKIE_SECURE", "") in ("1", "true", "True")
     s.ledger_local_path = env.get("LEDGER_LOCAL_PATH") or None
 
     ssm = ssm if ssm is not None else _ssm_getter()
