@@ -62,7 +62,7 @@ flowchart TB
 | IAM identity | Type | Policies | Used by |
 |---|---|---|---|
 | `github-actions-ecr-push` | Role (OIDC, no keys) | inline `ecr-push` (push to ECR), inline `ssm-deploy` (ec2:DescribeInstances + ssm:SendCommand on the tagged instance & AWS-RunShellScript + Get/ListCommand) | CI `build-and-push` + `deploy` jobs |
-| `listing-app-ec2-role` | Role (EC2 instance) | `listing-app-runtime` (ECR pull + SSM GetParameter on `/marketplace-listing/*`, incl. SecureString decrypt via the AWS-managed `aws/ssm` key), inline `listing-app-s3` (ListBucket + Get/PutObject on `ijorethnicpartners`), AWS-managed `AmazonSSMManagedInstanceCore` (SSM-managed → CI can deploy) | the running app on EC2 |
+| `listing-app-ec2-role` | Role (EC2 instance) | `listing-app-runtime` **v2** (ECR pull + S3 `ListBucket`/`Get`/`Put` on `ijorethnicpartners` + SSM `GetParameter` on `/marketplace-listing/*`, incl. SecureString decrypt via the AWS-managed `aws/ssm` key) + AWS-managed `AmazonSSMManagedInstanceCore` (SSM-managed → CI can deploy) | the running app on EC2 |
 | OIDC provider | `token.actions.githubusercontent.com` | trust scoped to `repo:gopalthakur71/marketplace-bulklisting-semi-automation:ref:refs/heads/main` | lets GitHub Actions assume the role above without stored keys |
 
 ### Configuration & secrets
