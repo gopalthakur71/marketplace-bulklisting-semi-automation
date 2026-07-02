@@ -42,6 +42,10 @@ def verify_jwt(token, settings, jwks):
             audience=settings.cognito_client_id,
             issuer=(f"https://cognito-idp.{settings.s3_region}.amazonaws.com/"
                     f"{settings.cognito_pool_id}"),
+            # Cognito id_tokens carry an at_hash claim. We verify the id_token on
+            # its own (the cookie holds no access_token), so skip at_hash — jose
+            # otherwise raises JWTClaimsError("No access_token ... at_hash").
+            options={"verify_at_hash": False},
         )
         return claims
     except AuthError:
