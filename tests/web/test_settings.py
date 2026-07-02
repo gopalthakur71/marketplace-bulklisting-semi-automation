@@ -56,3 +56,14 @@ def test_cookie_secure_defaults_off():
     s = load_settings(env={"AUTH_DISABLED": "1"},
                       ssm=lambda n: None, secrets=lambda n: None)
     assert s.cookie_secure is False
+
+
+def test_ssm_values_are_whitespace_stripped():
+    # A trailing "\n" hand-saved into SSM redirect_uri broke Cognito login with
+    # redirect_mismatch; load_settings must strip it off.
+    env = {"AUTH_DISABLED": "1"}
+    ssm_values = {"/marketplace-listing/cognito_redirect_uri":
+                  "http://localhost:8000/auth/callback\n"}
+    s = load_settings(env=env, ssm=lambda name: ssm_values.get(name),
+                      secrets=lambda n: None)
+    assert s.cognito_redirect_uri == "http://localhost:8000/auth/callback"

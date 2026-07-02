@@ -1,6 +1,9 @@
 import json
+import logging
 import os
 from dataclasses import dataclass
+
+_log = logging.getLogger(__name__)
 
 SSM_PREFIX = "/marketplace-listing/"
 
@@ -34,14 +37,17 @@ class Settings:
 
 def _ssm_getter():
     """Lazy + fail-soft: build the client on first call; return None on any boto
-    error (missing param, no creds, no region) so import never crashes offline."""
+    error (missing param, no creds, no region) so import never crashes offline.
+    Failures are LOGGED — a silent empty return once masked a NoRegionError that
+    blanked every Cognito value in production."""
     def get(name):
         try:
             import boto3
             client = boto3.client("ssm")
             r = client.get_parameter(Name=name, WithDecryption=True)
             return r["Parameter"]["Value"]
-        except Exception:
+        except Exception as exc:
+            _log.warning("SSM read failed for %s: %s", name, exc)
             return None
     return get
 
@@ -53,7 +59,8 @@ def _secrets_getter():
             import boto3
             client = boto3.client("secretsmanager")
             return client.get_secret_value(SecretId=name)["SecretString"]
-        except Exception:
+        except Exception as exc:
+            _log.warning("Secrets read failed for %s: %s", name, exc)
             return None
     return get
 
@@ -80,7 +87,9 @@ def load_settings(env=None, ssm=None, secrets=None) -> Settings:
         if val is None:
             val = (secrets if is_secret else ssm)(SSM_PREFIX + attr)
         if val is not None:
-            setattr(s, attr, val)
+            # Strip stray whitespace/newlines — a trailing "\n" hand-saved into
+            # the SSM redirect_uri once broke Cognito login with redirect_mismatch.
+            setattr(s, attr, val.strip())
     return s
 
 

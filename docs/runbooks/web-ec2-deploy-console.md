@@ -4,6 +4,17 @@ Phase 4: take the image that CI already publishes to ECR and run it on a **start
 EC2 t3.micro**, with all AWS access via an **instance role** (no keys in the container).
 Done through the AWS web console. Do the steps in order.
 
+> **STATUS (2026-07-02): deployed and LIVE with real Cognito auth.** Stages 1 and 2 are done —
+> login works end-to-end. Deploy is now **automated**: pushing to `main` runs CI → publishes
+> `:latest` → the `deploy` job rolls it onto EC2 via SSM Run Command (see §7). The manual
+> `systemctl restart` is now only a fallback. This runbook is kept as the from-scratch rebuild
+> guide; a few historical "Stage 1 / not-built-yet" notes below are marked where superseded.
+>
+> **Access is via SSH tunnel to localhost** (Cognito rejects plain-HTTP callbacks on any
+> non-localhost host): `ssh -i <key>.pem -L 8000:localhost:80 ec2-user@<EC2_IP>` then browse
+> `http://localhost:8000/`. Cognito callback/sign-out are registered for `localhost:8000`, which
+> is **stable** across instance stop/start (only the ssh target IP changes).
+
 > **Design recap (from `docs/superpowers/specs/2026-06-25-listing-app-cicd-deploy.md`):**
 > this box is a deliberate **"pet"** — one named instance you start, stop, and let pull its
 > own image. **Boot = deploy:** a systemd unit pulls `:latest` from ECR every time the box
@@ -34,17 +45,20 @@ Done through the AWS web console. Do the steps in order.
 ## Prerequisites (all already done — confirm before starting)
 
 - [x] **Image in ECR** — CI publishes `marketplace-bulklisting:latest` to ap-south-1.
-- [x] **Cognito** provisioned (pool `ap-south-1_NdxNQ1plz`, client `29oo5dtqh8j50k2481lmffqb0e`,
-      domain `ijor-marketplace`) — see `web-cognito-setup-console.md`.
+- [x] **Cognito** provisioned (pool **`ap-south-1_NdxNQ1pIz`** — note the capital **I**, client
+      **`29oo5dtqh8j30k2481lmffqb0e`**, domain `ijor-marketplace`) — see `web-cognito-setup-console.md`.
+      ⚠️ Earlier drafts of this runbook had two transcription typos here (`…NdxNQ1p`**l**`z` and
+      `…8j`**5**`0k…`) that broke login; the values above are the verified-correct ones.
 - [x] **SSM params + Secrets Manager secret** stored under `/marketplace-listing/*` — see
-      `web-ssm-secrets-setup-console.md`.
+      `web-ssm-secrets-setup-console.md`. Values must have **no trailing whitespace/newline**
+      (a stray `\n` in `cognito_redirect_uri` once broke login with `redirect_mismatch`;
+      `settings.py` now `.strip()`s them defensively).
 
-> **Deploy in two stages.** The app has **no hosted-UI login route yet** (`/auth/callback`
-> is not built — see Step 5). So:
-> - **Stage 1 (Steps 1–4):** deploy and run the container with **`AUTH_DISABLED=1`** to prove
->   the box, the instance role, the ECR pull, and reachability all work. No login needed.
-> - **Stage 2 (Steps 5–6):** build the `/auth/callback` + login route (code), register the
->   prod callback URL in Cognito, point config at SSM/Secrets, and flip auth on.
+> **Deploy history (both stages now complete):**
+> - **Stage 1 (Steps 1–4):** ran the container with `AUTH_DISABLED=1` to prove the box, instance
+>   role, ECR pull, and reachability. ✅ done.
+> - **Stage 2 (§"Stage 2" below):** the `/login` + `/auth/callback` + `/logout` routes are built
+>   and merged, the config is in SSM/Secrets, and auth is flipped on. ✅ done — login is live.
 
 ---
 
@@ -86,13 +100,16 @@ The instance role lets the box pull from ECR and lets the app read S3 / SSM / Se
          "Resource": "*"
        },
        {
+         "Sid": "AppS3List",
+         "Effect": "Allow",
+         "Action": "s3:ListBucket",
+         "Resource": "arn:aws:s3:::ijorethnicpartners"
+       },
+       {
          "Sid": "AppS3",
          "Effect": "Allow",
          "Action": ["s3:GetObject", "s3:PutObject"],
-         "Resource": [
-           "arn:aws:s3:::ijorethnicpartners/myntra/*",
-           "arn:aws:s3:::ijorethnicpartners/state/myntra_groupid.json"
-         ]
+         "Resource": "arn:aws:s3:::ijorethnicpartners/*"
        },
        {
          "Sid": "AppConfig",
@@ -112,6 +129,13 @@ The instance role lets the box pull from ECR and lets the app read S3 / SSM / Se
 
    - `ecr:GetAuthorizationToken` must be `Resource: "*"` (account-level action); everything
      else is scoped. The SSM/Secrets ARNs use the **real** `/marketplace-listing/` prefix.
+   - **`s3:ListBucket` is required, not optional:** without it, `GetObject` on a not-yet-created
+     key (e.g. the first-run group-id ledger) returns **`AccessDenied` (403)** instead of
+     `NoSuchKey` (404), which the app doesn't catch → 500 on `/generate`. List is bucket-level;
+     Get/Put are object-level (`/*`).
+   - **Also attach the AWS-managed `AmazonSSMManagedInstanceCore`** policy to this role. It lets
+     the SSM agent register the box as a managed instance so CI's `deploy` job can restart the
+     app via SSM Run Command (see §7). Attach it the same way as `listing-app-runtime` in step C.
    - **Secrets Manager ARN note:** Secrets Manager appends a random 6-char suffix to secret
      ARNs. The `secret:/marketplace-listing/*` wildcard covers it. If access is still denied,
      widen to `secret:*marketplace-listing*` or paste the exact ARN from the secret's page.
@@ -245,39 +269,52 @@ re-pulls `:latest` and redeploys.
 
 ---
 
-## Stage 2 — enable real auth (My-IP-only, no TLS)
+## Stage 2 — real auth over an SSH tunnel to localhost (no TLS, no public exposure)
 
-Prereq: the app image includes the /login, /auth/callback, /logout routes
-(plan 2026-07-01-web-auth-stage2-cognito-login).
+Prereq: the app image includes the `/login`, `/auth/callback`, `/logout` routes
+(plan 2026-07-01-web-auth-stage2-cognito-login). ✅ built and merged.
 
-1. **Cognito app client** (`marketplace-listing-pool`, pool `ap-south-1_NdxNQ1plz`):
-   - Token expiration → set **ID token** validity to **8 hours** (keeps re-logins rare).
-   - Allowed callback URLs → add `http://<EC2_PUBLIC_IP>/auth/callback`
-     (keep `http://localhost:8000/auth/callback` for local dev).
-   - Allowed sign-out URLs → add `http://<EC2_PUBLIC_IP>/`.
-2. **SSM Parameter Store** (`/marketplace-listing/`): confirm `cognito_domain`,
-   `cognito_client_id`, `cognito_pool_id`, `s3_region` are set, and set
-   `cognito_redirect_uri = http://<EC2_PUBLIC_IP>/auth/callback`. The client
-   secret stays in Secrets Manager. Confirm the `listing-app-ec2-role` policy
-   allows `ssm:GetParameter` + `secretsmanager:GetSecretValue` on those paths.
-3. **systemd unit** `listing-app.service`: remove `AUTH_DISABLED=1`. Leave
-   `COOKIE_SECURE` unset (off) — there is no TLS yet.
-4. **Redeploy:** `sudo systemctl restart listing-app` (re-pulls `:latest`).
-5. **Verify** from the allowed IP: hit `/` → bounced to Cognito hosted UI →
-   log in → land back on the dashboard; `/logout` clears the session.
-6. **Keep access My-IP-only.** Do NOT open the SG to `0.0.0.0/0` — with no TLS
-   the id_token cookie is sniffable in transit (a later chunk adds TLS + public).
+> **Why localhost, not the EC2 IP:** Cognito's hosted UI **rejects plain-HTTP callback URLs for
+> any host except `localhost`/`127.0.0.1`** ("HTTPS is required over HTTP…"). So the original
+> "register `http://<EC2_IP>/auth/callback`" plan is impossible without TLS. Instead we register
+> **`http://localhost:8000/...`** and reach the box through an SSH **local port-forward**. Bonus:
+> localhost is **stable**, so an instance stop/start (new public IP) no longer breaks Cognito —
+> only the ssh target changes.
 
-**IP-change caveat:** stopping/starting the instance changes its public IP,
-which breaks the registered callback. On restart, update the Cognito callback +
-sign-out URLs and the `cognito_redirect_uri` SSM param to the new IP. (Add an
-Elastic IP later only if restarts become frequent — it is free while attached to
-a running instance, but billed while the instance is stopped.)
+1. **Cognito app client** (pool **`ap-south-1_NdxNQ1pIz`**, client **`29oo5dtqh8j30k2481lmffqb0e`**):
+   - Token expiration → **ID token** validity **8 hours** (matches `TOKEN_MAX_AGE` in `auth_routes.py`).
+   - Allowed callback URLs → **`http://localhost:8000/auth/callback`**.
+   - Allowed sign-out URLs → **`http://localhost:8000/`**.
+   - **Managed login branding:** if the hosted UI shows "Something went wrong", the branding style
+     is an incomplete custom style — reset it: `aws cognito-idp update-managed-login-branding
+     --managed-login-branding-id <id> --use-cognito-provided-values` (pass ONLY that flag).
+2. **SSM Parameter Store** (`/marketplace-listing/`): set/confirm `cognito_domain`,
+   `cognito_client_id`, `cognito_pool_id`, `s3_region`, and
+   **`cognito_redirect_uri = http://localhost:8000/auth/callback`** (no trailing newline!). The
+   client secret lives in Secrets Manager as `/marketplace-listing/cognito_client_secret` (mind
+   the trailing `t`). The instance role's `listing-app-runtime` covers the reads.
+3. **systemd unit** `listing-app.service`: remove `AUTH_DISABLED=1`, and pass **both**
+   `-e AWS_REGION=ap-south-1 -e AWS_DEFAULT_REGION=ap-south-1` (botocore reads `AWS_DEFAULT_REGION`;
+   without it every SSM read throws `NoRegionError` and — pre-fix — was silently swallowed, blanking
+   all Cognito config). Leave `COOKIE_SECURE` off — no TLS. The committed `aws/ec2/userdata.sh`
+   already reflects this.
+4. **Redeploy:** push to `main` (CI auto-deploys via SSM, §7) or `sudo systemctl restart listing-app`.
+5. **Verify:** open the tunnel `ssh -i <key>.pem -L 8000:localhost:80 ec2-user@<EC2_IP>`, browse
+   **`http://localhost:8000/`** → redirected to Cognito hosted UI → sign in → land on the dashboard;
+   `/logout` clears the session. First login: the test user starts `FORCE_CHANGE_PASSWORD`; set a
+   permanent password with `aws cognito-idp admin-set-user-password … --permanent`.
+6. **Do NOT open the SG to `0.0.0.0/0`.** Keep port 80 to My-IP (or nothing, since access is via the
+   tunnel). With no TLS the id_token cookie is sniffable in transit — a later chunk adds TLS + public.
+
+**Cognito needs no update on instance stop/start** — callbacks point at localhost, not the EC2 IP.
+Only your `ssh` target IP changes; grab the new public IP and reopen the tunnel.
 
 ---
 
-## 5. (Code task) Build the `/auth/callback` + login route
+## 5. (Code task) Build the `/auth/callback` + login route  — ✅ SUPERSEDED (done)
 
+> **This is done.** The `/login`, `/auth/callback`, `/logout` routes are built and merged
+> (`src/web/routers/auth_routes.py`, `src/web/oauth.py`). Section kept for historical context.
 > This is **application code, not AWS** — it's the missing piece that makes Cognito login
 > work end-to-end. Until it exists, the app can only run with `AUTH_DISABLED=1`.
 
@@ -294,7 +331,11 @@ Plan and build this with the usual TDD flow before doing Stage 2.
 
 ---
 
-## 6. (Stage 2) Turn on real auth
+## 6. (Stage 2) Turn on real auth  — ✅ SUPERSEDED by the "Stage 2" section above
+
+> Use the **"Stage 2 — real auth over an SSH tunnel to localhost"** section above (the accurate,
+> localhost-tunnel procedure). The IP-based steps below are the original plan and are **wrong for
+> Cognito** (plain-HTTP non-localhost callbacks are rejected) — kept only for history.
 
 Once Step 5 is built and deployed:
 
@@ -326,8 +367,11 @@ Once Step 5 is built and deployed:
 - **To use the app:** EC2 → Instances → select `listing-app` → **Instance state → Start**.
   Wait ~2 min (it re-pulls `:latest`), grab the new public IP, use it.
 - **When done:** **Instance state → Stop** (compute billing stops; you keep only the EBS cost).
-- **To deploy a new build:** merge to `main` (CI pushes a new `:latest`) → start (or restart)
-  the box → it pulls the new image.
+- **To deploy a new build:** just merge/push to `main`. CI runs tests → publishes `:latest` →
+  the `deploy` job restarts `listing-app` on the running box via **SSM Run Command** (targets the
+  instance by its `Name=listing-app` tag, so a changed public IP doesn't matter). The box must be
+  **running** for the deploy job to reach it; if it's stopped, the next start pulls `:latest` anyway.
+  Manual fallback: `sudo systemctl restart listing-app`.
 
 ---
 
