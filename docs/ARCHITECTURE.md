@@ -156,7 +156,7 @@ htmx. **No business logic here** — routers call `src/myntra` / `src/core`.
 | File | Responsibility |
 |---|---|
 | `src/web/main.py` | `create_app()`: settings on `app.state` **before** routers; mounts `/static`; includes routers (`pages`, `generate`, `fix`, `auth_routes`); maps `AuthError → redirect to /login (HX-Redirect for HTMX)`. Module-level `app` + shared `Jinja2Templates`. |
-| `src/web/settings.py` | `Settings` dataclass + `load_settings(env, ssm, secrets)`: each field resolves **env-first, then per-field fallback** to SSM (non-secret) / Secrets Manager (the client secret). `SSM_PREFIX="/marketplace-listing/"`. AWS getters are **lazy + fail-soft** (import never crashes offline). `ledger_store()` → `LocalJsonStore` if `LEDGER_LOCAL_PATH` else `S3JsonStore`. |
+| `src/web/settings.py` | `Settings` dataclass + `load_settings(env, ssm)`: each field resolves **env-first, then per-field fallback** to SSM (the client secret is a SecureString, decrypted via `WithDecryption=True` — no Secrets Manager). `SSM_PREFIX="/marketplace-listing/"`. AWS getter is **lazy + fail-soft** (import never crashes offline) and **logs** failures; values are `.strip()`ed. `ledger_store()` → `LocalJsonStore` if `LEDGER_LOCAL_PATH` else `S3JsonStore`. |
 | `src/web/auth.py` | `current_user(settings, token)`: returns `dev@local` when `AUTH_DISABLED`, else `verify_jwt` (RS256 pinned; audience = client id; issuer from pool id + region; JWKS looked up by `kid`, cached; jose errors → `AuthError`). **Gotcha:** the Cognito region is taken from `settings.s3_region` (both are `ap-south-1`). |
 | `src/web/jobs.py` | Thread-safe in-memory `JobStore` + `Job` dataclass + `STEPS`. Backs the Generate background job + htmx polling. **In-memory only → all jobs are lost on app restart.** |
 | `src/web/routers/pages.py` | `GET /` home; `get_user` (reads `id_token` cookie or `Authorization: Bearer`) and `get_settings` helpers reused by other routers. |
@@ -245,21 +245,23 @@ account number. **This is CI + image-publish (Continuous Delivery of an artifact
 1. **App → S3 (local/dev):** an IAM user's access keys via boto3 default chain (S3-only policy).
 2. **Pipeline → ECR (CI):** the OIDC role `github-actions-ecr-push` — **no stored keys**.
 3. **App on EC2 (deploy):** the instance role `listing-app-ec2-role` — takes over S3 + ECR-pull
-   + SSM + Secrets at deploy time, retiring the local keys. (See the deploy runbook.)
+   + SSM (config incl. the SecureString secret) at deploy time, retiring the local keys, plus
+   `AmazonSSMManagedInstanceCore` so CI can redeploy. (See the deploy runbook.)
 
 ### Runtime config & secrets
 
-Non-secret config = **SSM Parameter Store** under `/marketplace-listing/*` (7 params: 3 S3 + 4
-Cognito). The one real secret (Cognito client secret) = **Secrets Manager**
-`/marketplace-listing/cognito_client_secret`. Rationale (and a leaner alternative) is recorded
-in [decisions/2026-06-30-config-ssm-secrets-rationale.md](decisions/2026-06-30-config-ssm-secrets-rationale.md).
+All runtime config = **SSM Parameter Store** under `/marketplace-listing/*` (8 params: 3 S3 + 4
+Cognito + the Cognito client secret as a **SecureString**). **No Secrets Manager** — it was
+retired 2026-07-02 (SSM SecureString is free and read the same way, with `WithDecryption=True`).
+Rationale in [decisions/2026-06-30-config-ssm-secrets-rationale.md](decisions/2026-06-30-config-ssm-secrets-rationale.md).
 
 ### Deploy
 
-Start/stop EC2 t3.micro; a systemd unit pulls `:latest` on boot (**boot = deploy**). Step-by-
-step console runbook: [runbooks/web-ec2-deploy-console.md](runbooks/web-ec2-deploy-console.md).
-**Deferred:** the `/auth/callback` + `/login` hosted-UI flow is not built yet, so the app
-currently runs with `AUTH_DISABLED=1`; building it is the first deploy-phase code task.
+Start/stop EC2 t3.micro; a systemd unit pulls `:latest` on boot (**boot = deploy**), and CI's
+`deploy` job restarts it via SSM Run Command on every push to `main` (full CD). Real Cognito auth
+is **live** (reached via SSH tunnel to localhost; no TLS yet). Step-by-step console runbook:
+[runbooks/web-ec2-deploy-console.md](runbooks/web-ec2-deploy-console.md); full resource map:
+[infra-resources.md](infra-resources.md).
 
 ---
 
@@ -273,9 +275,9 @@ This is the section to read when something *outside* the code changes.
 | **Myntra template (.xlsx)** | `src/myntra/template_reader.py`, `fill.py` | Dropdowns are **x14 extension data-validations** openpyxl drops silently — read from raw `xl/worksheets/*.xml`. Headers row 3 / data row 4 (rejection files). A new template version can shift columns/vocab. |
 | **Myntra vocabulary** | `mapper.validate_value` | Dropdown values must match template spelling exactly — flagged, never guessed. |
 | **S3 (images + ledger)** | `src/core/s3_upload.py`, `groupid_ledger.S3JsonStore` | Bucket `ijorethnicpartners`, region `ap-south-1`, image prefix `myntra/`, ledger key `state/myntra_groupid.json`. Images must be `.jpg` and public-read. |
-| **Cognito (auth)** | `src/web/auth.py`, `settings.py`, `oauth.py`, `auth_routes.py` | Pool/client/domain in SSM; JWT validated by JWKS. Hosted-UI login round-trip (/login → /auth/callback → /logout) built; enable by dropping AUTH_DISABLED. |
-| **ECR (image registry)** | `ci-cd.yml`, deploy systemd | Repo `marketplace-bulklisting`, `:latest` pulled on boot. |
-| **SSM / Secrets Manager (config)** | `src/web/settings.py` | Per-field env→AWS fallback; prefix `/marketplace-listing/`; read on EC2 via instance role. |
+| **Cognito (auth)** | `src/web/auth.py`, `settings.py`, `oauth.py`, `auth_routes.py` | Pool/client/domain + client secret (SecureString) in SSM; JWT validated by JWKS with `verify_at_hash: False` (Cognito id_tokens carry `at_hash`). Hosted-UI login round-trip (/login → /auth/callback → /logout) is **live**. |
+| **ECR (image registry)** | `ci-cd.yml`, deploy systemd | Repo `marketplace-bulklisting`, `:latest` pulled on boot; CI `deploy` job restarts via SSM. |
+| **SSM Parameter Store (config)** | `src/web/settings.py` | Per-field env→SSM fallback; prefix `/marketplace-listing/`; read on EC2 via instance role. Secret is a SecureString. No Secrets Manager. |
 
 ---
 

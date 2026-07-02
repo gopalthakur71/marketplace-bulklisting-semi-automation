@@ -1,7 +1,14 @@
 # Decision & rationale — runtime config via SSM Parameter Store + Secrets Manager
 
 **Date:** 2026-06-30
-**Status:** Accepted (current design). A leaner alternative is recorded below for the future.
+**Status:** **Superseded 2026-07-02** — we adopted the "leaner alternative" this document
+predicted (see §"leaner future alternative" below). The Cognito client secret was migrated from
+**Secrets Manager → an SSM `SecureString`** at the same path `/marketplace-listing/cognito_client_secret`,
+and Secrets Manager is no longer used at all. Reason: cost — Secrets Manager charges ~$0.40/mo per
+secret; SSM SecureString is free and read the same way (`get_parameter(..., WithDecryption=True)`),
+decrypted with the AWS-managed `aws/ssm` KMS key (no extra `kms:Decrypt` IAM permission needed).
+Code: `src/web/settings.py` (the Secrets Manager getter was removed). The rest of this document is
+kept for the original rationale and the trade-off discussion.
 **Audience:** written plainly because the project owner is new to SSM / Secrets Manager.
 
 ---

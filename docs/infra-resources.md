@@ -24,8 +24,7 @@ flowchart TB
         ec2["EC2: listing-app (t3.micro)\ni-0add667d4cec224c6 / ap-south-1b"]
         roleEC2["IAM role: listing-app-ec2-role\n(listing-app-runtime, listing-app-s3,\nAmazonSSMManagedInstanceCore)"]
         sg["Security group: listing-app-sg\nsg-06ceeb9a898378bb0 (port 80 ← My IP)"]
-        ssm["SSM Parameter Store\n/marketplace-listing/* (7 params)"]
-        secret["Secrets Manager\n/marketplace-listing/cognito_client_secret"]
+        ssm["SSM Parameter Store\n/marketplace-listing/* (8 params;\nclient_secret is a SecureString)"]
         cog["Cognito user pool ap-south-1_NdxNQ1pIz\nclient 29oo5dtqh8j30k2481lmffqb0e\ndomain ijor-marketplace"]
         s3["S3 bucket: ijorethnicpartners\n(myntra/ outputs, state/ ledger)"]
         ssmDoc["SSM Run Command\nAWS-RunShellScript"]
@@ -36,8 +35,7 @@ flowchart TB
     jDeploy -->|SSM SendCommand| ssmDoc -->|systemctl restart| ec2
     ec2 -->|instance profile| roleEC2
     ec2 -->|pull :latest| ecr
-    ec2 -->|read config| ssm
-    ec2 -->|read client secret| secret
+    ec2 -->|read config + secret| ssm
     ec2 -->|verify JWT / hosted-UI login| cog
     ec2 -->|read/write ledger + upload images| s3
 
@@ -64,7 +62,7 @@ flowchart TB
 | IAM identity | Type | Policies | Used by |
 |---|---|---|---|
 | `github-actions-ecr-push` | Role (OIDC, no keys) | inline `ecr-push` (push to ECR), inline `ssm-deploy` (ec2:DescribeInstances + ssm:SendCommand on the tagged instance & AWS-RunShellScript + Get/ListCommand) | CI `build-and-push` + `deploy` jobs |
-| `listing-app-ec2-role` | Role (EC2 instance) | `listing-app-runtime` (ECR pull + SSM GetParameter + Secrets GetSecretValue on `/marketplace-listing/*`), inline `listing-app-s3` (ListBucket + Get/PutObject on `ijorethnicpartners`), AWS-managed `AmazonSSMManagedInstanceCore` (SSM-managed → CI can deploy) | the running app on EC2 |
+| `listing-app-ec2-role` | Role (EC2 instance) | `listing-app-runtime` (ECR pull + SSM GetParameter on `/marketplace-listing/*`, incl. SecureString decrypt via the AWS-managed `aws/ssm` key), inline `listing-app-s3` (ListBucket + Get/PutObject on `ijorethnicpartners`), AWS-managed `AmazonSSMManagedInstanceCore` (SSM-managed → CI can deploy) | the running app on EC2 |
 | OIDC provider | `token.actions.githubusercontent.com` | trust scoped to `repo:gopalthakur71/marketplace-bulklisting-semi-automation:ref:refs/heads/main` | lets GitHub Actions assume the role above without stored keys |
 
 ### Configuration & secrets
@@ -77,7 +75,7 @@ flowchart TB
 | | `/marketplace-listing/s3_bucket` | `ijorethnicpartners` |
 | | `/marketplace-listing/s3_prefix` | `myntra/` |
 | | `/marketplace-listing/s3_region` | `ap-south-1` |
-| Secrets Manager | `/marketplace-listing/cognito_client_secret` | Cognito app-client secret (52 chars). The mis-named `…_secre` duplicate was **deleted 2026-07-02**. |
+| SSM **SecureString** | `/marketplace-listing/cognito_client_secret` | Cognito app-client secret (52 chars), encrypted with the AWS-managed `aws/ssm` key; the getter decrypts it with `WithDecryption=True`. **Migrated from Secrets Manager → SSM on 2026-07-02** to drop the ~$0.40/mo Secrets Manager charge (Secrets Manager is no longer used at all). |
 
 > ⚠️ **No trailing whitespace in any of these** — a stray `\n` in `cognito_redirect_uri` once broke login with `redirect_mismatch`. `settings.py` now `.strip()`s values defensively.
 
@@ -85,7 +83,7 @@ flowchart TB
 | Thing | Value |
 |---|---|
 | User pool | `ap-south-1_NdxNQ1pIz` |
-| App client | `29oo5dtqh8j30k2481lmffqb0e` (secret in Secrets Manager) |
+| App client | `29oo5dtqh8j30k2481lmffqb0e` (secret in SSM SecureString `…/cognito_client_secret`) |
 | Hosted-UI domain | `ijor-marketplace` (`ijor-marketplace.auth.ap-south-1.amazoncognito.com`, ManagedLogin v2, CloudFront `d19bnlz1qkpkne`) |
 | Managed-login branding | id `9a9dc958-8034-4402-b89a-0734d325a439`, `UseCognitoProvidedValues=true` |
 | Callback / sign-out URLs | `http://localhost:8000/auth/callback` / `http://localhost:8000/` |
@@ -109,7 +107,7 @@ flowchart TB
 | OIDC federation | GitHub presents a token to `token.actions.githubusercontent.com`; AWS trust policy (main branch only) lets it assume `github-actions-ecr-push` |
 
 ## Cost shape
-- **Idle (box stopped):** ≈ **under $1/mo** — only the ~8 GB EBS root volume. SSM params, Secrets, ECR (small), Cognito (free tier), S3 (small) are negligible.
+- **Idle (box stopped):** ≈ **under $1/mo** — only the ~8 GB EBS root volume + small ECR image storage. SSM params (incl. the SecureString) and Cognito are free tier; S3 is a few cents. **Secrets Manager was removed 2026-07-02** (~$0.40/mo saved).
 - **While running:** t3.micro compute (free-tier eligible, else ~$7.5/mo on-demand) + public IPv4 (~$3.6/mo). CloudFront/TLS/public URL **not provisioned** (deferred).
 
 ## Not provisioned (deliberately deferred)

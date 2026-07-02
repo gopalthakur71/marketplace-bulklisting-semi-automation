@@ -1,13 +1,17 @@
-# Runbook — SSM Parameter Store & Secrets Manager Setup via the **Console**
+# Runbook — SSM Parameter Store Setup via the **Console**
 
-Same outcome as the CLI runbook, done through the AWS web console. This sets up the configuration parameters and secrets that the Marigold Ops web app reads on startup when environment variables are not set. The settings loader falls back per-field: each config value is read from the environment first, then from AWS Systems Manager Parameter Store (SSM) or Secrets Manager if absent. Do the steps in order.
+Same outcome as the CLI runbook, done through the AWS web console. This sets up the configuration
+parameters (including the Cognito client secret as a **SecureString**) that the Marigold Ops web app
+reads on startup when environment variables are not set. The settings loader falls back per-field:
+each config value is read from the environment first, then from AWS Systems Manager Parameter Store
+(SSM) if absent. **Secrets Manager is no longer used** (retired 2026-07-02 — SSM SecureString is
+free). Do the steps in order.
 
-> **New to SSM / Secrets Manager, or wondering why there are 7 parameters and whether this
-> is over-engineered?** Read the plain-English rationale first:
+> **New to SSM, or wondering why there are 8 parameters and whether this is over-engineered?**
+> Read the plain-English rationale first:
 > [`docs/decisions/2026-06-30-config-ssm-secrets-rationale.md`](../decisions/2026-06-30-config-ssm-secrets-rationale.md).
-> It explains what each service is, how the count of 7 was derived (one per non-secret
-> field), why we chose this design, and the leaner future alternative (env vars + 1 SSM
-> SecureString).
+> It explains what SSM is, how the parameter count was derived, and why the client secret is now a
+> SecureString in the same store rather than a separate Secrets Manager secret.
 
 **Values used throughout (don't substitute — these are this project's):**
 
@@ -20,7 +24,7 @@ Same outcome as the CLI runbook, done through the AWS web console. This sets up 
 | S3 region | `ap-south-1` |
 | S3 prefix | `myntra/` |
 
-> Sign in with an IAM user that has SSM and Secrets Manager write permissions.
+> Sign in with an IAM user that has SSM write permissions (incl. SecureString / `kms` on `aws/ssm`).
 > The values for Cognito parameters come from the Cognito runbook (Task 8): `COGNITO_POOL_ID`, `COGNITO_CLIENT_ID`, `COGNITO_CLIENT_SECRET`, `COGNITO_DOMAIN`. The production callback URL is determined by where you deploy (e.g., `https://marigold-ops.example.com/auth/callback`).
 
 ---
@@ -96,31 +100,31 @@ Same outcome as the CLI runbook, done through the AWS web console. This sets up 
 
 ---
 
-## 2. Create the Secrets Manager secret
+## 2. Create the client-secret parameter (SSM SecureString)
 
-> **Console UI note (2026).** "Plaintext" is no longer a top-level secret type. On the
-> **Choose secret type** screen, the top-level options are RDS/DocumentDB/Redshift/other-DB
-> credentials and **Other type of secret**. Plaintext lives inside that last one.
+> **Updated 2026-07-02.** The Cognito client secret is stored as an **SSM SecureString**, not a
+> Secrets Manager secret. SSM parameters are free (Secrets Manager charges ~$0.40/mo per secret),
+> and a SecureString is encrypted at rest with the AWS-managed `aws/ssm` KMS key. The app reads it
+> the same way as every other parameter (`get_parameter(..., WithDecryption=True)`), so there is no
+> Secrets Manager code path anymore.
 
-1. Open **Secrets Manager** → **Secrets** → **Store a new secret**.
-2. Secret type: select **Other type of secret** ("API key, OAuth token, other"). The
-   credentials editor changes to a **Key/value | Plaintext** toggle — click the
-   **Plaintext** tab.
-3. Secret value: paste **only the raw client secret** (the `cognito_client_secret` string
-   from the Cognito runbook, Task 8). No JSON, no quotes, no key name — the app reads the
-   secret string verbatim via `get_secret_value(...)["SecretString"]`.
-4. **Encryption key:** leave the default `aws/secretsmanager`.
-5. **Next**.
-6. Secret name: `/marketplace-listing/cognito_client_secret`
-7. **Next**.
-8. Leave **Automatic rotation** unchecked (optional for dev; configure for production).
-9. **Next** → **Store secret**.
+1. Open **Systems Manager** → **Parameter Store** → **Create parameter**.
+2. Name: `/marketplace-listing/cognito_client_secret`.
+3. Tier: **Standard**. Type: **SecureString**.
+4. **KMS key source:** *My current account* → key `alias/aws/ssm` (the default AWS-managed key —
+   no extra IAM `kms:Decrypt` permission is needed for the instance role with this key).
+5. Value: paste **only the raw client secret** (the `cognito_client_secret` string from the Cognito
+   runbook, Task 8). No JSON, no quotes, **no trailing newline**.
+6. **Create parameter.**
+
+> CLI equivalent: `aws ssm put-parameter --name /marketplace-listing/cognito_client_secret
+> --value '<secret>' --type SecureString --overwrite --region ap-south-1`.
 
 ---
 
 ## 3. Verify the setup locally
 
-The settings loader (`src/web/settings.py`) reads each config value from the environment first, then falls back per-field to SSM Parameter Store (non-secret values) or Secrets Manager (the `cognito_client_secret`). This means you can set some values via environment and leave the rest to AWS.
+The settings loader (`src/web/settings.py`) reads each config value from the environment first, then falls back per-field to SSM Parameter Store — including the `cognito_client_secret` SecureString (decrypted via `WithDecryption=True`). This means you can set some values via environment and leave the rest to AWS.
 
 > **What you can and can't verify today.** The hosted-UI login redirect and the
 > `/auth/callback` route are **not built yet** (deferred to the deploy phase). So running
@@ -128,7 +132,7 @@ The settings loader (`src/web/settings.py`) reads each config value from the env
 > token, `current_user` (`src/web/auth.py`) raises `AuthError`. What you *can* verify now
 > is that the settings loader reads your new SSM/Secrets values back from AWS.
 
-1. Ensure your AWS credentials are active and your IAM user can read SSM + Secrets Manager:
+1. Ensure your AWS credentials are active and your IAM user can read SSM (incl. SecureString decrypt):
 
    ```bash
    aws sts get-caller-identity
@@ -141,17 +145,18 @@ The settings loader (`src/web/settings.py`) reads each config value from the env
    python -c "import os; [os.environ.pop(k, None) for k in ('S3_BUCKET','S3_REGION','S3_PREFIX','COGNITO_POOL_ID','COGNITO_CLIENT_ID','COGNITO_CLIENT_SECRET','COGNITO_DOMAIN','COGNITO_REDIRECT_URI')]; from src.web.settings import load_settings; s=load_settings(); print('pool:', s.cognito_pool_id); print('client:', s.cognito_client_id); print('secret loaded:', bool(s.cognito_client_secret))"
    ```
 
-   Seeing the pool id, client id, and `secret loaded: True` confirms the SSM parameters and
-   the Secrets Manager secret are stored and readable.
+   Seeing the pool id, client id, and `secret loaded: True` confirms the SSM parameters (incl. the
+   SecureString) are stored and readable.
 
-**Note:** In production (Phase 4), the EC2 instance will have an IAM instance role that grants `ssm:GetParameter*` and `secretsmanager:GetSecretValue` permissions. Locally, your IAM user provides those permissions. The end-to-end login check (redirect to Cognito → `/auth/callback` → cookie) becomes possible only once that route is implemented in the deploy phase.
+**Note:** In production the EC2 instance role grants `ssm:GetParameter*` on `/marketplace-listing/*`
+(no `secretsmanager` permission needed — Secrets Manager is retired; the SecureString decrypts via
+the AWS-managed `aws/ssm` key). Locally, your IAM user provides those permissions.
 
 ---
 
 ## 4. Teardown (only if you need to undo this)
 
-- **SSM parameters**: Systems Manager → Parameter Store → select each `/marketplace-listing/*` parameter → **Delete parameter** (repeat for all 7 parameters).
-- **Secrets Manager secret**: Secrets Manager → Secrets → select `/marketplace-listing/cognito_client_secret` → **Delete secret** → choose **Confirm deletion** and optionally set recovery window or delete immediately.
+- **SSM parameters**: Systems Manager → Parameter Store → select each `/marketplace-listing/*` parameter → **Delete parameter** (repeat for all 8 parameters, including the `cognito_client_secret` SecureString).
 
 ---
 

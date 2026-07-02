@@ -74,8 +74,9 @@ CSS + vendored htmx + vendored fonts (no runtime CDN).
    `fonts.googleapis.com` or CDN `<script>`/`<link>` tags.
 6. **Fix-flow corrections are typed free-text, validated against vocab — not option buttons.**
    A "closest Myntra names" hint is OK; clickable option pickers are not (deliberate UX call).
-7. **Secrets never go in git.** `.env` is git-ignored; the deployed app reads the Cognito client
-   secret from Secrets Manager and other config from SSM via the EC2 instance role.
+7. **Secrets never go in git.** `.env` is git-ignored; the deployed app reads all config —
+   including the Cognito client secret (an SSM **SecureString**) — from SSM Parameter Store via
+   the EC2 instance role. (Secrets Manager was retired 2026-07-02; SSM SecureString is free.)
 
 ## Where the answers live
 

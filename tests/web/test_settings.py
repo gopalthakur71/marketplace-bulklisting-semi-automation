@@ -9,36 +9,36 @@ def test_env_takes_precedence_over_ssm():
         calls.append(name)
         return "from-ssm"
 
-    s = load_settings(env=env, ssm=fake_ssm, secrets=lambda n: "secret")
+    s = load_settings(env=env, ssm=fake_ssm)
     assert s.s3_bucket == "from-env"      # env wins
     assert s.auth_disabled is True
     assert "/marketplace-listing/s3_bucket" not in calls   # env-provided field skips SSM
     assert "/marketplace-listing/s3_region" not in calls   # env-provided field skips SSM
 
 
-def test_secret_resolves_even_when_some_env_set():
+def test_client_secret_resolves_from_ssm_even_when_some_env_set():
+    # The Cognito client secret is an SSM SecureString now (no Secrets Manager);
+    # it must still fall back to SSM when only some env vars are set.
     env = {"S3_BUCKET": "x", "AUTH_DISABLED": "1"}
-    s = load_settings(env=env, ssm=lambda n: None, secrets=lambda n: "the-secret")
+    ssm_values = {"/marketplace-listing/cognito_client_secret": "the-secret"}
+    s = load_settings(env=env, ssm=lambda name: ssm_values.get(name))
     assert s.s3_bucket == "x"
-    assert s.cognito_client_secret == "the-secret"   # secret falls back despite env present
+    assert s.cognito_client_secret == "the-secret"
 
 
-def test_falls_back_to_ssm_and_secrets_when_env_missing():
+def test_falls_back_to_ssm_when_env_missing():
     env = {"AUTH_DISABLED": "1"}
     ssm_values = {"/marketplace-listing/s3_bucket": "bkt",
-                  "/marketplace-listing/s3_region": "ap-south-1"}
-    s = load_settings(
-        env=env,
-        ssm=lambda name: ssm_values.get(name),
-        secrets=lambda name: "the-client-secret",
-    )
+                  "/marketplace-listing/s3_region": "ap-south-1",
+                  "/marketplace-listing/cognito_client_secret": "the-client-secret"}
+    s = load_settings(env=env, ssm=lambda name: ssm_values.get(name))
     assert s.s3_bucket == "bkt"
     assert s.cognito_client_secret == "the-client-secret"
 
 
 def test_ledger_store_local_when_path_set(tmp_path):
     env = {"AUTH_DISABLED": "1", "LEDGER_LOCAL_PATH": str(tmp_path / "led.json")}
-    s = load_settings(env=env, ssm=lambda n: None, secrets=lambda n: None)
+    s = load_settings(env=env, ssm=lambda n: None)
     store = ledger_store(s)
     assert isinstance(store, LocalJsonStore)
     assert store.get_json("anything") is None
@@ -48,13 +48,13 @@ def test_ledger_store_local_when_path_set(tmp_path):
 
 def test_cookie_secure_from_env():
     s = load_settings(env={"AUTH_DISABLED": "1", "COOKIE_SECURE": "1"},
-                      ssm=lambda n: None, secrets=lambda n: None)
+                      ssm=lambda n: None)
     assert s.cookie_secure is True
 
 
 def test_cookie_secure_defaults_off():
     s = load_settings(env={"AUTH_DISABLED": "1"},
-                      ssm=lambda n: None, secrets=lambda n: None)
+                      ssm=lambda n: None)
     assert s.cookie_secure is False
 
 
@@ -64,6 +64,5 @@ def test_ssm_values_are_whitespace_stripped():
     env = {"AUTH_DISABLED": "1"}
     ssm_values = {"/marketplace-listing/cognito_redirect_uri":
                   "http://localhost:8000/auth/callback\n"}
-    s = load_settings(env=env, ssm=lambda name: ssm_values.get(name),
-                      secrets=lambda n: None)
+    s = load_settings(env=env, ssm=lambda name: ssm_values.get(name))
     assert s.cognito_redirect_uri == "http://localhost:8000/auth/callback"

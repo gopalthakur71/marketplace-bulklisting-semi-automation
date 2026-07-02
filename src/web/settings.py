@@ -7,16 +7,18 @@ _log = logging.getLogger(__name__)
 
 SSM_PREFIX = "/marketplace-listing/"
 
-# env var name -> (settings attr, is_secret)
+# env var name -> settings attr. Every field (incl. the Cognito client secret,
+# which is an SSM SecureString) resolves from SSM Parameter Store — no Secrets
+# Manager. The SecureString is decrypted by the getter's WithDecryption=True.
 _FIELDS = [
-    ("S3_BUCKET", "s3_bucket", False),
-    ("S3_REGION", "s3_region", False),
-    ("S3_PREFIX", "s3_prefix", False),
-    ("COGNITO_POOL_ID", "cognito_pool_id", False),
-    ("COGNITO_CLIENT_ID", "cognito_client_id", False),
-    ("COGNITO_DOMAIN", "cognito_domain", False),
-    ("COGNITO_REDIRECT_URI", "cognito_redirect_uri", False),
-    ("COGNITO_CLIENT_SECRET", "cognito_client_secret", True),
+    ("S3_BUCKET", "s3_bucket"),
+    ("S3_REGION", "s3_region"),
+    ("S3_PREFIX", "s3_prefix"),
+    ("COGNITO_POOL_ID", "cognito_pool_id"),
+    ("COGNITO_CLIENT_ID", "cognito_client_id"),
+    ("COGNITO_DOMAIN", "cognito_domain"),
+    ("COGNITO_REDIRECT_URI", "cognito_redirect_uri"),
+    ("COGNITO_CLIENT_SECRET", "cognito_client_secret"),
 ]
 
 
@@ -52,27 +54,14 @@ def _ssm_getter():
     return get
 
 
-def _secrets_getter():
-    """Lazy + fail-soft (see _ssm_getter)."""
-    def get(name):
-        try:
-            import boto3
-            client = boto3.client("secretsmanager")
-            return client.get_secret_value(SecretId=name)["SecretString"]
-        except Exception as exc:
-            _log.warning("Secrets read failed for %s: %s", name, exc)
-            return None
-    return get
-
-
-def load_settings(env=None, ssm=None, secrets=None) -> Settings:
-    """Resolve each value from env first, else from SSM/Secrets. Pass ssm/secrets
-    callables in tests; in production they default to real AWS getters (lazy).
+def load_settings(env=None, ssm=None) -> Settings:
+    """Resolve each value from env first, else from SSM Parameter Store. Pass an
+    `ssm` callable in tests; in production it defaults to the real AWS getter (lazy).
 
     Fallback is per-field, not all-or-nothing: each field independently uses its
-    env value if present, otherwise consults SSM Parameter Store (or Secrets
-    Manager for the Cognito client secret). This means a deploy that sets only
-    some env vars still resolves the rest (including the secret) from AWS."""
+    env value if present, otherwise consults SSM. This means a deploy that sets
+    only some env vars still resolves the rest (including the Cognito client
+    secret, stored as an SSM SecureString) from AWS."""
     env = os.environ if env is None else env
     s = Settings()
     s.auth_disabled = env.get("AUTH_DISABLED", "") in ("1", "true", "True")
@@ -80,12 +69,11 @@ def load_settings(env=None, ssm=None, secrets=None) -> Settings:
     s.ledger_local_path = env.get("LEDGER_LOCAL_PATH") or None
 
     ssm = ssm if ssm is not None else _ssm_getter()
-    secrets = secrets if secrets is not None else _secrets_getter()
 
-    for env_name, attr, is_secret in _FIELDS:
+    for env_name, attr in _FIELDS:
         val = env.get(env_name)
         if val is None:
-            val = (secrets if is_secret else ssm)(SSM_PREFIX + attr)
+            val = ssm(SSM_PREFIX + attr)
         if val is not None:
             # Strip stray whitespace/newlines — a trailing "\n" hand-saved into
             # the SSM redirect_uri once broke Cognito login with redirect_mismatch.

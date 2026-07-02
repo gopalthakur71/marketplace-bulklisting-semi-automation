@@ -35,7 +35,7 @@ Done through the AWS web console. Do the steps in order.
 | App module / port | `src.web.main:app` on **8080** inside the container |
 | Host port mapping | host **80** → container **8080** |
 | SSM prefix | **`/marketplace-listing/`** (NOT `/listing-app/`) |
-| Secret name | `/marketplace-listing/cognito_client_secret` |
+| Client secret | SSM **SecureString** `/marketplace-listing/cognito_client_secret` (no Secrets Manager) |
 | S3 bucket | `ijorethnicpartners` |
 
 > Sign in with an IAM user that can create IAM roles, security groups, and EC2 instances.
@@ -49,8 +49,9 @@ Done through the AWS web console. Do the steps in order.
       **`29oo5dtqh8j30k2481lmffqb0e`**, domain `ijor-marketplace`) — see `web-cognito-setup-console.md`.
       ⚠️ Earlier drafts of this runbook had two transcription typos here (`…NdxNQ1p`**l**`z` and
       `…8j`**5**`0k…`) that broke login; the values above are the verified-correct ones.
-- [x] **SSM params + Secrets Manager secret** stored under `/marketplace-listing/*` — see
-      `web-ssm-secrets-setup-console.md`. Values must have **no trailing whitespace/newline**
+- [x] **SSM params (incl. the client secret as a SecureString)** stored under
+      `/marketplace-listing/*` — see `web-ssm-secrets-setup-console.md`. Values must have **no
+      trailing whitespace/newline**
       (a stray `\n` in `cognito_redirect_uri` once broke login with `redirect_mismatch`;
       `settings.py` now `.strip()`s them defensively).
 
@@ -116,19 +117,17 @@ The instance role lets the box pull from ECR and lets the app read S3 / SSM / Se
          "Effect": "Allow",
          "Action": ["ssm:GetParameter", "ssm:GetParameters", "ssm:GetParametersByPath"],
          "Resource": "arn:aws:ssm:ap-south-1:048589483919:parameter/marketplace-listing/*"
-       },
-       {
-         "Sid": "AppSecret",
-         "Effect": "Allow",
-         "Action": "secretsmanager:GetSecretValue",
-         "Resource": "arn:aws:secretsmanager:ap-south-1:048589483919:secret:/marketplace-listing/*"
        }
      ]
    }
    ```
 
    - `ecr:GetAuthorizationToken` must be `Resource: "*"` (account-level action); everything
-     else is scoped. The SSM/Secrets ARNs use the **real** `/marketplace-listing/` prefix.
+     else is scoped. The SSM ARN uses the **real** `/marketplace-listing/` prefix.
+   - **All config, including the Cognito client secret, is in SSM** (the secret is a
+     **SecureString**). `AppConfig` covers it — reading a SecureString with `WithDecryption=true`
+     needs **no extra `kms:Decrypt`** because it's encrypted with the AWS-managed `aws/ssm` key.
+     No Secrets Manager permission is needed (Secrets Manager was retired 2026-07-02).
    - **`s3:ListBucket` is required, not optional:** without it, `GetObject` on a not-yet-created
      key (e.g. the first-run group-id ledger) returns **`AccessDenied` (403)** instead of
      `NoSuchKey` (404), which the app doesn't catch → 500 on `/generate`. List is bucket-level;
@@ -136,9 +135,6 @@ The instance role lets the box pull from ECR and lets the app read S3 / SSM / Se
    - **Also attach the AWS-managed `AmazonSSMManagedInstanceCore`** policy to this role. It lets
      the SSM agent register the box as a managed instance so CI's `deploy` job can restart the
      app via SSM Run Command (see §7). Attach it the same way as `listing-app-runtime` in step C.
-   - **Secrets Manager ARN note:** Secrets Manager appends a random 6-char suffix to secret
-     ARNs. The `secret:/marketplace-listing/*` wildcard covers it. If access is still denied,
-     widen to `secret:*marketplace-listing*` or paste the exact ARN from the secret's page.
 7. **Next** → policy name: `listing-app-runtime` → **Create policy**.
 
 **C. Attach the policy to the role:**
@@ -291,8 +287,9 @@ Prereq: the app image includes the `/login`, `/auth/callback`, `/logout` routes
 2. **SSM Parameter Store** (`/marketplace-listing/`): set/confirm `cognito_domain`,
    `cognito_client_id`, `cognito_pool_id`, `s3_region`, and
    **`cognito_redirect_uri = http://localhost:8000/auth/callback`** (no trailing newline!). The
-   client secret lives in Secrets Manager as `/marketplace-listing/cognito_client_secret` (mind
-   the trailing `t`). The instance role's `listing-app-runtime` covers the reads.
+   client secret is a **SecureString** at `/marketplace-listing/cognito_client_secret` (in SSM,
+   not Secrets Manager). The instance role's `listing-app-runtime` covers all the reads incl.
+   the SecureString decrypt.
 3. **systemd unit** `listing-app.service`: remove `AUTH_DISABLED=1`, and pass **both**
    `-e AWS_REGION=ap-south-1 -e AWS_DEFAULT_REGION=ap-south-1` (botocore reads `AWS_DEFAULT_REGION`;
    without it every SSM read throws `NoRegionError` and — pre-fix — was silently swallowed, blanking
