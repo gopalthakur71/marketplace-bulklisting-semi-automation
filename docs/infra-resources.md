@@ -108,6 +108,7 @@ flowchart TB
 
 ## Cost shape
 - **Idle (box stopped):** ≈ **under $1/mo** — only the ~8 GB EBS root volume + small ECR image storage. SSM params (incl. the SecureString) and Cognito are free tier; S3 is a few cents. **Secrets Manager was removed 2026-07-02** (~$0.40/mo saved).
+- **Full per-resource breakdown, scenarios, and cost levers:** [`docs/infra-costs.md`](infra-costs.md).
 - **While running:** t3.micro compute (free-tier eligible, else ~$7.5/mo on-demand) + public IPv4 (~$3.6/mo). CloudFront/TLS/public URL **not provisioned** (deferred).
 
 ## Not provisioned (deliberately deferred)
