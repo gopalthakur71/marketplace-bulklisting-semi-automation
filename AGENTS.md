@@ -21,10 +21,23 @@ which is why the deploy/AWS machinery is richer than a one-off script would need
 | 1. Core fill pipeline | `src/core/` + `src/myntra/` + `config/myntra/` | Shopify CSV → mapped/validated Myntra `.xlsx` + images → S3. Entry: `run.py`. |
 | 2. Error-correction backend | `src/myntra/{groupid_ledger,error_reader,corrector}.py` | styleGroupId ledger; read+classify Myntra rejection files; regenerate a corrected sheet. |
 | 3. Web app (FastAPI) | `src/web/` | "Marigold Ops" UI: Flow A *Generate*, Flow B *Fix*. Calls layers 1–2; no business logic of its own. |
-| 4. Cloud / CI-CD / deploy | `Dockerfile`, `.github/workflows/ci-cd.yml`, `aws/`, `S3/`, `docs/runbooks/` | Image build, GitHub Actions → ECR via OIDC, EC2 deploy, Cognito/SSM/Secrets. |
+| 4. Cloud / CI-CD / deploy | `Dockerfile`, `.github/workflows/ci-cd.yml`, `aws/`, `S3/`, `docs/runbooks/` | Image build, GitHub Actions → ECR via OIDC, **auto-deploy to EC2 via SSM**, Cognito/SSM/Secrets. |
 
 **Full map with data flow, every module, and integration boundaries:**
 [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — start there for "what comes from where".
+
+## Deployment status (2026-07-02) — LIVE
+
+The app runs on a start/stop **EC2 t3.micro** (`listing-app`), image pulled from ECR. **Real
+Cognito auth is enforced** (hosted-UI login → `/auth/callback` → `id_token` cookie). Because
+Cognito rejects plain-HTTP callbacks on any non-`localhost` host and there is **no TLS yet**,
+the app is reached through an **SSH tunnel to localhost**:
+`ssh -i <key>.pem -L 8000:localhost:80 ec2-user@<EC2_IP>` → browse `http://localhost:8000/`.
+**CI/CD is full CD:** push to `main` → tests → build/push `:latest` → the `deploy` job restarts
+the box via **SSM Run Command** (targets the `Name=listing-app` tag). Every AWS/GitHub resource
+is catalogued in [`docs/infra-resources.md`](docs/infra-resources.md). Operate/rebuild via
+[`docs/runbooks/web-ec2-deploy-console.md`](docs/runbooks/web-ec2-deploy-console.md). TLS + a
+public URL (e.g. CloudFront) is intentionally **deferred** — do not open the SG to `0.0.0.0/0`.
 
 ## How to run / test
 
@@ -39,7 +52,7 @@ LEDGER_LOCAL_PATH=src/web/runtime/ledger.json AUTH_DISABLED=1 uvicorn src.web.ma
 #   $env:LEDGER_LOCAL_PATH="src/web/runtime/ledger.json"; $env:AUTH_DISABLED="1"; uvicorn src.web.main:app --reload
 # → http://localhost:8000/   (container runs on 8080; local uvicorn defaults to 8000)
 
-# Tests (57; this is the CI gate)
+# Tests (74; this is the CI gate)
 python -m pytest -q
 ```
 
