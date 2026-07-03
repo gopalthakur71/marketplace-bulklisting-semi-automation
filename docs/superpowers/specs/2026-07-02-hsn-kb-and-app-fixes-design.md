@@ -120,13 +120,23 @@ New route `POST /generate/unconfirm/{job_id}` in `generate.py`. The confirm resp
 
 Pure copy; final wording confirmable with Gopal.
 
+### B.4 Manual styleGroupId seed (with undo/edit)
+
+**Problem:** the Generate form shows `styleGroupId start: N (auto, from ledger)` as read-only. When Gopal has listed products **outside the app** (manual Myntra uploads), the ledger's counter is behind reality, and the next batch could reissue IDs already used on Myntra. He needs to snap the counter to the truth.
+
+**Fix:**
+- **UI (`generate.html`):** make the styleGroupId start confirmable/overridable. Default state shows the value with an **[Edit]** button; Edit reveals an input labelled **"Last used styleGroupId"**; Save records it. After saving, show `styleGroupId start: <value+1> (set manually)` with an **[Undo]** button that restores the previous value.
+- **Semantics:** the user enters the **last used** id; the app records `next_style_group_id = value + 1`.
+- **Ledger (`groupid_ledger.py`):** new `set_next(store, value)` writes `next_style_group_id` and keeps an audit trail of the previous value so **Undo** can restore it (same pattern as B.2's `unconfirm`). **Guard:** if the new `next` is **lower** than the current one, warn (risks reissuing IDs used by confirmed batches) but allow — the user is authoritative; setting it higher is always safe.
+- **Routes (`generate.py`):** `POST /generate/style-start` (set) and its undo, returning the updated form fragment (htmx swap).
+
 ---
 
 ## Testing
 
 - **`hsn_kb.py`:** `signature()` normalization (fabric from metafield vs title fallback vs unknown); `read_kb` seeding; `suggest` ordering; `learn` upsert (count/examples/last_used).
 - **Mapper:** HSN set from injected `hsn_by_signature`; unresolved signature → flag; COO replication across `Country Of Origin2…5`; HSN no longer set by the fabric block.
-- **Ledger:** `unconfirm` happy path; guard rejects undo when a later batch was confirmed.
+- **Ledger:** `unconfirm` happy path; guard rejects undo when a later batch was confirmed. `set_next` records `value+1`, audit-trail undo restores the previous value, guard warns when set lower.
 - **Web (mirror `tests/web/test_generate.py` + fix-flow tests):** pre-scan → `awaiting_hsn` → review screen lists signatures + suggestions; submit with 8-digit codes → KB learned → file builds; invalid (non-8-digit) code re-renders with error; undo route reverts ledger; result screen shows the verify notice.
 
 ---
