@@ -118,3 +118,26 @@ def test_silk_fabric_block():
     assert row.cells["Saree Fabric"] == "Pure Silk"
     assert row.cells["Wash Care"] == "Dry Clean"
     assert row.cells["Prominent Colour"] == "Blue"
+
+
+def test_replicate_constant_across_numbered_cols():
+    headers = ["SKUCode", "Country Of Origin", "Country Of Origin2", "Country Of Origin3"]
+    tmpl = TemplateInfo(
+        headers=headers, header_row=3, first_data_row=4,
+        col_index_by_header={h: i + 1 for i, h in enumerate(headers)},
+        vocab_by_header={
+            "Country Of Origin": ["India"],
+            "Country Of Origin2": ["India"],
+            "Country Of Origin3": ["India"],
+        },
+    )
+    p = Product(handle="h", sku="S1", title="T", vendor="v", tags="", body_html="",
+                price=1.0, compare_at_price=None, color=None, fabric=None,
+                size=None, status="active", images=[])
+    consts = {"Country Of Origin": "India"}
+    rules = {"replicate_constant_across_numbered": ["Country Of Origin"]}
+    row = map_product(p, tmpl, {}, consts, rules)
+    assert row.cells["Country Of Origin"] == "India"
+    assert row.cells["Country Of Origin2"] == "India"
+    assert row.cells["Country Of Origin3"] == "India"
+    assert "Country Of Origin2" not in row.blanks

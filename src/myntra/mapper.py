@@ -117,6 +117,18 @@ def map_product(product, template, column_map, constants, rules=None):
     for header, val in constants.items():
         _set_forced(row, template, header, val)
 
+    # 1b. replicate a base constant across its numbered siblings, e.g.
+    # "Country Of Origin" -> "Country Of Origin2".."Country Of Origin5".
+    # The template splits Country-Of-Origin into 5 vocab columns; the constant
+    # only fills the base, leaving the rest flagged blank every run.
+    for base in (rules.get("replicate_constant_across_numbered") or []):
+        if base not in constants:
+            continue
+        pat = re.compile(rf"^{re.escape(base)}\d+$")
+        for header in template.headers:
+            if pat.match(header):
+                _set_forced(row, template, header, constants[base])
+
     # 2. direct column-map copies (vocab-validated, flag-don't-guess)
     for field_key, header in column_map.items():
         _set(row, template, header, _shopify_value(product, field_key))

@@ -16,6 +16,12 @@ fabric_detection:
     Wash Care: Dry Clean
     HSN: "50072010"
 
+# Some mandatory constants exist as several numbered vocab columns in the template
+# (e.g. Country Of Origin, Country Of Origin2..5). The constant fills only the base
+# column; list the base here to copy its value across every "<base><digits>" sibling.
+replicate_constant_across_numbered:
+  - "Country Of Origin"
+
 # Derive Prominent Colour by scanning the product name, then description,
 # for any value in the Prominent Colour dropdown (longest/earliest match wins).
 prominent_colour_from_name: true
