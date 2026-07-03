@@ -64,6 +64,42 @@ def test_generate_runs_job_and_confirm_advances_ledger(tmp_path, monkeypatch):
     assert led["next_style_group_id"] == 4
 
 
+def test_confirm_then_undo_rolls_ledger_back(tmp_path, monkeypatch):
+    client, settings = _client(tmp_path)
+
+    def fake_main(csv_path=None, out_dir=None, style_group_id_start=None, **kw):
+        with open(f"{out_dir}/myntra_filled.xlsx", "wb") as fh:
+            fh.write(b"x")
+        with open(f"{out_dir}/report.txt", "w") as fh:
+            fh.write("r\n")
+        return {"filled": f"{out_dir}/myntra_filled.xlsx",
+                "report": f"{out_dir}/report.txt", "products": 3, "uploaded": 0}
+
+    monkeypatch.setattr(gen, "pipeline_main", fake_main)
+    monkeypatch.setattr(gen, "count_products", lambda path: 3)
+
+    csv = b"Handle,Title\na,A\nb,B\nc,C\n"
+    r = client.post("/generate", files={"file": ("products_export.csv", csv, "text/csv")})
+    job_id = r.headers["x-job-id"]
+
+    import time
+    for _ in range(20):
+        if "Download" in client.get(f"/jobs/{job_id}").text:
+            break
+        time.sleep(0.05)
+
+    from src.myntra.groupid_ledger import read_ledger
+    from src.web.settings import ledger_store
+
+    rc = client.post(f"/generate/confirm/{job_id}")
+    assert "Undo" in rc.text
+    assert read_ledger(ledger_store(settings))["next_style_group_id"] == 4
+
+    ru = client.post(f"/generate/unconfirm/{job_id}")
+    assert "Mark upload successful" in ru.text
+    assert read_ledger(ledger_store(settings))["next_style_group_id"] == 1
+
+
 def test_result_screen_shows_verify_notice(tmp_path, monkeypatch):
     client, settings = _client(tmp_path)
 

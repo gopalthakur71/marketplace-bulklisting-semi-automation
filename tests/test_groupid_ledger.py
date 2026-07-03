@@ -52,3 +52,27 @@ def test_confirm_unknown_batch_raises():
     import pytest
     with pytest.raises(KeyError):
         confirm(s, "does-not-exist")
+
+
+def test_unconfirm_reverts_most_recent_batch():
+    from src.myntra.groupid_ledger import unconfirm
+    s = FakeStore()
+    start, batch_id = reserve(s, count=3, filename="a.xlsx")   # range 1..3
+    confirm(s, batch_id)                                        # next -> 4
+    new_next = unconfirm(s, batch_id)                           # roll back to 1
+    assert new_next == 1
+    led = read_ledger(s)
+    assert led["next_style_group_id"] == 1
+    assert led["batches"][0]["status"] == "pending"
+
+
+def test_unconfirm_blocked_when_later_batch_confirmed():
+    import pytest
+    from src.myntra.groupid_ledger import unconfirm
+    s = FakeStore()
+    _, b1 = reserve(s, count=2, filename="a.xlsx")   # range 1..2
+    confirm(s, b1)                                    # next -> 3
+    _, b2 = reserve(s, count=2, filename="b.xlsx")    # range 3..4
+    confirm(s, b2)                                    # next -> 5
+    with pytest.raises(ValueError):
+        unconfirm(s, b1)                              # b2 already consumed IDs past b1

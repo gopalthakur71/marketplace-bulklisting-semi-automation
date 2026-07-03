@@ -1,0 +1,6 @@
+<div style="margin-top:14px">
+  {% if error %}<p class="flag mono">⚠ {{ error }}</p>{% endif %}
+  <p class="ok mono">✓ Confirmed. Ledger advanced to {{ new_next }}.</p>
+  <button class="btn" hx-post="/generate/unconfirm/{{ job.id }}"
+          hx-swap="outerHTML">↩ Undo</button>
+</div>

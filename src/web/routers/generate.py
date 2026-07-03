@@ -5,7 +5,7 @@ import shutil
 from fastapi import APIRouter, Request, UploadFile, File, HTTPException
 from fastapi.responses import FileResponse, HTMLResponse
 
-from src.myntra.groupid_ledger import reserve, confirm
+from src.myntra.groupid_ledger import reserve, confirm, unconfirm, read_ledger
 from src.myntra.pipeline import main as pipeline_main  # noqa: F401 (patched in tests)
 from src.web.jobs import store
 from src.web.routers.pages import get_user, get_settings
@@ -118,5 +118,23 @@ def confirm_upload(request: Request, job_id: str):
     if not job or not job.batch_id:
         raise HTTPException(status_code=404, detail="unknown job")
     new_next = confirm(ledger_store(settings), job.batch_id)
-    return HTMLResponse(
-        f'<p class="ok mono">✓ Confirmed. Ledger advanced to {new_next}.</p>')
+    return _templates().TemplateResponse(
+        request, "_confirmed.html", {"job": job, "new_next": new_next})
+
+
+@router.post("/generate/unconfirm/{job_id}", response_class=HTMLResponse)
+def unconfirm_upload(request: Request, job_id: str):
+    get_user(request)
+    settings = get_settings(request)
+    job = store.get(job_id)
+    if not job or not job.batch_id:
+        raise HTTPException(status_code=404, detail="unknown job")
+    try:
+        unconfirm(ledger_store(settings), job.batch_id)
+    except (ValueError, KeyError) as exc:
+        # Guard tripped (a later batch was confirmed) — stay confirmed, show why.
+        led = read_ledger(ledger_store(settings))
+        return _templates().TemplateResponse(
+            request, "_confirmed.html",
+            {"job": job, "new_next": led["next_style_group_id"], "error": str(exc)})
+    return _templates().TemplateResponse(request, "_mark_upload.html", {"job": job})

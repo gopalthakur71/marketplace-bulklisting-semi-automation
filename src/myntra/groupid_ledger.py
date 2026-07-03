@@ -44,6 +44,23 @@ def confirm(store, batch_id, key=LEDGER_KEY):
     raise KeyError(f"no pending batch {batch_id!r}")
 
 
+def unconfirm(store, batch_id, key=LEDGER_KEY):
+    """Revert the MOST-RECENTLY-confirmed batch back to pending and roll
+    next_style_group_id back to the start of its range. Guard: only safe when no
+    later batch has consumed IDs past this range (i.e. next == range[1] + 1),
+    otherwise undoing would reissue IDs a later confirm already used."""
+    led = read_ledger(store, key)
+    for b in led["batches"]:
+        if b["id"] == batch_id and b["status"] == "confirmed":
+            if led["next_style_group_id"] != b["range"][1] + 1:
+                raise ValueError("can't undo — a later batch was already confirmed")
+            b["status"] = "pending"
+            led["next_style_group_id"] = b["range"][0]
+            store.put_json(key, led)
+            return led["next_style_group_id"]
+    raise KeyError(f"no confirmed batch {batch_id!r}")
+
+
 class S3JsonStore:
     """Production store: a JSON object per key in an S3 bucket. boto3 client injected."""
     def __init__(self, bucket, client):

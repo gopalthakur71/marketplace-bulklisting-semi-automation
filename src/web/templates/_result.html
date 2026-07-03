@@ -9,9 +9,6 @@
     <p class="flag mono">styleGroupId range assigned: {{ job.range[0] }} – {{ job.range[1] }}</p>
     <a class="btn" href="/generate/download/{{ job.id }}">⬇ Download xlsx</a>
     <p class="flag mono" style="margin-top:12px"><strong>⚠ Please verify the downloaded file yourself and make any changes you need before uploading to Myntra.</strong></p>
-    <div style="margin-top:14px">
-      <button class="btn green" hx-post="/generate/confirm/{{ job.id }}"
-              hx-swap="outerHTML">✓ Mark upload successful</button>
-    </div>
+    {% include "_mark_upload.html" %}
   {% endif %}
 </div>
