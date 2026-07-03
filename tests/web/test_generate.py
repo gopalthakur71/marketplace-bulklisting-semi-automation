@@ -62,3 +62,31 @@ def test_generate_runs_job_and_confirm_advances_ledger(tmp_path, monkeypatch):
     from src.web.settings import ledger_store
     led = read_ledger(ledger_store(settings))
     assert led["next_style_group_id"] == 4
+
+
+def test_result_screen_shows_verify_notice(tmp_path, monkeypatch):
+    client, settings = _client(tmp_path)
+
+    def fake_main(csv_path=None, out_dir=None, style_group_id_start=None, **kw):
+        with open(f"{out_dir}/myntra_filled.xlsx", "wb") as fh:
+            fh.write(b"xlsx-bytes")
+        with open(f"{out_dir}/report.txt", "w") as fh:
+            fh.write("3 rows\n")
+        return {"filled": f"{out_dir}/myntra_filled.xlsx",
+                "report": f"{out_dir}/report.txt", "products": 3, "uploaded": 9}
+
+    monkeypatch.setattr(gen, "pipeline_main", fake_main)
+    monkeypatch.setattr(gen, "count_products", lambda path: 3)
+
+    csv = b"Handle,Title\na,A\nb,B\nc,C\n"
+    r = client.post("/generate", files={"file": ("products_export.csv", csv, "text/csv")})
+    job_id = r.headers["x-job-id"]
+
+    import time
+    poll = None
+    for _ in range(20):
+        poll = client.get(f"/jobs/{job_id}")
+        if "Download" in poll.text:
+            break
+        time.sleep(0.05)
+    assert "verify the downloaded file yourself" in poll.text.lower()
