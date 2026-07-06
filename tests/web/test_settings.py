@@ -1,4 +1,5 @@
-from src.web.settings import load_settings, ledger_store, LocalJsonStore
+from src.web.settings import (
+    Settings, load_settings, ledger_store, hsn_store, LocalJsonStore)
 
 
 def test_env_takes_precedence_over_ssm():
@@ -44,6 +45,19 @@ def test_ledger_store_local_when_path_set(tmp_path):
     assert store.get_json("anything") is None
     store.put_json("state/myntra_groupid.json", {"next_style_group_id": 5})
     assert store.get_json("state/myntra_groupid.json")["next_style_group_id"] == 5
+
+
+def test_hsn_local_path_parsed_from_env():
+    s = load_settings(env={"HSN_LOCAL_PATH": "/tmp/hsn.json"}, ssm=lambda name: None)
+    assert s.hsn_local_path == "/tmp/hsn.json"
+
+
+def test_hsn_store_uses_local_path_when_set(tmp_path):
+    s = Settings(hsn_local_path=str(tmp_path / "hsn.json"))
+    store = hsn_store(s)
+    assert isinstance(store, LocalJsonStore)
+    store.put_json("state/hsn_kb.json", {"classifications": {}})
+    assert store.get_json("state/hsn_kb.json") == {"classifications": {}}
 
 
 def test_cookie_secure_from_env():
