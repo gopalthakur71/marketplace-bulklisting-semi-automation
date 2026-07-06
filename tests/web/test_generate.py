@@ -186,3 +186,15 @@ def test_hsn_invalid_code_rerenders_with_error(tmp_path, monkeypatch):
 def test_generate_form_still_renders(tmp_path):
     client, _ = _client(tmp_path)
     assert client.get("/generate").status_code == 200
+
+
+def test_generate_form_has_no_hidden_required_field(tmp_path):
+    # A `required` input inside the hidden style-edit div blocks the whole Generate
+    # form: the browser can't focus a display:none required field, so the submit is
+    # silently aborted. The styleGroupId input must NOT be `required`.
+    client, _ = _client(tmp_path)
+    html = client.get("/generate").text
+    assert 'name="last_used"' in html
+    marker = html.index('name="last_used"')
+    input_tag = html[html.rindex("<input", 0, marker):html.index(">", marker)]
+    assert "required" not in input_tag
