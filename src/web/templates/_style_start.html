@@ -1,0 +1,18 @@
+<div id="style-start">
+  <p class="mono">styleGroupId start: <strong>{{ next_id }}</strong>
+    {% if undone %}(auto, from ledger){% elif warn is defined and warn %}(set manually){% else %}(auto, from ledger){% endif %}
+    <button type="button" class="btn small" onclick="document.getElementById('style-edit').style.display='block'">Edit</button>
+  </p>
+  {% if warn is defined and warn %}
+    <p class="flag mono">⚠ Lowered below the previous counter — this can reissue styleGroupIds already used by confirmed batches.</p>
+  {% endif %}
+  <div id="style-edit" style="display:none;margin-top:8px">
+    <label class="mono">Last used styleGroupId
+      <input type="number" name="last_used" min="0" required></label>
+    <button class="btn small" hx-post="/generate/style-start"
+            hx-include="[name='last_used']" hx-target="#style-start"
+            hx-swap="outerHTML">Save</button>
+    <button class="btn small" hx-post="/generate/style-start/undo"
+            hx-target="#style-start" hx-swap="outerHTML">Undo</button>
+  </div>
+</div>

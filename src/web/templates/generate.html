@@ -5,7 +5,7 @@
       hx-target="#progress" hx-swap="innerHTML">
   <div class="drop">⬆ Choose your <span class="mono">products_export.csv</span>
     <input type="file" name="file" accept=".csv" required></div>
-  <p class="mono">styleGroupId start: <strong>{{ next_id }}</strong> (auto, from ledger)</p>
+  {% include "_style_start.html" %}
   <button class="btn" type="submit">Generate →</button>
 </form>
 <div id="progress"></div>

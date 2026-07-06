@@ -126,3 +126,18 @@ def test_result_screen_shows_verify_notice(tmp_path, monkeypatch):
             break
         time.sleep(0.05)
     assert "verify the downloaded file yourself" in poll.text.lower()
+
+
+def test_style_start_set_and_undo(tmp_path):
+    client, settings = _client(tmp_path)
+    from src.myntra.groupid_ledger import read_ledger
+    from src.web.settings import ledger_store
+
+    r = client.post("/generate/style-start", data={"last_used": "40"})
+    assert r.status_code == 200
+    assert "41" in r.text
+    assert read_ledger(ledger_store(settings))["next_style_group_id"] == 41
+
+    ru = client.post("/generate/style-start/undo")
+    assert ru.status_code == 200
+    assert read_ledger(ledger_store(settings))["next_style_group_id"] == 1

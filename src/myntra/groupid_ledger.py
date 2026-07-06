@@ -61,6 +61,31 @@ def unconfirm(store, batch_id, key=LEDGER_KEY):
     raise KeyError(f"no confirmed batch {batch_id!r}")
 
 
+def set_next(store, value, key=LEDGER_KEY):
+    """Snap next_style_group_id to `value + 1`. The user enters the LAST styleGroupId
+    they used (e.g. from a manual Myntra upload outside the app); the next batch
+    continues from value+1. Records the previous next for a one-step undo. Returns
+    {"next", "prev", "warn"}; warn=True when lowering the counter (risks reissuing
+    IDs used by confirmed batches — allowed, the user is authoritative)."""
+    led = read_ledger(store, key)
+    prev = led["next_style_group_id"]
+    new_next = value + 1
+    led["style_seed_prev"] = prev
+    led["next_style_group_id"] = new_next
+    store.put_json(key, led)
+    return {"next": new_next, "prev": prev, "warn": new_next < prev}
+
+
+def undo_set_next(store, key=LEDGER_KEY):
+    """Restore next_style_group_id to the value before the last set_next."""
+    led = read_ledger(store, key)
+    if "style_seed_prev" not in led:
+        raise ValueError("nothing to undo")
+    led["next_style_group_id"] = led.pop("style_seed_prev")
+    store.put_json(key, led)
+    return led["next_style_group_id"]
+
+
 class S3JsonStore:
     """Production store: a JSON object per key in an S3 bucket. boto3 client injected."""
     def __init__(self, bucket, client):

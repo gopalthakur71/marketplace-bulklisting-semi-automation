@@ -2,7 +2,7 @@ import csv as csvmod
 import os
 import shutil
 
-from fastapi import APIRouter, Request, UploadFile, File, HTTPException
+from fastapi import APIRouter, Request, UploadFile, File, HTTPException, Form
 from fastapi.responses import FileResponse, HTMLResponse
 
 from src.myntra.groupid_ledger import reserve, confirm, unconfirm, read_ledger
@@ -138,3 +138,26 @@ def unconfirm_upload(request: Request, job_id: str):
             request, "_confirmed.html",
             {"job": job, "new_next": led["next_style_group_id"], "error": str(exc)})
     return _templates().TemplateResponse(request, "_mark_upload.html", {"job": job})
+
+
+@router.post("/generate/style-start", response_class=HTMLResponse)
+def style_start_set(request: Request, last_used: int = Form(...)):
+    get_user(request)
+    settings = get_settings(request)
+    from src.myntra.groupid_ledger import set_next
+    res = set_next(ledger_store(settings), last_used)
+    return _templates().TemplateResponse(
+        request, "_style_start.html", {"next_id": res["next"], "warn": res["warn"]})
+
+
+@router.post("/generate/style-start/undo", response_class=HTMLResponse)
+def style_start_undo(request: Request):
+    get_user(request)
+    settings = get_settings(request)
+    from src.myntra.groupid_ledger import undo_set_next, read_ledger as _rl
+    try:
+        next_id = undo_set_next(ledger_store(settings))
+    except ValueError:
+        next_id = _rl(ledger_store(settings))["next_style_group_id"]
+    return _templates().TemplateResponse(
+        request, "_style_start.html", {"next_id": next_id, "undone": True})
