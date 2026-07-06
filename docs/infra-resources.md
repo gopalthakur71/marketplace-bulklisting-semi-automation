@@ -94,7 +94,7 @@ flowchart TB
 ### Storage (S3)
 | Bucket | Keys | Note |
 |---|---|---|
-| `ijorethnicpartners` | `state/myntra_groupid.json` (styleGroupId ledger), `state/hsn_kb.json` (HSN knowledge base), `myntra/…` (uploaded product images + outputs) | Instance role needs **ListBucket** too — without it a missing key returns 403 not 404 and the app 500s. |
+| `ijorethnicpartners` | `state/myntra_groupid.json` (styleGroupId ledger), `state/hsn_kb.json` (HSN knowledge base), `state/sku_registry.json` (per-SKU generation registry), `myntra/…` (uploaded product images + outputs) | Instance role needs **ListBucket** too — without it a missing key returns 403 not 404 and the app 500s. |
 
 ---
 
