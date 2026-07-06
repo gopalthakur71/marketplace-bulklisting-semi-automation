@@ -19,7 +19,7 @@ which is why the deploy/AWS machinery is richer than a one-off script would need
 | Layer | Path | Does |
 |---|---|---|
 | 1. Core fill pipeline | `src/core/` + `src/myntra/` + `config/myntra/` | Shopify CSV → mapped/validated Myntra `.xlsx` + images → S3. Entry: `run.py`. |
-| 2. Error-correction backend | `src/myntra/{groupid_ledger,error_reader,corrector}.py` | styleGroupId ledger; read+classify Myntra rejection files; regenerate a corrected sheet. |
+| 2. Error-correction backend | `src/myntra/{groupid_ledger,hsn_kb,error_reader,corrector}.py` | styleGroupId ledger; HSN knowledge base (learn HSN once per category\|fabric signature); read+classify Myntra rejection files; regenerate a corrected sheet. |
 | 3. Web app (FastAPI) | `src/web/` | "Marigold Ops" UI: Flow A *Generate*, Flow B *Fix*. Calls layers 1–2; no business logic of its own. |
 | 4. Cloud / CI-CD / deploy | `Dockerfile`, `.github/workflows/ci-cd.yml`, `aws/`, `S3/`, `docs/runbooks/` | Image build, GitHub Actions → ECR via OIDC, **auto-deploy to EC2 via SSM**, Cognito/SSM/Secrets. |
 
@@ -47,9 +47,9 @@ python run.py
 
 # Web app locally (no AWS needed; logs in a synthetic dev@local user)
 #   bash:
-LEDGER_LOCAL_PATH=src/web/runtime/ledger.json AUTH_DISABLED=1 uvicorn src.web.main:app --reload
+LEDGER_LOCAL_PATH=src/web/runtime/ledger.json HSN_LOCAL_PATH=src/web/runtime/hsn_kb.json AUTH_DISABLED=1 uvicorn src.web.main:app --reload
 #   PowerShell:
-#   $env:LEDGER_LOCAL_PATH="src/web/runtime/ledger.json"; $env:AUTH_DISABLED="1"; uvicorn src.web.main:app --reload
+#   $env:LEDGER_LOCAL_PATH="src/web/runtime/ledger.json"; $env:HSN_LOCAL_PATH="src/web/runtime/hsn_kb.json"; $env:AUTH_DISABLED="1"; uvicorn src.web.main:app --reload
 # → http://localhost:8000/   (container runs on 8080; local uvicorn defaults to 8000)
 
 # Tests (74; this is the CI gate)
