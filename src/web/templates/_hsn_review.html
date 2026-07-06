@@ -1,0 +1,24 @@
+<form hx-post="/generate/hsn/{{ job_id }}" hx-target="#progress" hx-swap="innerHTML">
+  <h3>One-time HSN codes for this batch</h3>
+  <p class="hint">HSN isn't in the Shopify export. Enter the 8-digit code for each
+    fabric group once — the app remembers it for next time. Chips show codes used
+    before; click one to fill the box.</p>
+  {% if error %}<p class="flag mono">⚠ {{ error }}</p>{% endif %}
+  {% for s in signatures %}
+    <div class="card hsn-row">
+      <strong class="mono">{{ s.signature }}</strong>
+      <div class="hint">{{ s.examples | join(", ") }}</div>
+      <input type="text" inputmode="numeric" pattern="[0-9]{8}" maxlength="8" required
+             name="hsn__{{ loop.index0 }}"
+             value="{{ values[loop.index0] if values else '' }}"
+             placeholder="8-digit HSN">
+      {% for sug in s.suggestions %}
+        <button type="button" class="chip"
+                onclick="this.closest('.hsn-row').querySelector('input').value='{{ sug.hsn }}'">
+          {{ sug.hsn }}{% if sug.examples %} · {{ sug.examples | join(', ') }}{% endif %}
+        </button>
+      {% endfor %}
+    </div>
+  {% endfor %}
+  <button class="btn" type="submit">Save HSN &amp; generate →</button>
+</form>

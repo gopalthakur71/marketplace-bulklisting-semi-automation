@@ -10,8 +10,22 @@ import src.web.routers.generate as gen
 
 def _client(tmp_path):
     s = Settings(auth_disabled=True, s3_bucket="b",
-                 ledger_local_path=str(tmp_path / "led.json"))
+                 ledger_local_path=str(tmp_path / "led.json"),
+                 hsn_local_path=str(tmp_path / "hsn.json"))
     return TestClient(create_app(s)), s
+
+
+def _pass_hsn_and_wait(client, job_id, hsn="12345678"):
+    """Submit the single-signature HSN review, then poll until the sheet is ready.
+    The default test CSV (Handle,Title only) yields one signature: saree|unknown."""
+    import time
+    poll = client.post(f"/generate/hsn/{job_id}", data={"hsn__0": hsn})
+    for _ in range(20):
+        if "Download" in poll.text:
+            return poll
+        time.sleep(0.05)
+        poll = client.get(f"/jobs/{job_id}")
+    return poll
 
 
 def test_generate_rejects_non_csv(tmp_path):
@@ -39,21 +53,13 @@ def test_generate_runs_job_and_confirm_advances_ledger(tmp_path, monkeypatch):
     csv = b"Handle,Title\na,A\nb,B\nc,C\n"
     r = client.post("/generate", files={"file": ("products_export.csv", csv, "text/csv")})
     assert r.status_code == 200
+    assert "One-time HSN" in r.text                 # pre-scan paused for HSN
     job_id = r.headers["x-job-id"]
 
-    # Background task runs inline under TestClient; poll once.
-    # Add retry loop in case the thread hasn't finished yet.
-    import time
-    poll = None
-    for _ in range(20):
-        poll = client.get(f"/jobs/{job_id}")
-        if "Download" in poll.text:
-            break
-        time.sleep(0.05)
-
+    poll = _pass_hsn_and_wait(client, job_id)
     assert poll.status_code == 200
     assert "Download" in poll.text
-    assert "16" in poll.text or "1 –" in poll.text or "1 - 3" in poll.text  # range shown
+    assert "1 –" in poll.text or "1 - 3" in poll.text or "1 – 3" in poll.text  # range shown
 
     # ledger started empty (next id 1) -> reserve was [1,3]; confirm advances to 4
     rc = client.post(f"/generate/confirm/{job_id}")
@@ -81,12 +87,7 @@ def test_confirm_then_undo_rolls_ledger_back(tmp_path, monkeypatch):
     csv = b"Handle,Title\na,A\nb,B\nc,C\n"
     r = client.post("/generate", files={"file": ("products_export.csv", csv, "text/csv")})
     job_id = r.headers["x-job-id"]
-
-    import time
-    for _ in range(20):
-        if "Download" in client.get(f"/jobs/{job_id}").text:
-            break
-        time.sleep(0.05)
+    _pass_hsn_and_wait(client, job_id)
 
     from src.myntra.groupid_ledger import read_ledger
     from src.web.settings import ledger_store
@@ -116,15 +117,7 @@ def test_result_screen_shows_verify_notice(tmp_path, monkeypatch):
 
     csv = b"Handle,Title\na,A\nb,B\nc,C\n"
     r = client.post("/generate", files={"file": ("products_export.csv", csv, "text/csv")})
-    job_id = r.headers["x-job-id"]
-
-    import time
-    poll = None
-    for _ in range(20):
-        poll = client.get(f"/jobs/{job_id}")
-        if "Download" in poll.text:
-            break
-        time.sleep(0.05)
+    poll = _pass_hsn_and_wait(client, r.headers["x-job-id"])
     assert "verify the downloaded file yourself" in poll.text.lower()
 
 
@@ -141,3 +134,55 @@ def test_style_start_set_and_undo(tmp_path):
     ru = client.post("/generate/style-start/undo")
     assert ru.status_code == 200
     assert read_ledger(ledger_store(settings))["next_style_group_id"] == 1
+
+
+def test_hsn_review_lists_signature_and_learns_on_submit(tmp_path, monkeypatch):
+    client, settings = _client(tmp_path)
+
+    def fake_main(csv_path=None, out_dir=None, style_group_id_start=None,
+                  hsn_by_signature=None, **kw):
+        # the learned map reaches the pipeline
+        assert hsn_by_signature == {"saree|unknown": "63079090"}
+        with open(f"{out_dir}/myntra_filled.xlsx", "wb") as fh:
+            fh.write(b"x")
+        with open(f"{out_dir}/report.txt", "w") as fh:
+            fh.write("r\n")
+        return {"filled": f"{out_dir}/myntra_filled.xlsx",
+                "report": f"{out_dir}/report.txt", "products": 1, "uploaded": 0}
+
+    monkeypatch.setattr(gen, "pipeline_main", fake_main)
+    monkeypatch.setattr(gen, "count_products", lambda path: 1)
+
+    csv = b"Handle,Title\na,Plain Saree\n"
+    r = client.post("/generate", files={"file": ("products_export.csv", csv, "text/csv")})
+    assert "saree|unknown" in r.text
+    job_id = r.headers["x-job-id"]
+
+    ready = _pass_hsn_and_wait(client, job_id, hsn="63079090")
+    assert "Download" in ready.text
+
+    from src.myntra.hsn_kb import read_kb, suggest
+    from src.web.settings import hsn_store
+    kb = read_kb(hsn_store(settings))
+    assert suggest(kb, "saree|unknown")[0]["hsn"] == "63079090"
+
+
+def test_hsn_invalid_code_rerenders_with_error(tmp_path, monkeypatch):
+    client, settings = _client(tmp_path)
+    monkeypatch.setattr(gen, "count_products", lambda path: 1)
+
+    csv = b"Handle,Title\na,Plain Saree\n"
+    r = client.post("/generate", files={"file": ("products_export.csv", csv, "text/csv")})
+    job_id = r.headers["x-job-id"]
+
+    bad = client.post(f"/generate/hsn/{job_id}", data={"hsn__0": "123"})   # not 8 digits
+    assert "exactly 8 digits" in bad.text
+    assert 'value="123"' in bad.text                    # entered value preserved
+    from src.myntra.groupid_ledger import read_ledger
+    from src.web.settings import ledger_store
+    assert read_ledger(ledger_store(settings))["next_style_group_id"] == 1  # not built
+
+
+def test_generate_form_still_renders(tmp_path):
+    client, _ = _client(tmp_path)
+    assert client.get("/generate").status_code == 200

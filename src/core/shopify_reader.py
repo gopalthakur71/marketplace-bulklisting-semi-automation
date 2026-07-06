@@ -21,13 +21,17 @@ def read_products(path):
 
     products = []
     for handle, grp in df.groupby("Handle", sort=False):
-        imgs = grp[["Image Src", "Image Position"]].dropna(subset=["Image Src"])
-        imgs = imgs.sort_values("Image Position")
+        # Image columns are always present in a real Shopify export, but guard so
+        # an image-less CSV (e.g. the Generate pre-scan on a trimmed file) still reads.
         seen, urls = set(), []
-        for u in imgs["Image Src"].tolist():
-            if u not in seen:
-                seen.add(u)
-                urls.append(u)
+        if "Image Src" in grp.columns:
+            imgs = grp.dropna(subset=["Image Src"])
+            if "Image Position" in imgs.columns:
+                imgs = imgs.sort_values("Image Position")
+            for u in imgs["Image Src"].tolist():
+                if u not in seen:
+                    seen.add(u)
+                    urls.append(u)
 
         def fv(col):
             return _first(grp[col]) if col in grp.columns else None
