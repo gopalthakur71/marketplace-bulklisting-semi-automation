@@ -74,8 +74,8 @@ def test_pick_colour_longest_earliest_wins():
 FABRIC_RULES = {
     "fabric_detection": {
         "order": ["cotton", "silk"],
-        "cotton": {"Saree Fabric": "Pure Cotton", "Wash Care": "Hand Wash", "HSN": "52081120"},
-        "silk": {"Saree Fabric": "Pure Silk", "Wash Care": "Dry Clean", "HSN": "50072010"},
+        "cotton": {"Saree Fabric": "Pure Cotton", "Wash Care": "Hand Wash"},
+        "silk": {"Saree Fabric": "Pure Silk", "Wash Care": "Dry Clean"},
     },
     "prominent_colour_from_name": True,
     "colour_scan_exclude": ["NA"],
@@ -101,7 +101,6 @@ def test_cotton_fabric_block_and_colour_and_forced_brand():
                 color=None, fabric=None, size=None, status="active", images=[])
     consts = {"brand": "Ijor Ethnic Partners"}
     row = map_product(p, _template_with_rules(), {}, consts, FABRIC_RULES)
-    assert row.cells["HSN"] == "52081120"               # name has 'cotton'
     assert row.cells["Saree Fabric"] == "Pure Cotton"
     assert row.cells["Wash Care"] == "Hand Wash"
     assert row.cells["Prominent Colour"] == "Lavender"  # from name
@@ -114,10 +113,39 @@ def test_silk_fabric_block():
                 tags="", body_html="", price=3000.0, compare_at_price=None,
                 color=None, fabric=None, size=None, status="active", images=[])
     row = map_product(p, _template_with_rules(), {}, {}, FABRIC_RULES)
-    assert row.cells["HSN"] == "50072010"
     assert row.cells["Saree Fabric"] == "Pure Silk"
     assert row.cells["Wash Care"] == "Dry Clean"
     assert row.cells["Prominent Colour"] == "Blue"
+
+
+def test_hsn_set_from_injected_map():
+    p = Product(handle="h", sku="S1", title="Banarasi Saree", vendor="V", tags="",
+                body_html="", price=1.0, compare_at_price=None, color=None,
+                fabric="Pure Silk", size=None, status="active", images=[])
+    consts = {"articleType": "Sarees"}
+    hsn_map = {"saree|pure silk": "50072010"}
+    row = map_product(p, _template_with_rules(), {}, consts, FABRIC_RULES,
+                      hsn_by_signature=hsn_map)
+    assert row.cells["HSN"] == "50072010"
+
+
+def test_hsn_unresolved_signature_is_flagged_not_guessed():
+    p = Product(handle="h", sku="S2", title="Plain Saree", vendor="V", tags="",
+                body_html="", price=1.0, compare_at_price=None, color=None,
+                fabric=None, size=None, status="active", images=[])
+    consts = {"articleType": "Sarees"}
+    row = map_product(p, _template_with_rules(), {}, consts, FABRIC_RULES,
+                      hsn_by_signature={})   # nothing learned yet
+    assert "HSN" not in row.cells
+    assert any(f.field == "HSN" for f in row.flags)
+
+
+def test_fabric_block_no_longer_sets_hsn():
+    p = Product(handle="h", sku="S3", title="Lavender Pure Cotton Saree", vendor="V",
+                tags="", body_html="", price=1.0, compare_at_price=None, color=None,
+                fabric=None, size=None, status="active", images=[])
+    row = map_product(p, _template_with_rules(), {}, {}, FABRIC_RULES)  # no map
+    assert "HSN" not in row.cells
 
 
 def test_replicate_constant_across_numbered_cols():

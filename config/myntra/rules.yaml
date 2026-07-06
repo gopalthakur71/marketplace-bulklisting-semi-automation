@@ -2,19 +2,18 @@
 
 # Fabric detection: first keyword found in the product name (then the Shopify
 # fabric field) selects the fabric block. Each block fills Saree Fabric,
-# Blouse Fabric, Wash Care, and HSN with Myntra-valid values (from the working file).
+# Blouse Fabric, and Wash Care. (HSN is NO LONGER set here — it is learned per
+# category|fabric signature by the HSN knowledge base; see src/myntra/hsn_kb.py.)
 fabric_detection:
   order: [cotton, silk]   # check in this order; first match wins
   cotton:
     Saree Fabric: Pure Cotton
     Blouse Fabric: Pure Cotton
     Wash Care: Hand Wash
-    HSN: "52081120"
   silk:
     Saree Fabric: Pure Silk
     Blouse Fabric: Pure Silk
     Wash Care: Dry Clean
-    HSN: "50072010"
 
 # Some mandatory constants exist as several numbered vocab columns in the template
 # (e.g. Country Of Origin, Country Of Origin2..5). The constant fills only the base

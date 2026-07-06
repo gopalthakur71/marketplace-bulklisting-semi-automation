@@ -1,6 +1,7 @@
 import re
 
 from src.core.models import MappedRow, Flag
+from src.myntra.hsn_kb import signature
 
 
 def _fmt_num(x):
@@ -109,7 +110,7 @@ def _set_forced(row, template, header, value):
     row.cells[header] = str(value)
 
 
-def map_product(product, template, column_map, constants, rules=None):
+def map_product(product, template, column_map, constants, rules=None, hsn_by_signature=None):
     rules = rules or {}
     row = MappedRow(sku=product.sku)
 
@@ -156,6 +157,22 @@ def map_product(product, template, column_map, constants, rules=None):
             for header, value in (fabric_cfg.get(keyword) or {}).items():
                 _set(row, template, header, value)
             break
+
+    # 5b. HSN from the learned knowledge base, injected as a signature->hsn map.
+    # HSN is mandatory in Myntra but absent from the Shopify export; it is learned
+    # once per category|fabric signature via the Generate review screen. On the CLI
+    # path (hsn_by_signature is None) HSN is left blank. When a map is injected but a
+    # signature is unresolved, flag it rather than guess.
+    if hsn_by_signature is not None:
+        category = constants.get("articleType", "")
+        fabric_keywords = (fabric_cfg.get("order") or [])
+        sig = signature(product, category, fabric_keywords)
+        hsn = hsn_by_signature.get(sig)
+        if hsn:
+            _set(row, template, "HSN", str(hsn))
+        else:
+            row.flags.append(Flag(sku=row.sku, field="HSN",
+                                  reason="no HSN learned for signature", value=sig))
 
     # 6. Prominent Colour from name, then description
     if rules.get("prominent_colour_from_name") and "Prominent Colour" in template.vocab_by_header:

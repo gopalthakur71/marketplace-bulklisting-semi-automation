@@ -25,6 +25,7 @@ def test_constants_and_specs():
 
 def test_rules_config():
     r = yaml.safe_load(open("config/myntra/rules.yaml"))
-    assert r["fabric_detection"]["cotton"]["HSN"] == "52081120"
+    assert "HSN" not in r["fabric_detection"]["cotton"]
+    assert "HSN" not in r["fabric_detection"]["silk"]
     assert r["fabric_detection"]["silk"]["Saree Fabric"] == "Pure Silk"
     assert r["prominent_colour_from_name"] is True
