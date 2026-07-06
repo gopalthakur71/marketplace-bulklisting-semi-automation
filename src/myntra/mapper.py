@@ -110,7 +110,8 @@ def _set_forced(row, template, header, value):
     row.cells[header] = str(value)
 
 
-def map_product(product, template, column_map, constants, rules=None, hsn_by_signature=None):
+def map_product(product, template, column_map, constants, rules=None, hsn_by_signature=None,
+                hsn_override=None):
     rules = rules or {}
     row = MappedRow(sku=product.sku)
 
@@ -158,12 +159,13 @@ def map_product(product, template, column_map, constants, rules=None, hsn_by_sig
                 _set(row, template, header, value)
             break
 
-    # 5b. HSN from the learned knowledge base, injected as a signature->hsn map.
-    # HSN is mandatory in Myntra but absent from the Shopify export; it is learned
-    # once per category|fabric signature via the Generate review screen. On the CLI
-    # path (hsn_by_signature is None) HSN is left blank. When a map is injected but a
-    # signature is unresolved, flag it rather than guess.
-    if hsn_by_signature is not None:
+    # 5b. HSN. A pinned per-SKU code (hsn_override, e.g. a rebuild from the SKU
+    # registry) wins; otherwise use the injected signature->hsn map from the KB
+    # review. HSN is never guessed from the signature alone — unresolved => flag.
+    # On the CLI path (both None) HSN is left blank.
+    if hsn_override:
+        _set(row, template, "HSN", str(hsn_override))
+    elif hsn_by_signature is not None:
         category = constants.get("articleType", "")
         fabric_keywords = (fabric_cfg.get("order") or [])
         sig = signature(product, category, fabric_keywords)

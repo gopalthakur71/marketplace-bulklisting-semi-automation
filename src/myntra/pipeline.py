@@ -8,6 +8,7 @@ from src.myntra.mapper import map_product
 from src.core.images import process_images
 from src.myntra.fill import fill_template
 from src.myntra.report import write_report
+from src.myntra.sku_registry import content_hash
 
 
 def _resolve(name, subdir="input"):
@@ -17,7 +18,8 @@ def _resolve(name, subdir="input"):
 
 
 def main(template_path=None, csv_path=None, out_dir="output", config_dir="config/myntra",
-         fetch=None, upload=None, style_group_id_start=None, hsn_by_signature=None):
+         fetch=None, upload=None, style_group_id_start=None, hsn_by_signature=None,
+         only_skus=None, style_group_id_by_sku=None, hsn_by_sku=None):
     template_path = template_path or _resolve(
         "Myntra-Sku-Template-2026-06-16.xlsx", "templates/myntra")
     csv_path = csv_path or _resolve("products_export.csv")
@@ -29,6 +31,10 @@ def main(template_path=None, csv_path=None, out_dir="output", config_dir="config
 
     template = read_template(template_path)
     products = read_products(csv_path)
+    if only_skus is not None:
+        products = [p for p in products if p.sku in only_skus]
+    style_group_id_by_sku = style_group_id_by_sku or {}
+    hsn_by_sku = hsn_by_sku or {}
 
     images_dir = os.path.join(out_dir, "images")
     os.makedirs(images_dir, exist_ok=True)
@@ -41,21 +47,31 @@ def main(template_path=None, csv_path=None, out_dir="output", config_dir="config
     if not use_s3:
         specs = {**specs, "public_base_url": None}
 
-    rows = []
+    rows, records = [], []
     for i, p in enumerate(products, start=1):
         mapped = map_product(p, template, column_map, constants, rules,
-                             hsn_by_signature=hsn_by_signature)
+                             hsn_by_signature=hsn_by_signature,
+                             hsn_override=hsn_by_sku.get(p.sku))
         # Sequential styleGroupId (each product its own group), continuing from
         # the seller's existing catalog so ids don't collide with listed products.
+        # A pinned id (style_group_id_by_sku, e.g. a registry rebuild) wins.
+        sid = None
         if rules.get("auto_style_group_id") and "styleGroupId" in template.col_index_by_header:
-            start = (style_group_id_start if style_group_id_start is not None
-                     else rules.get("style_group_id_start", 1))
-            mapped.cells["styleGroupId"] = str(start + i - 1)
+            if p.sku in style_group_id_by_sku:
+                sid = style_group_id_by_sku[p.sku]
+            else:
+                base = (style_group_id_start if style_group_id_start is not None
+                        else rules.get("style_group_id_start", 1))
+                sid = base + i - 1
+            mapped.cells["styleGroupId"] = str(sid)
         if fetch is None:
             img = process_images(p, specs, images_dir)
         else:
             img = process_images(p, specs, images_dir, fetch=fetch)
         rows.append((mapped, img))
+        records.append({"sku": p.sku, "style_group_id": sid,
+                        "hsn": mapped.cells.get("HSN"),
+                        "content_hash": content_hash(mapped.cells)})
 
     filled_path = os.path.join(out_dir, "myntra_filled.xlsx")
     fill_template(template_path, template, rows, filled_path)
@@ -75,7 +91,23 @@ def main(template_path=None, csv_path=None, out_dir="output", config_dir="config
         ))
 
     return {"filled": filled_path, "report": report_path,
-            "products": len(products), "uploaded": uploaded}
+            "products": len(products), "uploaded": uploaded, "records": records}
+
+
+def scan_content_hashes(csv_path, template_path=None, config_dir="config/myntra"):
+    """(sku, content_hash) per product with HSN unset and no image work — the
+    upload-time input to the duplicate-generation guard."""
+    template_path = template_path or _resolve(
+        "Myntra-Sku-Template-2026-06-16.xlsx", "templates/myntra")
+    column_map = yaml.safe_load(open(os.path.join(config_dir, "column_map.yaml")))
+    constants = yaml.safe_load(open(os.path.join(config_dir, "constants.yaml")))
+    rules = yaml.safe_load(open(os.path.join(config_dir, "rules.yaml")))
+    template = read_template(template_path)
+    out = []
+    for p in read_products(csv_path):
+        mapped = map_product(p, template, column_map, constants, rules, hsn_by_signature=None)
+        out.append((p.sku, content_hash(mapped.cells)))
+    return out
 
 
 def cli():
