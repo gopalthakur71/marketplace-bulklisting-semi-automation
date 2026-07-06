@@ -36,6 +36,7 @@ class Settings:
     cookie_secure: bool = False
     ledger_local_path: str | None = None
     hsn_local_path: str | None = None
+    sku_registry_local_path: str | None = None
 
 
 def _ssm_getter():
@@ -69,6 +70,7 @@ def load_settings(env=None, ssm=None) -> Settings:
     s.cookie_secure = env.get("COOKIE_SECURE", "") in ("1", "true", "True")
     s.ledger_local_path = env.get("LEDGER_LOCAL_PATH") or None
     s.hsn_local_path = env.get("HSN_LOCAL_PATH") or None
+    s.sku_registry_local_path = env.get("SKU_REGISTRY_LOCAL_PATH") or None
 
     ssm = ssm if ssm is not None else _ssm_getter()
 
@@ -114,6 +116,16 @@ def hsn_store(settings: Settings):
     ledger's path would clobber it."""
     if settings.hsn_local_path:
         return LocalJsonStore(settings.hsn_local_path)
+    import boto3
+    from src.myntra.groupid_ledger import S3JsonStore
+    return S3JsonStore(settings.s3_bucket, boto3.client("s3", region_name=settings.s3_region))
+
+
+def sku_registry_store(settings: Settings):
+    """Store for the per-SKU generation registry. Mirrors ledger_store/hsn_store;
+    own local path (LocalJsonStore is one-file-per-path)."""
+    if settings.sku_registry_local_path:
+        return LocalJsonStore(settings.sku_registry_local_path)
     import boto3
     from src.myntra.groupid_ledger import S3JsonStore
     return S3JsonStore(settings.s3_bucket, boto3.client("s3", region_name=settings.s3_region))

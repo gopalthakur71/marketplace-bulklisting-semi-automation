@@ -60,6 +60,17 @@ def test_hsn_store_uses_local_path_when_set(tmp_path):
     assert store.get_json("state/hsn_kb.json") == {"classifications": {}}
 
 
+def test_sku_registry_local_path_and_store(tmp_path):
+    from src.web.settings import sku_registry_store
+    s = load_settings(env={"SKU_REGISTRY_LOCAL_PATH": str(tmp_path / "reg.json")},
+                      ssm=lambda n: None)
+    assert s.sku_registry_local_path == str(tmp_path / "reg.json")
+    store = sku_registry_store(s)
+    assert isinstance(store, LocalJsonStore)
+    store.put_json("state/sku_registry.json", {"S1": {"content_hash": "h"}})
+    assert store.get_json("state/sku_registry.json")["S1"]["content_hash"] == "h"
+
+
 def test_cookie_secure_from_env():
     s = load_settings(env={"AUTH_DISABLED": "1", "COOKIE_SECURE": "1"},
                       ssm=lambda n: None)
