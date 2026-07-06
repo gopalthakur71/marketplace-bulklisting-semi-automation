@@ -11,10 +11,11 @@ from fastapi.responses import FileResponse, HTMLResponse
 from src.core.shopify_reader import read_products
 from src.myntra.groupid_ledger import reserve, confirm, unconfirm, read_ledger
 from src.myntra.hsn_kb import signature, read_kb, suggest, learn
-from src.myntra.pipeline import main as pipeline_main  # noqa: F401 (patched in tests)
+from src.myntra.pipeline import main as pipeline_main, scan_content_hashes  # noqa: F401 (patched in tests)
+from src.myntra.sku_registry import read_registry, partition, record
 from src.web.jobs import store
 from src.web.routers.pages import get_user, get_settings
-from src.web.settings import ledger_store, hsn_store
+from src.web.settings import ledger_store, hsn_store, sku_registry_store
 
 router = APIRouter()
 RUNTIME = os.path.join(os.path.dirname(os.path.dirname(__file__)), "runtime")
@@ -71,6 +72,22 @@ def generate_submit(request: Request, file: UploadFile = File(...)):
 
     count = count_products(csv_path)
 
+    # Duplicate-generation guard: have we already generated any of these SKUs?
+    pairs = scan_content_hashes(csv_path)
+    parts = partition(pairs, read_registry(sku_registry_store(settings)))
+    if parts["repeat"]:
+        new_skus = parts["new"] + parts["edited"]
+        with open(os.path.join(job_dir, "dedup.json"), "w", encoding="utf-8") as fh:
+            json.dump({"csv_path": csv_path, "count": count,
+                       "new": parts["new"], "edited": parts["edited"],
+                       "repeat": parts["repeat"]}, fh)
+        resp = _templates().TemplateResponse(
+            request, "_dedup_warn.html",
+            {"job_id": job.id, "repeat": parts["repeat"],
+             "has_new": bool(new_skus), "new_count": len(new_skus)})
+        resp.headers["x-job-id"] = job.id
+        return resp
+
     # Pre-scan: which category|fabric signatures does this batch contain, and what
     # does the KB already know? HSN is absent from the export, so we always ask.
     constants = _load_yaml("constants.yaml")
@@ -97,12 +114,13 @@ def generate_submit(request: Request, file: UploadFile = File(...)):
     return resp
 
 
-def _start_build(request, job, csv_path, job_dir, count, settings, hsn_by_signature=None):
+def _start_build(request, job, csv_path, job_dir, count, settings,
+                 hsn_by_signature=None, only_skus=None):
     start, batch_id = reserve(ledger_store(settings), count, "myntra_filled.xlsx")
     job.batch_id = batch_id
     job.range = [start, start + count - 1]
     job.status = "running"
-    _spawn(job.id, csv_path, job_dir, start, settings, hsn_by_signature)
+    _spawn(job.id, csv_path, job_dir, start, settings, hsn_by_signature, only_skus)
     resp = _templates().TemplateResponse(
         request, "_stepper.html", {"job": job, "count": count})
     resp.headers["x-job-id"] = job.id
@@ -143,20 +161,47 @@ async def hsn_submit(request: Request, job_id: str):
                         data["count"], settings, hsn_by_signature)
 
 
-def _spawn(job_id, csv_path, job_dir, start, settings, hsn_by_signature=None):
+@router.get("/generate/rebuild/{job_id}")
+def rebuild_download(request: Request, job_id: str):
+    get_user(request)
+    settings = get_settings(request)
+    job_id = _safe_job_id(job_id)
+    job_dir = os.path.join(RUNTIME, job_id)
+    dedup_path = os.path.join(job_dir, "dedup.json")
+    if not os.path.exists(dedup_path):
+        raise HTTPException(status_code=404, detail="session expired, please re-upload")
+    with open(dedup_path, encoding="utf-8") as fh:
+        data = json.load(fh)
+    repeat = data["repeat"]
+    reg = read_registry(sku_registry_store(settings))
+    sid_by_sku = {s: reg[s]["style_group_id"] for s in repeat if s in reg}
+    hsn_by_sku = {s: reg[s]["hsn"] for s in repeat if s in reg}
+    out_dir = os.path.join(job_dir, "rebuild")
+    os.makedirs(out_dir, exist_ok=True)
+    res = pipeline_main(csv_path=data["csv_path"], out_dir=out_dir,
+                        only_skus=set(repeat),
+                        style_group_id_by_sku=sid_by_sku, hsn_by_sku=hsn_by_sku)
+    return FileResponse(res["filled"], filename="myntra_filled.xlsx")
+
+
+def _spawn(job_id, csv_path, job_dir, start, settings, hsn_by_signature=None, only_skus=None):
     import threading
     threading.Thread(
         target=_run_generate,
-        args=(job_id, csv_path, job_dir, start, settings, hsn_by_signature),
+        args=(job_id, csv_path, job_dir, start, settings, hsn_by_signature, only_skus),
         daemon=True).start()
 
 
-def _run_generate(job_id, csv_path, job_dir, start, settings, hsn_by_signature=None):
+def _run_generate(job_id, csv_path, job_dir, start, settings,
+                  hsn_by_signature=None, only_skus=None):
     try:
         store.set_step(job_id, "Ingest CSV", "active")
         res = pipeline_main(csv_path=csv_path, out_dir=job_dir,
                             style_group_id_start=start,
-                            hsn_by_signature=hsn_by_signature)
+                            hsn_by_signature=hsn_by_signature, only_skus=only_skus)
+        reg = sku_registry_store(settings)
+        for r in res.get("records", []):
+            record(reg, r["sku"], r["content_hash"], r["style_group_id"], r["hsn"])
         for name in ["Ingest CSV", "Map attributes", "Images → S3", "Fill & validate", "Ready"]:
             store.set_step(job_id, name, "done")
         store.set_step(job_id, "Images → S3", "done", count=res.get("uploaded"))

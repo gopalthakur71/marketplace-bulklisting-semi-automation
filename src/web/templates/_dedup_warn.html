@@ -1,0 +1,11 @@
+<div class="panel">
+  <h3 class="flag">⚠ You are uploading SKUs that were already generated</h3>
+  <p><strong>This file has already been generated.</strong> If you got an error from
+    Myntra, upload the error file on the <a href="/fix">Fix errors</a> page.</p>
+  <p class="hint mono">Already generated: {{ repeat | join(", ") }}</p>
+  <a class="btn" href="/generate/rebuild/{{ job_id }}">⬇ Download the already-generated sheet</a>
+  {% if has_new %}
+    <button class="btn" hx-post="/generate/new-only/{{ job_id }}"
+            hx-target="#progress" hx-swap="innerHTML" style="margin-left:8px">Generate the {{ new_count }} new SKUs only →</button>
+  {% endif %}
+</div>

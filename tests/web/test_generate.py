@@ -11,7 +11,8 @@ import src.web.routers.generate as gen
 def _client(tmp_path):
     s = Settings(auth_disabled=True, s3_bucket="b",
                  ledger_local_path=str(tmp_path / "led.json"),
-                 hsn_local_path=str(tmp_path / "hsn.json"))
+                 hsn_local_path=str(tmp_path / "hsn.json"),
+                 sku_registry_local_path=str(tmp_path / "reg.json"))
     return TestClient(create_app(s)), s
 
 
@@ -194,6 +195,89 @@ def test_static_assets_are_cache_busted(tmp_path):
     client, _ = _client(tmp_path)
     import re
     assert re.search(r"app\.css\?v=\d+", client.get("/generate").text)
+
+
+def test_build_records_registry(tmp_path, monkeypatch):
+    client, settings = _client(tmp_path)
+
+    def fake_main(csv_path=None, out_dir=None, style_group_id_start=None,
+                  hsn_by_signature=None, only_skus=None, **kw):
+        with open(f"{out_dir}/myntra_filled.xlsx", "wb") as fh:
+            fh.write(b"x")
+        with open(f"{out_dir}/report.txt", "w") as fh:
+            fh.write("r\n")
+        return {"filled": f"{out_dir}/myntra_filled.xlsx", "report": f"{out_dir}/report.txt",
+                "products": 1, "uploaded": 0,
+                "records": [{"sku": "S1", "style_group_id": 13, "hsn": "50072010",
+                             "content_hash": "h1"}]}
+
+    monkeypatch.setattr(gen, "pipeline_main", fake_main)
+    monkeypatch.setattr(gen, "count_products", lambda path: 1)
+
+    csv = b"Handle,Title\na,Plain Saree\n"   # SKU empty -> partition NEW, proceeds
+    r = client.post("/generate", files={"file": ("products_export.csv", csv, "text/csv")})
+    _pass_hsn_and_wait(client, r.headers["x-job-id"])
+
+    from src.myntra.sku_registry import read_registry
+    from src.web.settings import sku_registry_store
+    reg = read_registry(sku_registry_store(settings))
+    assert reg["S1"]["style_group_id"] == 13 and reg["S1"]["hsn"] == "50072010"
+
+
+def test_repeat_upload_warns_and_skips_hsn(tmp_path):
+    client, settings = _client(tmp_path)
+    # Pre-seed the registry with the fixture's real hashes so the re-upload is a repeat.
+    from src.myntra.pipeline import scan_content_hashes
+    from src.myntra.sku_registry import record
+    from src.web.settings import sku_registry_store
+    store = sku_registry_store(settings)
+    for sku, h in scan_content_hashes("tests/fixtures/products_export.csv"):
+        record(store, sku, h, 55, "50072010")
+
+    with open("tests/fixtures/products_export.csv", "rb") as fh:
+        csv = fh.read()
+    r = client.post("/generate", files={"file": ("products_export.csv", csv, "text/csv")})
+    assert "already generated" in r.text.lower()
+    assert "One-time HSN" not in r.text          # HSN review skipped for a pure repeat
+
+
+def test_rebuild_download_serves_xlsx_with_pinned_values(tmp_path, monkeypatch):
+    client, settings = _client(tmp_path)
+    from src.myntra.pipeline import scan_content_hashes
+    from src.myntra.sku_registry import record
+    from src.web.settings import sku_registry_store
+    store = sku_registry_store(settings)
+    pinned = {}
+    for i, (sku, h) in enumerate(scan_content_hashes("tests/fixtures/products_export.csv")):
+        record(store, sku, h, 55 + i, "50072010")
+        pinned[sku] = 55 + i
+
+    seen = {}
+
+    def fake_main(csv_path=None, out_dir=None, only_skus=None,
+                  style_group_id_by_sku=None, hsn_by_sku=None, **kw):
+        seen["ids"] = style_group_id_by_sku
+        seen["hsn"] = hsn_by_sku
+        with open(f"{out_dir}/myntra_filled.xlsx", "wb") as fh:
+            fh.write(b"xlsx")
+        return {"filled": f"{out_dir}/myntra_filled.xlsx", "report": "", "products": 2,
+                "uploaded": 0, "records": []}
+
+    monkeypatch.setattr(gen, "pipeline_main", fake_main)
+
+    with open("tests/fixtures/products_export.csv", "rb") as fh:
+        csv = fh.read()
+    r = client.post("/generate", files={"file": ("products_export.csv", csv, "text/csv")})
+    job_id = r.headers["x-job-id"]
+    dl = client.get(f"/generate/rebuild/{job_id}")
+    assert dl.status_code == 200
+    assert dl.content == b"xlsx"
+    assert seen["ids"] == pinned                       # pinned styleGroupIds forced
+    assert set(seen["hsn"].values()) == {"50072010"}   # pinned HSN forced
+    # ledger untouched by a rebuild
+    from src.myntra.groupid_ledger import read_ledger
+    from src.web.settings import ledger_store
+    assert read_ledger(ledger_store(settings))["next_style_group_id"] == 1
 
 
 def test_generate_form_has_no_hidden_required_field(tmp_path):
