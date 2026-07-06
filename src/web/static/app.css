@@ -48,6 +48,8 @@ h1,h2,h3{font-family:'Space Grotesk',sans-serif}
 .btn.green{background:var(--green)}
 .drop{border:2px dashed var(--line);border-radius:10px;padding:30px;text-align:center;color:var(--mut)}
 .mono{font-family:'IBM Plex Mono',monospace}
+pre{font-family:'IBM Plex Mono',monospace;white-space:pre-wrap;overflow-wrap:anywhere;
+  max-width:100%;margin:0}
 .stepper{list-style:none;padding:0;margin:0}
 .stepper li{display:flex;gap:10px;align-items:center;padding:10px 0;border-bottom:1px dashed var(--line);color:var(--mut)}
 .stepper li.done{color:var(--green)} .stepper li.active{color:var(--marigold)}
