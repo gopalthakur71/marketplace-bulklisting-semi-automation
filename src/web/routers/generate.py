@@ -1,5 +1,6 @@
 import csv as csvmod
 import json
+import logging
 import os
 import re
 import shutil
@@ -20,6 +21,7 @@ from src.web.settings import ledger_store, hsn_store, sku_registry_store
 router = APIRouter()
 RUNTIME = os.path.join(os.path.dirname(os.path.dirname(__file__)), "runtime")
 CONFIG_DIR = "config/myntra"
+_log = logging.getLogger("marigold.generate")
 
 
 def _safe_job_id(job_id: str) -> str:
@@ -73,8 +75,13 @@ def generate_submit(request: Request, file: UploadFile = File(...)):
     count = count_products(csv_path)
 
     # Duplicate-generation guard: have we already generated any of these SKUs?
+    reg_store = sku_registry_store(settings)
+    registry = read_registry(reg_store)
     pairs = scan_content_hashes(csv_path)
-    parts = partition(pairs, read_registry(sku_registry_store(settings)))
+    parts = partition(pairs, registry)
+    _log.info("dedup guard: registry_path=%s registry_size=%d uploaded_skus=%s -> %s",
+              settings.sku_registry_local_path or f"s3:{settings.s3_bucket}",
+              len(registry), [s for s, _ in pairs], parts)
     if parts["repeat"]:
         new_skus = parts["new"] + parts["edited"]
         with open(os.path.join(job_dir, "dedup.json"), "w", encoding="utf-8") as fh:

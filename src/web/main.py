@@ -1,3 +1,4 @@
+import logging
 import os
 
 from fastapi import FastAPI, Request
@@ -7,6 +8,11 @@ from fastapi.templating import Jinja2Templates
 
 from src.web.auth import AuthError
 from src.web.settings import load_settings
+
+# Surface app INFO logs (e.g. the dedup-guard decision). uvicorn only configures
+# its own loggers, leaving the root at lastResort (WARNING), so our INFO lines are
+# otherwise dropped. basicConfig is a no-op if a handler is already installed.
+logging.basicConfig(level=logging.INFO)
 
 _HERE = os.path.dirname(__file__)
 templates = Jinja2Templates(directory=os.path.join(_HERE, "templates"))
