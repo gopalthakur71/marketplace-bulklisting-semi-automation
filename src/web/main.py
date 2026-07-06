@@ -12,6 +12,19 @@ _HERE = os.path.dirname(__file__)
 templates = Jinja2Templates(directory=os.path.join(_HERE, "templates"))
 
 
+def _asset_v(filename):
+    """Cache-busting token = mtime of a /static file, so a CSS/JS edit always
+    forces the browser to re-fetch (otherwise the stylesheet is cached and edits
+    never show without a manual hard refresh)."""
+    try:
+        return int(os.path.getmtime(os.path.join(_HERE, "static", filename)))
+    except OSError:
+        return 0
+
+
+templates.env.globals["asset_v"] = _asset_v
+
+
 def create_app(settings=None) -> FastAPI:
     app = FastAPI(title="Marigold Ops")
     app.state.settings = settings or load_settings()

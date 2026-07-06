@@ -188,6 +188,14 @@ def test_generate_form_still_renders(tmp_path):
     assert client.get("/generate").status_code == 200
 
 
+def test_static_assets_are_cache_busted(tmp_path):
+    # The stylesheet link must carry a version token, otherwise browsers cache
+    # app.css and CSS edits never show without a manual hard refresh.
+    client, _ = _client(tmp_path)
+    import re
+    assert re.search(r"app\.css\?v=\d+", client.get("/generate").text)
+
+
 def test_generate_form_has_no_hidden_required_field(tmp_path):
     # A `required` input inside the hidden style-edit div blocks the whole Generate
     # form: the browser can't focus a display:none required field, so the submit is
