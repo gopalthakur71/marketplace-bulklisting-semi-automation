@@ -88,6 +88,10 @@ def generate_submit(request: Request, file: UploadFile = File(...)):
         resp.headers["x-job-id"] = job.id
         return resp
 
+    return _hsn_prescan_or_build(request, job, csv_path, job_dir, count, settings)
+
+
+def _hsn_prescan_or_build(request, job, csv_path, job_dir, count, settings, only_skus=None):
     # Pre-scan: which category|fabric signatures does this batch contain, and what
     # does the KB already know? HSN is absent from the export, so we always ask.
     constants = _load_yaml("constants.yaml")
@@ -97,15 +101,19 @@ def generate_submit(request: Request, file: UploadFile = File(...)):
     kb = read_kb(hsn_store(settings))
     grouped = {}
     for p in read_products(csv_path):
+        if only_skus is not None and p.sku not in only_skus:
+            continue
         grouped.setdefault(signature(p, category, fabric_keywords), []).append(p.title)
 
     if not grouped:                      # empty CSV / no products → nothing to ask
-        return _start_build(request, job, csv_path, job_dir, count, settings)
+        return _start_build(request, job, csv_path, job_dir, count, settings,
+                            only_skus=only_skus)
 
     signatures = [{"signature": sig, "examples": names[:5], "suggestions": suggest(kb, sig)}
                   for sig, names in grouped.items()]
     with open(os.path.join(job_dir, "hsn.json"), "w", encoding="utf-8") as fh:
-        json.dump({"csv_path": csv_path, "count": count, "signatures": signatures}, fh)
+        json.dump({"csv_path": csv_path, "count": count, "signatures": signatures,
+                   "only_skus": (list(only_skus) if only_skus is not None else None)}, fh)
     job.status = "awaiting_hsn"
 
     resp = _templates().TemplateResponse(
@@ -157,8 +165,30 @@ async def hsn_submit(request: Request, job_id: str):
         learn(hsn_store(settings), s["signature"], values[i], example_name=example)
         hsn_by_signature[s["signature"]] = values[i]
 
+    only = data.get("only_skus")
+    only_set = set(only) if only is not None else None
+    build_count = len(only_set) if only_set is not None else data["count"]
     return _start_build(request, job, data["csv_path"], job_dir,
-                        data["count"], settings, hsn_by_signature)
+                        build_count, settings, hsn_by_signature, only_skus=only_set)
+
+
+@router.post("/generate/new-only/{job_id}", response_class=HTMLResponse)
+def generate_new_only(request: Request, job_id: str):
+    get_user(request)
+    settings = get_settings(request)
+    job_id = _safe_job_id(job_id)
+    job = store.get(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="unknown job")
+    job_dir = os.path.join(RUNTIME, job_id)
+    dedup_path = os.path.join(job_dir, "dedup.json")
+    if not os.path.exists(dedup_path):
+        raise HTTPException(status_code=404, detail="session expired, please re-upload")
+    with open(dedup_path, encoding="utf-8") as fh:
+        data = json.load(fh)
+    only = set(data["new"]) | set(data["edited"])
+    return _hsn_prescan_or_build(request, job, data["csv_path"], job_dir,
+                                 len(only), settings, only_skus=only)
 
 
 @router.get("/generate/rebuild/{job_id}")

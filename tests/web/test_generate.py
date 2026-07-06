@@ -280,6 +280,51 @@ def test_rebuild_download_serves_xlsx_with_pinned_values(tmp_path, monkeypatch):
     assert read_ledger(ledger_store(settings))["next_style_group_id"] == 1
 
 
+def test_generate_new_only_builds_and_records_only_new(tmp_path, monkeypatch):
+    client, settings = _client(tmp_path)
+    from src.myntra.pipeline import scan_content_hashes
+    from src.myntra.sku_registry import record, read_registry
+    from src.web.settings import sku_registry_store
+
+    pairs = scan_content_hashes("tests/fixtures/products_export.csv")
+    store = sku_registry_store(settings)
+    # Seed ONLY the first SKU as already-generated -> the file is mixed.
+    first_sku, first_hash = pairs[0]
+    new_sku = pairs[1][0]
+    record(store, first_sku, first_hash, 55, "50072010")
+
+    built = {}
+
+    def fake_main(csv_path=None, out_dir=None, style_group_id_start=None,
+                  hsn_by_signature=None, only_skus=None, **kw):
+        built["only_skus"] = only_skus
+        with open(f"{out_dir}/myntra_filled.xlsx", "wb") as fh:
+            fh.write(b"x")
+        with open(f"{out_dir}/report.txt", "w") as fh:
+            fh.write("r\n")
+        return {"filled": f"{out_dir}/myntra_filled.xlsx", "report": f"{out_dir}/report.txt",
+                "products": 1, "uploaded": 0,
+                "records": [{"sku": new_sku, "style_group_id": 1, "hsn": "63079090",
+                             "content_hash": pairs[1][1]}]}
+
+    monkeypatch.setattr(gen, "pipeline_main", fake_main)
+
+    with open("tests/fixtures/products_export.csv", "rb") as fh:
+        csv = fh.read()
+    r = client.post("/generate", files={"file": ("products_export.csv", csv, "text/csv")})
+    job_id = r.headers["x-job-id"]
+    assert "already generated" in r.text.lower()
+
+    # Choose "generate new only" -> HSN review for just the new SKU, then build it.
+    r2 = client.post(f"/generate/new-only/{job_id}")
+    assert "One-time HSN" in r2.text
+    _pass_hsn_and_wait(client, job_id, hsn="63079090")
+
+    assert built["only_skus"] == {new_sku}
+    reg = read_registry(sku_registry_store(settings))
+    assert new_sku in reg                      # new SKU recorded
+
+
 def test_generate_form_has_no_hidden_required_field(tmp_path):
     # A `required` input inside the hidden style-edit div blocks the whole Generate
     # form: the browser can't focus a display:none required field, so the submit is
