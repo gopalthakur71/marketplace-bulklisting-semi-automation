@@ -31,6 +31,30 @@ rules:
     category: stylegroupid
     action: explain_only
     explanation: "The style-group numbering clashes with products already in your catalog. Re-generate the sheet with a higher starting style-group number (continue from your existing catalog count), then re-upload."
+  - match: "getbrandcodefrombrandname"
+    category: brand
+    action: auto_fix
+    explanation: "Myntra didn't recognise the brand name in your sheet, so the whole file was rejected. Re-generated with your registered brand from settings. If it still fails, your brand may not be enabled on Myntra yet."
+  - match: "manufacturer and packer information is incomplete"
+    category: address
+    action: auto_fix
+    explanation: "The manufacturer/packer name and address block was incomplete. Filled automatically from your saved settings."
+  - match: "hsn"
+    category: hsn
+    action: explain_only
+    explanation: "The HSN code you sent does not match the one Myntra already has for this style. Confirm the correct HSN for this fabric and re-generate; the app will not change tax codes automatically."
+  - match: "flat shot"
+    category: image
+    action: explain_only
+    explanation: "Myntra wants the product shown on a model, not laid flat. Re-shoot or replace this image, then re-upload — the app cannot fix photos."
+  - match: "pixelated"
+    category: image
+    action: explain_only
+    explanation: "The image resolution is too low. Replace it with a sharper photo, then re-upload — the app cannot fix photos."
+  - match: "incorrectly cropped"
+    category: image
+    action: explain_only
+    explanation: "The image is cropped in a way Myntra doesn't allow. Re-crop or replace it, then re-upload — the app cannot fix photos."
 
 unknown:
   category: unknown
