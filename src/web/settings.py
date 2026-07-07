@@ -70,6 +70,16 @@ def load_settings(env=None, ssm=None) -> Settings:
     env value if present, otherwise consults SSM. This means a deploy that sets
     only some env vars still resolves the rest (including the Cognito client
     secret, stored as an SSM SecureString) from AWS."""
+    if env is None:
+        # Local dev convenience: populate os.environ from a repo-root .env if one
+        # exists. override=False so real env vars and SSM always win; a no-op in
+        # prod (no .env is shipped in the Docker image). Tests pass an explicit
+        # `env` dict and never hit this branch.
+        try:
+            from dotenv import load_dotenv
+            load_dotenv(override=False)
+        except Exception:
+            pass
     env = os.environ if env is None else env
     s = Settings()
     s.auth_disabled = env.get("AUTH_DISABLED", "") in ("1", "true", "True")
