@@ -1,5 +1,6 @@
 from src.web.settings import (
-    Settings, load_settings, ledger_store, hsn_store, LocalJsonStore)
+    Settings, load_settings, ledger_store, hsn_store, LocalJsonStore,
+    explanation_store, correction_log_store)
 
 
 def test_env_takes_precedence_over_ssm():
@@ -81,6 +82,30 @@ def test_cookie_secure_defaults_off():
     s = load_settings(env={"AUTH_DISABLED": "1"},
                       ssm=lambda n: None)
     assert s.cookie_secure is False
+
+
+def test_gemini_and_store_paths_from_env():
+    env = {
+        "GEMINI_API_KEY": "k-123",
+        "GEMINI_MODEL": "gemini-2.5-flash",
+        "EXPLAIN_WITH_GEMINI": "1",
+        "EXPLANATION_STORE_PATH": "/tmp/expl.json",
+        "CORRECTION_LOG_PATH": "/tmp/corr.json",
+    }
+    s = load_settings(env=env, ssm=lambda name: None)
+    assert s.gemini_api_key == "k-123"
+    assert s.gemini_model == "gemini-2.5-flash"
+    assert s.explain_with_gemini is True
+    assert isinstance(explanation_store(s), LocalJsonStore)
+    assert explanation_store(s).path == "/tmp/expl.json"
+    assert isinstance(correction_log_store(s), LocalJsonStore)
+
+
+def test_gemini_defaults_off():
+    s = load_settings(env={}, ssm=lambda name: None)
+    assert s.explain_with_gemini is False
+    assert s.gemini_model == "gemini-2.5-flash"
+    assert s.gemini_api_key == ""
 
 
 def test_ssm_values_are_whitespace_stripped():

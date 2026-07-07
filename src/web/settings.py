@@ -19,6 +19,7 @@ _FIELDS = [
     ("COGNITO_DOMAIN", "cognito_domain"),
     ("COGNITO_REDIRECT_URI", "cognito_redirect_uri"),
     ("COGNITO_CLIENT_SECRET", "cognito_client_secret"),
+    ("GEMINI_API_KEY", "gemini_api_key"),
 ]
 
 
@@ -37,6 +38,11 @@ class Settings:
     ledger_local_path: str | None = None
     hsn_local_path: str | None = None
     sku_registry_local_path: str | None = None
+    gemini_api_key: str = ""
+    gemini_model: str = "gemini-2.5-flash"
+    explain_with_gemini: bool = False
+    explanation_store_path: str | None = None
+    correction_log_path: str | None = None
 
 
 def _ssm_getter():
@@ -71,6 +77,10 @@ def load_settings(env=None, ssm=None) -> Settings:
     s.ledger_local_path = env.get("LEDGER_LOCAL_PATH") or None
     s.hsn_local_path = env.get("HSN_LOCAL_PATH") or None
     s.sku_registry_local_path = env.get("SKU_REGISTRY_LOCAL_PATH") or None
+    s.gemini_model = env.get("GEMINI_MODEL") or "gemini-2.5-flash"
+    s.explain_with_gemini = env.get("EXPLAIN_WITH_GEMINI", "") in ("1", "true", "True")
+    s.explanation_store_path = env.get("EXPLANATION_STORE_PATH") or None
+    s.correction_log_path = env.get("CORRECTION_LOG_PATH") or None
 
     ssm = ssm if ssm is not None else _ssm_getter()
 
@@ -126,6 +136,25 @@ def sku_registry_store(settings: Settings):
     own local path (LocalJsonStore is one-file-per-path)."""
     if settings.sku_registry_local_path:
         return LocalJsonStore(settings.sku_registry_local_path)
+    import boto3
+    from src.myntra.groupid_ledger import S3JsonStore
+    return S3JsonStore(settings.s3_bucket, boto3.client("s3", region_name=settings.s3_region))
+
+
+def explanation_store(settings: Settings):
+    """Store for the self-learning error-explanation dictionary. Own local path
+    (LocalJsonStore is one-file-per-path); S3 fallback in prod."""
+    if settings.explanation_store_path:
+        return LocalJsonStore(settings.explanation_store_path)
+    import boto3
+    from src.myntra.groupid_ledger import S3JsonStore
+    return S3JsonStore(settings.s3_bucket, boto3.client("s3", region_name=settings.s3_region))
+
+
+def correction_log_store(settings: Settings):
+    """Store for the append-only correction log (Phase-D breadcrumb). Own local path."""
+    if settings.correction_log_path:
+        return LocalJsonStore(settings.correction_log_path)
     import boto3
     from src.myntra.groupid_ledger import S3JsonStore
     return S3JsonStore(settings.s3_bucket, boto3.client("s3", region_name=settings.s3_region))
