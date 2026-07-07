@@ -254,6 +254,48 @@ def test_correct_from_issues_drops_sku(tmp_path):
     assert [r["sku"] for r in recs] == ["AAA"]             # dropped SKU logs nothing
 
 
+def test_correct_from_issues_explicit_drops_authoritative(tmp_path):
+    """`drops` (when passed as a set) is authoritative over issue action: a
+    drop_sku-flagged SKU absent from `drops` is KEPT; one present is dropped."""
+    from src.myntra.explainer import ExplainedIssue
+    from src.myntra.corrector import correct_from_issues
+    from src.web.settings import LocalJsonStore
+
+    template = read_template(TEMPLATE)
+    constants = {"brand": "Ijor Ethnic Partners"}
+
+    def _iss(sku, action, category, cells, explanation="x", field=None):
+        return ExplainedIssue(sku=sku, style_id=None, scope="sku",
+                              source_type="sku_xlsx", raw_reason="Seller Sku Code is already registered",
+                              explanation=explanation, action=action, field=field,
+                              category=category, source="yaml", cells=cells)
+
+    issues = [
+        _iss("KEEP", "drop_sku", "duplicate", {"vendorSkuCode": "KEEP"},
+             explanation="Already registered, dropping"),
+        _iss("DROP", "drop_sku", "duplicate", {"vendorSkuCode": "DROP"},
+             explanation="Already registered, dropping"),
+    ]
+    log = LocalJsonStore(str(tmp_path / "log.json"))
+
+    # KEEP's checkbox was unchecked (not in drops) -> must be kept, not dropped.
+    out1 = tmp_path / "out1.xlsx"
+    summary = correct_from_issues(issues, template, TEMPLATE, constants, {},
+                                  str(out1), log_store=log, fix_id="fix1",
+                                  drops=set())
+    assert "KEEP" not in summary["dropped"]
+    assert summary["written"] == 2                        # both rows written
+
+    # DROP's checkbox was checked (in drops) -> must be dropped.
+    out2 = tmp_path / "out2.xlsx"
+    summary2 = correct_from_issues(issues, template, TEMPLATE, constants, {},
+                                   str(out2), log_store=log, fix_id="fix2",
+                                   drops={"DROP"})
+    assert summary2["dropped"] == ["DROP"]
+    assert "DROP" not in summary2["changed"]
+    assert "KEEP" not in summary2["dropped"]
+
+
 def test_regenerate_surface_b_resolves_pins_and_reports_missing(monkeypatch, tmp_path):
     import src.myntra.corrector as corrector
     from src.web.settings import Settings

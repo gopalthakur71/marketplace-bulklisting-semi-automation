@@ -52,8 +52,9 @@ def test_apply_surface_a_calls_correct_from_issues(monkeypatch):
     captured = {}
 
     def fake_cfi(issues, template, template_path, constants, answers, out_path,
-                 log_store=None, fix_id=None):
+                 log_store=None, fix_id=None, drops=None):
         captured["answers"] = answers
+        captured["drops"] = drops
         with open(out_path, "wb") as fh:
             fh.write(b"corrected")
         return {"written": 1, "manual_needed": [{"sku": "IMG1", "explanation": "flat shot"}],
@@ -70,6 +71,35 @@ def test_apply_surface_a_calls_correct_from_issues(monkeypatch):
     assert r.status_code == 200
     assert captured["answers"] == {"78SAZ": {"Prominent Colour": "Off White"}}
     assert "IMG1" in r.text  # manual_needed surfaced on the result screen
+    assert "78SAZ" not in captured["drops"]  # checkbox not submitted -> not dropped
+
+
+def test_apply_surface_a_drop_checkbox_is_authoritative(monkeypatch):
+    """A submitted drop__<sku> field must reach correct_from_issues via `drops`."""
+    client = _client()
+    monkeypatch.setattr(fixmod, "detect_format", lambda p: ("sku_xlsx", ""))
+    monkeypatch.setattr(fixmod, "read_error_file", lambda p, rules: _items())
+    monkeypatch.setattr(fixmod, "read_template", lambda p: object())
+    monkeypatch.setattr(fixmod, "_load_constants", lambda: {})
+
+    captured = {}
+
+    def fake_cfi(issues, template, template_path, constants, answers, out_path,
+                 log_store=None, fix_id=None, drops=None):
+        captured["drops"] = drops
+        with open(out_path, "wb") as fh:
+            fh.write(b"corrected")
+        return {"written": 1, "manual_needed": [], "dropped": list(drops or []),
+                "changed": {}, "could_not_rebuild": [], "rejected": {}}
+
+    monkeypatch.setattr(fixmod, "correct_from_issues", fake_cfi)
+
+    up = client.post("/fix", files={"file": ("rej.xlsx", b"x",
+                     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")})
+    fix_id = up.headers["x-fix-id"]
+    r = client.post(f"/fix/apply/{fix_id}", data={"drop__78SAZ": "on"})
+    assert r.status_code == 200
+    assert "78SAZ" in captured["drops"]
 
 
 def test_apply_bogus_fix_id_returns_404():

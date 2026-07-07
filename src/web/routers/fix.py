@@ -130,27 +130,25 @@ async def fix_apply(request: Request, fix_id: str):
     source_type, issues = _load_issues(fix_dir)
 
     form = await request.form()
-    answers, drops = {}, set()
+    answers, submitted_drops = {}, set()
     for key, value in form.items():
         if key.startswith("answer__") and str(value).strip():
             _, sku, field = key.split("__", 2)
             answers.setdefault(sku, {})[field] = value
         elif key.startswith("drop__"):
-            drops.add(key.split("__", 1)[1])
-    for sku in drops:
-        for i in issues:
-            if i.sku == sku:
-                i.action = "drop_sku"
+            submitted_drops.add(key.split("__", 1)[1])
 
     out_path = os.path.join(fix_dir, "myntra_corrected.xlsx")
     if source_type == "sku_xlsx":
         template = read_template(_resolve_template_path())
         summary = correct_from_issues(
             issues, template, _resolve_template_path(), _load_constants(),
-            answers, out_path, log_store=correction_log_store(settings), fix_id=fix_id)
+            answers, out_path, log_store=correction_log_store(settings), fix_id=fix_id,
+            drops=submitted_drops)
     else:
         skus = sorted({i.sku for i in issues
-                       if i.sku and i.action != "explain_only"}) or None
+                       if i.sku and i.action != "explain_only"
+                       and i.sku not in submitted_drops}) or None
         summary = regenerate_surface_b(skus, settings, fix_dir)
         if summary.get("file") and os.path.exists(summary["file"]):
             shutil.copyfile(summary["file"], out_path)

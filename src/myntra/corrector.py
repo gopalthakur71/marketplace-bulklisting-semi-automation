@@ -118,15 +118,22 @@ def _derive_changes(sku, cells_before, answers, constants, changed_fields):
 
 
 def correct_from_issues(issues, template, template_path, constants, answers, out_path,
-                        log_store=None, fix_id=None):
+                        log_store=None, fix_id=None, drops=None):
     """Surface A: correct SKUs in place from ExplainedIssue records. A SKU with any
-    explain_only issue is excluded from the file (reported under 'manual_needed');
-    drop_sku SKUs are dropped; the rest go through the deterministic correct()."""
+    explain_only issue is excluded from the file (reported under 'manual_needed').
+
+    Drop decision: if `drops` is None (default, backward compatible), a SKU is
+    dropped iff any of its issues has action == "drop_sku" (legacy behaviour).
+    If `drops` is a set, it is AUTHORITATIVE — a SKU is dropped iff it is in that
+    set, regardless of issue action (lets the caller honour a user's unchecked
+    "drop this SKU" checkbox). The rest go through the deterministic correct()."""
     by_sku = OrderedDict()
     for it in issues:
         by_sku.setdefault(it.sku, []).append(it)
 
-    rows, drops, manual_needed = [], set(), []
+    derive_drops = drops is None
+    effective_drops = set() if derive_drops else set(drops)
+    rows, manual_needed = [], []
     cells_before = {}
     for sku, its in by_sku.items():
         if any(i.action == "explain_only" for i in its):
@@ -144,10 +151,10 @@ def correct_from_issues(issues, template, template_path, constants, answers, out
             row=0, sku=sku, status="", cells=cells,
             issues=[{"category": i.category, "action": i.action, "field": i.field,
                      "explanation": i.explanation, "raw": i.raw_reason} for i in its]))
-        if any(i.action == "drop_sku" for i in its):
-            drops.add(sku)
+        if derive_drops and any(i.action == "drop_sku" for i in its):
+            effective_drops.add(sku)
 
-    summary = correct(rows, template, template_path, constants, answers, drops, out_path)
+    summary = correct(rows, template, template_path, constants, answers, effective_drops, out_path)
     summary["manual_needed"] = manual_needed
 
     if log_store is not None:
