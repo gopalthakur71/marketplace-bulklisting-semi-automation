@@ -1,10 +1,19 @@
 <div class="panel">
-  <h3 class="ok">✅ Corrected sheet ready</h3>
+  <h3 class="ok">✅ Done</h3>
   <ul class="mono">
-    <li>{{ summary.written }} rows written</li>
-    <li>{{ summary.dropped|length }} dropped: {{ summary.dropped|join(', ') }}</li>
-    <li>{{ summary.changed|length }} changed</li>
-    {% if summary.rejected %}<li class="flag">rejected (not valid Myntra values): {{ summary.rejected }}</li>{% endif %}
+    <li>{{ summary.written }} row(s) written to the corrected file</li>
+    {% if summary.changed %}<li>{{ summary.changed|length }} SKU(s) changed</li>{% endif %}
+    {% if summary.dropped %}<li>dropped (already listed): {{ summary.dropped|join(', ') }}</li>{% endif %}
+    {% if summary.get('could_not_rebuild') %}<li class="flag">couldn't rebuild (data not found): {{ summary.could_not_rebuild|join(', ') }}</li>{% endif %}
+    {% if summary.get('rejected') %}<li class="flag">rejected (not valid Myntra values): {{ summary.rejected }}</li>{% endif %}
   </ul>
-  <a class="btn" href="/fix/download/{{ fix_id }}">⬇ Download corrected xlsx</a>
+  {% if summary.get('manual_needed') %}
+    <h4 class="flag">Fix these yourself, then re-upload:</h4>
+    <ul class="mono">
+      {% for m in summary.manual_needed %}<li>{{ m.sku }} — {{ m.explanation }}</li>{% endfor %}
+    </ul>
+  {% endif %}
+  {% if summary.written %}
+    <a class="btn" href="/fix/download/{{ fix_id }}">⬇ Download corrected xlsx</a>
+  {% endif %}
 </div>

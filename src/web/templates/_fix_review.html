@@ -1,26 +1,44 @@
+<div id="review">
 <form hx-post="/fix/apply/{{ fix_id }}" hx-target="#review" hx-swap="innerHTML">
-  {% for r in rows %}
-    {% for issue in r.issues %}
-      {% if issue.action == 'auto_fix' %}
-        <div class="card auto"><strong class="mono">{{ r.sku }}</strong>
-          <span class="ok">auto-fixed</span><div>{{ issue.explanation }}</div></div>
-      {% elif issue.action == 'manual_choice' %}
-        <div class="card need"><strong class="mono">{{ r.sku }}</strong>
+  {% if correctable %}
+    <h3>We can fix these ({{ correctable|length }})</h3>
+    {% for i in correctable %}
+      {% if i.action == 'manual_choice' %}
+        <div class="card need"><strong class="mono">{{ i.sku }}</strong>
           <span class="flag">needs you</span>
-          <div>{{ issue.explanation }} — field <strong>{{ issue.field }}</strong></div>
-          <input type="text" name="answer__{{ r.sku }}__{{ issue.field }}"
-                 value="{{ r.cells.get(issue.field, '') }}">
-          <div class="hint">Type the correct Myntra value. It is checked before writing.</div></div>
-      {% elif issue.action == 'drop_sku' %}
-        <div class="card need"><strong class="mono">{{ r.sku }}</strong>
-          <span class="flag">needs you</span><div>{{ issue.explanation }}</div>
-          <label><input type="checkbox" name="drop__{{ r.sku }}"> Drop this SKU</label></div>
+          <div>{{ i.explanation }}{% if i.field %} — field <strong>{{ i.field }}</strong>{% endif %}</div>
+          <input type="text" name="answer__{{ i.sku }}__{{ i.field }}"
+                 value="{{ (i.cells or {}).get(i.field, '') }}">
+          <div class="hint">Type the correct Myntra value. It is checked before writing.</div>
+          <div class="hint mono">raw: {{ i.raw_reason }}</div></div>
+      {% elif i.action == 'drop_sku' %}
+        <div class="card need"><strong class="mono">{{ i.sku }}</strong>
+          <span class="flag">already listed</span><div>{{ i.explanation }}</div>
+          <label><input type="checkbox" name="drop__{{ i.sku }}" checked> Drop this SKU from the file</label>
+          <div class="hint mono">raw: {{ i.raw_reason }}</div></div>
       {% else %}
-        <div class="card expl"><strong class="mono">{{ r.sku }}</strong>
-          <span>explain only</span><div>{{ issue.explanation }}</div>
-          <div class="hint mono">raw: {{ issue.raw }}</div></div>
+        <div class="card auto"><strong class="mono">{{ i.sku or 'whole sheet' }}</strong>
+          <span class="ok">auto-fix</span><div>{{ i.explanation }}</div>
+          <div class="hint mono">raw: {{ i.raw_reason }}</div></div>
       {% endif %}
     {% endfor %}
-  {% endfor %}
-  <button class="btn" type="submit">Apply &amp; regenerate →</button>
+  {% endif %}
+
+  {% if explain_only %}
+    <h3>You must fix these yourself first ({{ explain_only|length }})</h3>
+    <p class="hint">These need real work (images, quality, tax codes). The app explains them but writes nothing — fix them, then re-upload.</p>
+    {% for i in explain_only %}
+      <div class="card expl"><strong class="mono">{{ i.sku or 'whole sheet' }}</strong>
+        <span>explain only</span><div>{{ i.explanation }}</div>
+        <div class="hint mono">raw: {{ i.raw_reason }}</div></div>
+    {% endfor %}
+  {% endif %}
+
+  <div class="actions">
+    {% if correctable %}
+      <button class="btn" type="submit">Proceed with fix &amp; download corrected file →</button>
+    {% endif %}
+    <a class="btn ghost" hx-get="/fix/dismiss" hx-target="#review" hx-swap="innerHTML">Do not make any changes</a>
+  </div>
 </form>
+</div>
