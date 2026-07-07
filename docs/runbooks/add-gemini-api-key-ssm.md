@@ -121,9 +121,8 @@ SSM `_FIELDS` list):
   raw messages (no plain-English, no crash).
 - `GEMINI_MODEL=gemini-2.5-flash` — optional; the code already defaults to this.
 
-Set those in the unit's `Environment=` lines, `systemctl daemon-reload && systemctl restart
-listing-app` (the deploy push does the restart for you). See [[ec2-deploy-stage1-done]] and the deploy
-runbook. Then: start the EC2 box, push `main`, CI deploys.
+Full step-by-step for that is the sibling runbook **`enable-gemini-ec2-systemd.md`** (Session Manager
+walkthrough). Then: start the EC2 box, push `main`, CI deploys.
 
 ---
 
