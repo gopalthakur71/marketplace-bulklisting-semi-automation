@@ -137,6 +137,32 @@ def test_correct_validates_colour_answer(tmp_path):
     assert summary["rejected"]["BBB"][0]["field"] == "Prominent Colour"
 
 
+def test_correct_fills_brand_and_address(tmp_path):
+    from src.myntra.error_reader import RowError
+    from src.myntra.corrector import correct
+
+    template = read_template(TEMPLATE)
+    constants = {
+        "brand": "Ijor Ethnic Partners",
+        "Manufacturer Name and Address with Pincode": "Ijor, Faridabad, 121006",
+        "Packer Name and Address with Pincode": "Ijor, Faridabad, 121006",
+    }
+    rows = [
+        RowError(row=4, sku="AAA", status="", cells={"vendorSkuCode": "AAA", "brand": ""},
+                 issues=[{"category": "brand", "action": "auto_fix", "field": None,
+                          "explanation": "brand", "raw": "getBrandCodeFromBrandName"}]),
+        RowError(row=5, sku="BBB", status="",
+                 cells={"vendorSkuCode": "BBB",
+                        "Manufacturer Name and Address with Pincode": ""},
+                 issues=[{"category": "address", "action": "auto_fix", "field": None,
+                          "explanation": "addr", "raw": "information is incomplete"}]),
+    ]
+    out = tmp_path / "out.xlsx"
+    summary = correct(rows, template, TEMPLATE, constants, {}, set(), str(out))
+    assert "brand" in summary["changed"]["AAA"]
+    assert "Manufacturer Name and Address with Pincode" in summary["changed"]["BBB"]
+
+
 def test_image_and_stylegroupid_explain_not_auto(tmp_path):
     p = tmp_path / "resub.xlsx"
     _make_resub(p, [

@@ -45,12 +45,16 @@ def correct(row_errors, template, template_path, constants, answers, drops, out_
         changed = []
         # deterministic auto-fixes derived from issue categories
         for issue in re_.issues:
-            if issue["category"] == "pincode":
+            if issue["category"] in ("pincode", "address"):
                 for h in ("Manufacturer Name and Address with Pincode",
                           "Packer Name and Address with Pincode"):
                     if constants.get(h):
                         cells[h] = constants[h]
                         changed.append(h)
+            elif issue["category"] == "brand":
+                if constants.get("brand"):
+                    cells["brand"] = constants["brand"]
+                    changed.append("brand")
             elif issue["category"] == "numeric":
                 # Backfill an empty selling price (ISP) from MRP. fill_template
                 # coerces MRP/ISP to real numbers, which covers the "non numeric"
