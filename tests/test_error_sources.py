@@ -1,4 +1,7 @@
 import csv
+import re
+import zipfile
+
 import openpyxl
 from src.myntra.error_sources import detect_format, read_error_file, ErrorItem
 from src.myntra.error_reader import load_rules
@@ -82,6 +85,45 @@ def test_read_sheet_csv_one_item_no_split(tmp_path):
     assert items[0].scope == "sheet"
     assert items[0].sku is None
     assert "Style SKU Count" in items[0].raw_reason
+
+
+def _stale_dimension(path):
+    """Rewrite every worksheet's <dimension ref="..."/> to a stale 'A1:A1',
+    reproducing the real-world Myntra export bug: the workbook actually has
+    more rows/cols than the stale tag claims. openpyxl's read_only=True mode
+    trusts this tag and iter_rows() silently yields nothing beyond it, which
+    is exactly the regression _xlsx_error_sheet must stay immune to (it uses
+    read_only=False deliberately)."""
+    with zipfile.ZipFile(path, "r") as zin:
+        members = {name: zin.read(name) for name in zin.namelist()}
+    for name in list(members):
+        if name.startswith("xl/worksheets/") and name.endswith(".xml"):
+            xml = members[name].decode("utf-8")
+            xml = re.sub(r'<dimension ref="[^"]*"/>', '<dimension ref="A1:A1"/>', xml)
+            members[name] = xml.encode("utf-8")
+    with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as zout:
+        for name, data in members.items():
+            zout.writestr(name, data)
+
+
+def test_detect_and_read_survive_stale_dimension_tag(tmp_path):
+    """Regression for the read_only=True bug: real Myntra rejection xlsx files
+    carry a stale <dimension> tag that under-reports max_row/max_col. If
+    _xlsx_error_sheet ever reintroduces read_only=True, iter_rows() will trust
+    that stale tag and this test fails (detect_format returns None instead of
+    'sku_xlsx', because the header row past the stale A1:A1 bound is never
+    seen)."""
+    p = tmp_path / "stale.xlsx"
+    _sku_xlsx(p)
+    _stale_dimension(p)
+
+    src, _ = detect_format(str(p))
+    assert src == "sku_xlsx"
+
+    items = read_error_file(str(p), load_rules())
+    assert {i.raw_reason for i in items} == {
+        "ISP cannot be empty", "6 digit Pincode is missing"}
+    assert all(i.source_type == "sku_xlsx" and i.scope == "sku" for i in items)
 
 
 def test_read_listings_skips_live_rows(tmp_path):

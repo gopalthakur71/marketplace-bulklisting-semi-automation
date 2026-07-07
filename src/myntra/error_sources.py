@@ -75,8 +75,7 @@ def detect_format(path):
         return None, "Couldn't read this file."
 
 
-def _read_sku_xlsx(path, rules):
-    sheet, _ = _xlsx_error_sheet(path)
+def _read_sku_xlsx(path, rules, sheet):
     items = []
     for re_ in read_errors(path, rules, sheet=sheet):
         for issue in re_.issues:
@@ -124,9 +123,21 @@ def read_error_file(path, rules=None):
     """Detect the format and return a normalized ErrorItem list. Unknown formats
     return [] — the caller uses detect_format() for the user-facing reason."""
     rules = rules or load_rules()
+    ext = os.path.splitext(path)[1].lower()
+    if ext == ".xlsx":
+        # Compute the error sheet ONCE here and pass it straight to
+        # _read_sku_xlsx -> read_errors, instead of calling detect_format()
+        # (which would re-parse the workbook) and then re-detecting the sheet
+        # again inside _read_sku_xlsx. That would be 3 full xlsx parses per
+        # call (detect + re-detect + read_errors); this keeps it at 2.
+        try:
+            sheet, _ = _xlsx_error_sheet(path)
+        except Exception:
+            return []
+        if not sheet:
+            return []
+        return _read_sku_xlsx(path, rules, sheet)
     src, _ = detect_format(path)
-    if src == "sku_xlsx":
-        return _read_sku_xlsx(path, rules)
     if src == "sheet_csv":
         return _read_sheet_csv(path)
     if src == "listings_report":
