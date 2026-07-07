@@ -252,3 +252,29 @@ def test_correct_from_issues_drops_sku(tmp_path):
     assert "DUP" not in summary["changed"]
     recs = read_log(log)
     assert [r["sku"] for r in recs] == ["AAA"]             # dropped SKU logs nothing
+
+
+def test_regenerate_surface_b_resolves_pins_and_reports_missing(monkeypatch, tmp_path):
+    import src.myntra.corrector as corrector
+    from src.web.settings import Settings
+
+    # Fake registry: AAA is known (has pins), BBB is unknown.
+    monkeypatch.setattr(corrector, "sku_registry_store", lambda s: object())
+    monkeypatch.setattr(corrector, "read_registry",
+                        lambda store: {"AAA": {"style_group_id": 42, "hsn": "52081120"}})
+
+    captured = {}
+
+    def fake_pipeline(**kwargs):
+        captured.update(kwargs)
+        return {"filled": str(tmp_path / "myntra_filled.xlsx"),
+                "products": 1, "records": [{"sku": "AAA"}]}
+
+    monkeypatch.setattr(corrector, "pipeline_main", fake_pipeline)
+
+    summary = corrector.regenerate_surface_b(["AAA", "BBB"], Settings(), str(tmp_path))
+    assert captured["only_skus"] == {"AAA", "BBB"}
+    assert captured["style_group_id_by_sku"] == {"AAA": 42}
+    assert captured["hsn_by_sku"] == {"AAA": "52081120"}
+    assert summary["fixed"] == ["AAA"]
+    assert summary["could_not_rebuild"] == ["BBB"]

@@ -7,6 +7,9 @@ from src.myntra.mapper import validate_value
 from src.myntra.error_reader import RowError
 from src.myntra.correction_log import append as log_append
 from src.myntra.signature import normalize
+from src.myntra.pipeline import main as pipeline_main
+from src.myntra.sku_registry import read_registry
+from src.web.settings import sku_registry_store
 
 # image column order is the same list the sheet-writer uses
 _IMAGE_HEADERS = IMAGE_COLUMNS
@@ -158,3 +161,37 @@ def correct_from_issues(issues, template, template_path, constants, answers, out
                 "changes": _derive_changes(sku, cells_before.get(sku, {}),
                                            answers, constants, fields)})
     return summary
+
+
+def regenerate_surface_b(skus, settings, out_dir, csv_path=None):
+    """Surface B / A': rebuild rejected SKUs from the SKU registry pins + the
+    Shopify export, applying the CURRENT constants.yaml (so brand/address/pincode
+    fixes flow through). skus=None rebuilds the whole sheet. SKUs resolvable in
+    neither the registry nor the export are reported as could_not_rebuild."""
+    reg = read_registry(sku_registry_store(settings))
+    only = set(skus) if skus else None
+    sgid, hsn = {}, {}
+    for sku in (skus or []):
+        e = reg.get(sku)
+        if not e:
+            continue
+        if e.get("style_group_id") is not None:
+            sgid[sku] = e["style_group_id"]
+        if e.get("hsn") is not None:
+            hsn[sku] = e["hsn"]
+
+    res = pipeline_main(csv_path=csv_path, out_dir=out_dir, only_skus=only,
+                        style_group_id_by_sku=sgid, hsn_by_sku=hsn)
+
+    built = {r["sku"] for r in res.get("records", [])}
+    missing = sorted(set(skus) - built) if skus else []
+    return {
+        "written": res.get("products", 0),
+        "file": res.get("filled"),
+        "fixed": sorted(built),
+        "could_not_rebuild": missing,
+        "manual_needed": [],
+        "dropped": [],
+        "rejected": {},
+        "changed": {},
+    }
