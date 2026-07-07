@@ -31,6 +31,8 @@ ExecStartPre=/usr/bin/docker pull $IMAGE
 ExecStart=/usr/bin/docker run --rm --name listing-app -p 80:8080 \
   -e AWS_REGION=$REGION \
   -e AWS_DEFAULT_REGION=$REGION \
+  -e EXPLAIN_WITH_GEMINI=1 \
+  -e GEMINI_MODEL=gemini-2.5-flash \
   $IMAGE
 ExecStop=/usr/bin/docker stop listing-app
 Restart=on-failure
