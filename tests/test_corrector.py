@@ -220,3 +220,35 @@ def test_correct_from_issues_excludes_explain_only_and_logs(tmp_path):
     assert recs[0]["sku"] == "AAA"
     assert recs[0]["fix_id"] == "fix123"
     assert "brand" in recs[0]["changes"]
+
+
+def test_correct_from_issues_drops_sku(tmp_path):
+    from src.myntra.explainer import ExplainedIssue
+    from src.myntra.corrector import correct_from_issues
+    from src.myntra.correction_log import read_log
+    from src.web.settings import LocalJsonStore
+
+    template = read_template(TEMPLATE)
+    constants = {"brand": "Ijor Ethnic Partners"}
+
+    def _iss(sku, action, category, cells, explanation="x", field=None):
+        return ExplainedIssue(sku=sku, style_id=None, scope="sku",
+                              source_type="sku_xlsx", raw_reason="Seller Sku Code is already registered",
+                              explanation=explanation, action=action, field=field,
+                              category=category, source="yaml", cells=cells)
+
+    issues = [
+        _iss("AAA", "auto_fix", "brand", {"vendorSkuCode": "AAA", "brand": ""}),
+        _iss("DUP", "drop_sku", "duplicate", {"vendorSkuCode": "DUP"},
+             explanation="Already registered, dropping"),
+    ]
+    log = LocalJsonStore(str(tmp_path / "log.json"))
+    out = tmp_path / "out.xlsx"
+    summary = correct_from_issues(issues, template, TEMPLATE, constants, {},
+                                  str(out), log_store=log, fix_id="fix123")
+
+    assert summary["written"] == 1                        # only AAA written
+    assert summary["dropped"] == ["DUP"]
+    assert "DUP" not in summary["changed"]
+    recs = read_log(log)
+    assert [r["sku"] for r in recs] == ["AAA"]             # dropped SKU logs nothing
