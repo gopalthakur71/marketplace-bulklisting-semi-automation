@@ -72,8 +72,12 @@ def test_surface_b_end_to_end(monkeypatch, tmp_path):
 
     monkeypatch.setattr(fixmod, "regenerate_surface_b", fake_regen)
 
+    # "manufacturer and packer information is incomplete" is a real configured
+    # rule (auto_fix/address) so this row is genuinely correctable -> non-empty
+    # skus set for Surface B. A reason that matches no rule would be explain_only
+    # and correctly produce an empty rebuild set (see FIX 1 / test_fix.py).
     listings = (b'"style status","seller sku code","onhold reason","style id"\r\n'
-                b'"PMR","127SDE826NSB","address incomplete","43214808"\r\n')
+                b'"PMR","127SDE826NSB","manufacturer and packer information is incomplete","43214808"\r\n')
     up = client.post("/fix", files={"file": ("MDirect_Listings_Report.csv", listings, "text/csv")})
     assert up.status_code == 200
     fix_id = up.headers["x-fix-id"]

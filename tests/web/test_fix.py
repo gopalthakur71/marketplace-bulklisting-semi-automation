@@ -102,6 +102,36 @@ def test_apply_surface_a_drop_checkbox_is_authoritative(monkeypatch):
     assert "78SAZ" in captured["drops"]
 
 
+def test_apply_listings_report_all_dropped_does_not_rebuild_whole_catalog(monkeypatch):
+    """If every correctable SKU is dropped/explain_only, the empty rebuild set must
+    short-circuit to a 'nothing to rebuild' result instead of passing None (which
+    regenerate_surface_b treats as 'rebuild the whole catalog')."""
+    client = _client()
+    monkeypatch.setattr(fixmod, "detect_format", lambda p: ("listings_report", ""))
+    monkeypatch.setattr(fixmod, "read_error_file", lambda p, rules: [
+        ErrorItem(sku="ONLYSKU", style_id=None, source_type="listings_report", scope="sku",
+                  raw_reason="Something totally unrelated to any configured rule",
+                  cells={}),
+    ])
+
+    called = {"regen": False}
+
+    def fake_regen(skus, settings, fix_dir):
+        called["regen"] = True
+        return {"written": 99, "file": None, "fixed": [], "could_not_rebuild": [],
+                "dropped": [], "rejected": {}, "changed": {}, "manual_needed": []}
+
+    monkeypatch.setattr(fixmod, "regenerate_surface_b", fake_regen)
+
+    up = client.post("/fix", files={"file": ("rej.csv", b"x", "text/csv")})
+    fix_id = up.headers["x-fix-id"]
+    r = client.post(f"/fix/apply/{fix_id}", data={})
+    assert r.status_code == 200
+    assert called["regen"] is False  # must NOT trigger a whole-catalog rebuild
+    assert "Download corrected xlsx" not in r.text
+    assert "0 row(s) written" in r.text
+
+
 def test_apply_bogus_fix_id_returns_404():
     client = _client()
     r = client.post("/fix/apply/../etc", data={})

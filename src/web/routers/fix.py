@@ -146,9 +146,24 @@ async def fix_apply(request: Request, fix_id: str):
             answers, out_path, log_store=correction_log_store(settings), fix_id=fix_id,
             drops=submitted_drops)
     else:
-        skus = sorted({i.sku for i in issues
-                       if i.sku and i.action != "explain_only"
-                       and i.sku not in submitted_drops}) or None
+        if source_type == "sheet_csv":
+            skus = None  # whole-sheet rejection: rebuild the entire sheet
+        else:  # listings_report: per-SKU
+            skus = sorted({i.sku for i in issues
+                           if i.sku and i.action != "explain_only"
+                           and i.sku not in submitted_drops})
+            if not skus:
+                # Everything correctable was dropped or explain_only -> there is
+                # nothing to rebuild. Do NOT pass None to regenerate_surface_b:
+                # that sentinel means "rebuild the whole catalog", which would
+                # silently rebuild a set the user never asked for.
+                summary = {"written": 0, "file": None, "fixed": [],
+                           "could_not_rebuild": [], "dropped": sorted(submitted_drops),
+                           "rejected": {}, "changed": {},
+                           "manual_needed": [{"sku": i.sku, "explanation": i.explanation}
+                                             for i in issues if i.action == "explain_only"]}
+                return _templates().TemplateResponse(request, "_fix_result.html",
+                                                     {"summary": summary, "fix_id": fix_id})
         summary = regenerate_surface_b(skus, settings, fix_dir)
         if summary.get("file") and os.path.exists(summary["file"]):
             shutil.copyfile(summary["file"], out_path)
