@@ -1,6 +1,12 @@
+import datetime
+from collections import OrderedDict
+
 from src.core.models import ImageResult, MappedRow
 from src.myntra.fill import IMAGE_COLUMNS, fill_template
 from src.myntra.mapper import validate_value
+from src.myntra.error_reader import RowError
+from src.myntra.correction_log import append as log_append
+from src.myntra.signature import normalize
 
 # image column order is the same list the sheet-writer uses
 _IMAGE_HEADERS = IMAGE_COLUMNS
@@ -84,4 +90,71 @@ def correct(row_errors, template, template_path, constants, answers, drops, out_
             summary["changed"][re_.sku] = changed
     fill_template(template_path, template, rows, out_path)
     summary["written"] = len(rows)
+    return summary
+
+
+def _now_iso():
+    return datetime.datetime.now().isoformat(timespec="seconds")
+
+
+def _derive_changes(sku, cells_before, answers, constants, changed_fields):
+    """Best-effort {field: [old, new]} for the correction log. The log is a
+    Phase-D breadcrumb (not read in this build), so approximating `old` from the
+    pre-fix cells and `new` from the deterministic source is acceptable."""
+    changes = {}
+    for field in changed_fields:
+        old = cells_before.get(field, "") or ""
+        if field in (answers.get(sku) or {}):
+            new = answers[sku][field]
+        elif field == "ISP":
+            new = cells_before.get("MRP", "")
+        else:
+            new = constants.get(field, "")
+        changes[field] = [old, new]
+    return changes
+
+
+def correct_from_issues(issues, template, template_path, constants, answers, out_path,
+                        log_store=None, fix_id=None):
+    """Surface A: correct SKUs in place from ExplainedIssue records. A SKU with any
+    explain_only issue is excluded from the file (reported under 'manual_needed');
+    drop_sku SKUs are dropped; the rest go through the deterministic correct()."""
+    by_sku = OrderedDict()
+    for it in issues:
+        by_sku.setdefault(it.sku, []).append(it)
+
+    rows, drops, manual_needed = [], set(), []
+    cells_before = {}
+    for sku, its in by_sku.items():
+        if any(i.action == "explain_only" for i in its):
+            manual_needed.append({
+                "sku": sku,
+                "explanation": "; ".join(i.explanation for i in its
+                                         if i.action == "explain_only")})
+            continue
+        cells = {}
+        for it in its:
+            if it.cells:
+                cells.update(it.cells)
+        cells_before[sku] = dict(cells)
+        rows.append(RowError(
+            row=0, sku=sku, status="", cells=cells,
+            issues=[{"category": i.category, "action": i.action, "field": i.field,
+                     "explanation": i.explanation, "raw": i.raw_reason} for i in its]))
+        if any(i.action == "drop_sku" for i in its):
+            drops.add(sku)
+
+    summary = correct(rows, template, template_path, constants, answers, drops, out_path)
+    summary["manual_needed"] = manual_needed
+
+    if log_store is not None:
+        for sku, fields in summary.get("changed", {}).items():
+            first_raw = next((i.raw_reason for i in by_sku.get(sku, [])), "")
+            log_append(log_store, {
+                "timestamp": _now_iso(),
+                "fix_id": fix_id,
+                "sku": sku,
+                "signature": normalize(first_raw)[0] if first_raw else "",
+                "changes": _derive_changes(sku, cells_before.get(sku, {}),
+                                           answers, constants, fields)})
     return summary

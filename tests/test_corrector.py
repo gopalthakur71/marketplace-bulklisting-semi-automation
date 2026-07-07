@@ -186,3 +186,37 @@ def test_image_and_stylegroupid_explain_not_auto(tmp_path):
     assert {"IMG1", "SGI1"} <= set(explained)
     assert explained["IMG1"].get("explanation")
     assert explained["SGI1"].get("explanation")
+
+
+def test_correct_from_issues_excludes_explain_only_and_logs(tmp_path):
+    from src.myntra.explainer import ExplainedIssue
+    from src.myntra.corrector import correct_from_issues
+    from src.myntra.correction_log import read_log
+    from src.web.settings import LocalJsonStore
+
+    template = read_template(TEMPLATE)
+    constants = {"brand": "Ijor Ethnic Partners"}
+
+    def _iss(sku, action, category, cells, explanation="x", field=None):
+        return ExplainedIssue(sku=sku, style_id=None, scope="sku",
+                              source_type="sku_xlsx", raw_reason="getBrandCodeFromBrandName",
+                              explanation=explanation, action=action, field=field,
+                              category=category, source="yaml", cells=cells)
+
+    issues = [
+        _iss("AAA", "auto_fix", "brand", {"vendorSkuCode": "AAA", "brand": ""}),
+        _iss("IMG", "explain_only", "image", {"vendorSkuCode": "IMG"},
+             explanation="Reshoot the photo"),
+    ]
+    log = LocalJsonStore(str(tmp_path / "log.json"))
+    out = tmp_path / "out.xlsx"
+    summary = correct_from_issues(issues, template, TEMPLATE, constants, {},
+                                  str(out), log_store=log, fix_id="fix123")
+
+    assert summary["written"] == 1                       # only AAA written
+    assert [m["sku"] for m in summary["manual_needed"]] == ["IMG"]
+    assert "brand" in summary["changed"]["AAA"]
+    recs = read_log(log)
+    assert recs[0]["sku"] == "AAA"
+    assert recs[0]["fix_id"] == "fix123"
+    assert "brand" in recs[0]["changes"]
