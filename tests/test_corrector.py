@@ -278,3 +278,29 @@ def test_regenerate_surface_b_resolves_pins_and_reports_missing(monkeypatch, tmp
     assert captured["hsn_by_sku"] == {"AAA": "52081120"}
     assert summary["fixed"] == ["AAA"]
     assert summary["could_not_rebuild"] == ["BBB"]
+
+
+def test_regenerate_surface_b_whole_sheet_applies_registry_pins(monkeypatch, tmp_path):
+    import src.myntra.corrector as corrector
+    from src.web.settings import Settings
+
+    # Whole-sheet rebuild (skus=None): the registry's known SKUs must still get
+    # their recorded styleGroupId + HSN pinned, not fresh sequential ones.
+    monkeypatch.setattr(corrector, "sku_registry_store", lambda s: object())
+    monkeypatch.setattr(corrector, "read_registry",
+                        lambda store: {"AAA": {"style_group_id": 42, "hsn": "52081120"}})
+
+    captured = {}
+
+    def fake_pipeline(**kwargs):
+        captured.update(kwargs)
+        return {"filled": str(tmp_path / "myntra_filled.xlsx"),
+                "products": 1, "records": [{"sku": "AAA"}]}
+
+    monkeypatch.setattr(corrector, "pipeline_main", fake_pipeline)
+
+    summary = corrector.regenerate_surface_b(None, Settings(), str(tmp_path))
+    assert captured["only_skus"] is None
+    assert captured["style_group_id_by_sku"] == {"AAA": 42}
+    assert captured["hsn_by_sku"] == {"AAA": "52081120"}
+    assert summary["could_not_rebuild"] == []

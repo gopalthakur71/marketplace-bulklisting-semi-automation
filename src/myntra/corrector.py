@@ -171,7 +171,7 @@ def regenerate_surface_b(skus, settings, out_dir, csv_path=None):
     reg = read_registry(sku_registry_store(settings))
     only = set(skus) if skus else None
     sgid, hsn = {}, {}
-    for sku in (skus or []):
+    for sku in (skus if skus is not None else reg.keys()):
         e = reg.get(sku)
         if not e:
             continue
