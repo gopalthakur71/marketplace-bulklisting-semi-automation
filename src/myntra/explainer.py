@@ -2,7 +2,7 @@ from dataclasses import dataclass
 
 from src.myntra.signature import normalize
 from src.myntra.explanation_store import get as store_get, learn as store_learn
-from src.myntra.gemini_client import explain as gemini_explain
+from src.myntra.gemini_client import explain as gemini_explain, DEFAULT_MODEL
 
 
 @dataclass
@@ -62,7 +62,7 @@ def explain_item(item, rules, store=None, gemini=None):
 
     if gemini and gemini.get("enabled"):
         text = gemini_explain(raw, api_key=gemini.get("api_key"),
-                              model=gemini.get("model", "gemini-2.5-flash"),
+                              model=gemini.get("model", DEFAULT_MODEL),
                               client=gemini.get("client"))
         if text:
             if store is not None:

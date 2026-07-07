@@ -107,7 +107,7 @@ def fix_upload(request: Request, file: UploadFile = File(...)):
     explain_only = [i for i in issues if i.action == "explain_only"]
     resp = _templates().TemplateResponse(request, "_fix_review.html", {
         "correctable": correctable, "explain_only": explain_only,
-        "fix_id": fix_id, "source_type": source_type})
+        "fix_id": fix_id})
     resp.headers["x-fix-id"] = fix_id
     return resp
 
