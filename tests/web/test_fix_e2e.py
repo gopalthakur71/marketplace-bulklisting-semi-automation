@@ -141,3 +141,43 @@ def test_surface_b_real_rebuild_end_to_end(monkeypatch, tmp_path):
     wb = openpyxl.load_workbook(io.BytesIO(dl.content))
     ws = wb["Sarees"]
     assert ws.cell(row=4, column=3).value not in (None, "")  # TST001 rebuilt into the sheet
+
+
+def test_manual_rebuild_real_pipeline_end_to_end(monkeypatch, tmp_path):
+    """action=manual drives the REAL pipeline from an uploaded export for an
+    explain-only SKU and downloads a valid xlsx. Only image fetch + S3 are stubbed."""
+    import src.myntra.pipeline as pipe
+    import src.myntra.corrector as corrector
+    import src.core.s3_upload as s3
+    from src.core.images import process_images as real_process_images
+
+    img = _fake_image_bytes()
+    monkeypatch.setattr(pipe, "process_images",
+                        lambda p, specs, out_dir: real_process_images(
+                            p, specs, out_dir, fetch=lambda url: img))
+    monkeypatch.setattr(s3, "upload_images", lambda *a, **k: [])
+    monkeypatch.setattr(corrector, "read_registry", lambda store: {})
+    monkeypatch.setattr(corrector, "sku_registry_store", lambda s: object())
+
+    client = _client(tmp_path)
+    # A reason that matches NO configured rule -> explain_only (plain) for listings_report.
+    listings = (b'"style status","seller sku code","onhold reason","style id"\r\n'
+                b'"PMR","TST001","image resolution is too low, no rule matches this wording","43214808"\r\n')
+    up = client.post("/fix", files={"file": ("MDirect_Listings_Report.csv", listings, "text/csv")})
+    assert up.status_code == 200
+    assert "Download listing file" in up.text          # manual button rendered
+    fix_id = up.headers["x-fix-id"]
+
+    with open("tests/fixtures/products_export.csv", "rb") as fh:
+        export_bytes = fh.read()
+    r = client.post(f"/fix/apply/{fix_id}",
+                    data={"action": "manual"},
+                    files={"products_export": ("products_export.csv", export_bytes, "text/csv")})
+    assert r.status_code == 200
+    assert "Download corrected xlsx" in r.text
+
+    dl = client.get(f"/fix/download/{fix_id}")
+    assert dl.status_code == 200
+    wb = openpyxl.load_workbook(io.BytesIO(dl.content))
+    ws = wb["Sarees"]
+    assert ws.cell(row=4, column=3).value not in (None, "")   # TST001 rebuilt into the sheet
