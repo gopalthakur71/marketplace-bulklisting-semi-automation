@@ -1,5 +1,6 @@
 <div id="review">
-<form hx-post="/fix/apply/{{ fix_id }}" hx-target="#review" hx-swap="innerHTML">
+<form hx-post="/fix/apply/{{ fix_id }}" hx-target="#review" hx-swap="innerHTML"
+      {% if needs_export %}hx-encoding="multipart/form-data"{% endif %}>
   {% if correctable %}
     <h3>We can fix these ({{ correctable|length }})</h3>
     {% for i in correctable %}
@@ -32,6 +33,14 @@
         <span>explain only</span><div>{{ i.explanation }}</div>
         <div class="hint mono">raw: {{ i.raw_reason }}</div></div>
     {% endfor %}
+  {% endif %}
+
+  {% if needs_export %}
+    <div class="card need">
+      <label for="products_export">To rebuild these SKUs, upload the Shopify products export you generated them from</label>
+      <input id="products_export" type="file" name="products_export" accept=".csv" required>
+      <div class="hint">This is the same <span class="mono">products_export.csv</span> you used to create the original listing.</div>
+    </div>
   {% endif %}
 
   <div class="actions">

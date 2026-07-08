@@ -1,3 +1,5 @@
+import os
+
 from fastapi.testclient import TestClient
 
 from src.web.main import create_app
@@ -6,8 +8,9 @@ import src.web.routers.fix as fixmod
 from src.myntra.error_sources import ErrorItem
 
 
-def _client():
-    return TestClient(create_app(Settings(auth_disabled=True, s3_bucket="b")))
+def _client(raise_server=True):
+    return TestClient(create_app(Settings(auth_disabled=True, s3_bucket="b")),
+                      raise_server_exceptions=raise_server)
 
 
 def _items():
@@ -18,6 +21,15 @@ def _items():
         ErrorItem(sku="IMG1", style_id=None, source_type="sku_xlsx", scope="sku",
                   raw_reason="Primary image appears to be a flat shot",
                   cells={"vendorSkuCode": "IMG1"}),
+    ]
+
+
+def _lr_correctable():
+    """A Listings-Report item that matches an auto_fix rule -> correctable, so its
+    SKU joins the Surface-B rebuild set (which needs the Shopify export)."""
+    return [
+        ErrorItem(sku="LR1", style_id=None, source_type="listings_report", scope="sku",
+                  raw_reason="Pincode is missing", cells={}),
     ]
 
 
@@ -130,6 +142,110 @@ def test_apply_listings_report_all_dropped_does_not_rebuild_whole_catalog(monkey
     assert called["regen"] is False  # must NOT trigger a whole-catalog rebuild
     assert "Download corrected xlsx" not in r.text
     assert "0 row(s) written" in r.text
+
+
+def test_upload_listings_report_correctable_shows_export_input(monkeypatch):
+    """Surface B with correctable SKUs must offer a file input for the Shopify
+    products export (prod has no baked-in export), with multipart encoding."""
+    client = _client()
+    monkeypatch.setattr(fixmod, "detect_format", lambda p: ("listings_report", ""))
+    monkeypatch.setattr(fixmod, "read_error_file", lambda p, rules: _lr_correctable())
+    r = client.post("/fix", files={"file": ("rej.csv", b"x", "text/csv")})
+    assert r.status_code == 200
+    assert 'name="products_export"' in r.text
+    assert "multipart/form-data" in r.text
+
+
+def test_apply_surface_b_without_export_prompts_and_does_not_rebuild(monkeypatch):
+    """Submitting the Surface-B fix with no export must NOT call the pipeline; it
+    returns a 200 panel asking for the products export."""
+    client = _client()
+    monkeypatch.setattr(fixmod, "detect_format", lambda p: ("listings_report", ""))
+    monkeypatch.setattr(fixmod, "read_error_file", lambda p, rules: _lr_correctable())
+
+    called = {"regen": False}
+
+    def fake_regen(skus, settings, fix_dir, csv_path=None):
+        called["regen"] = True
+        return {"written": 0, "file": None, "fixed": [], "could_not_rebuild": [],
+                "dropped": [], "rejected": {}, "changed": {}, "manual_needed": []}
+
+    monkeypatch.setattr(fixmod, "regenerate_surface_b", fake_regen)
+
+    up = client.post("/fix", files={"file": ("rej.csv", b"x", "text/csv")})
+    fix_id = up.headers["x-fix-id"]
+    r = client.post(f"/fix/apply/{fix_id}", data={})
+    assert r.status_code == 200
+    assert called["regen"] is False
+    assert "products export" in r.text.lower()
+
+
+def test_apply_surface_b_with_export_passes_csv_path(monkeypatch):
+    """When the user uploads the export, it is saved and threaded through to
+    regenerate_surface_b as a real csv_path holding the uploaded bytes."""
+    client = _client()
+    monkeypatch.setattr(fixmod, "detect_format", lambda p: ("listings_report", ""))
+    monkeypatch.setattr(fixmod, "read_error_file", lambda p, rules: _lr_correctable())
+
+    captured = {}
+
+    def fake_regen(skus, settings, fix_dir, csv_path=None):
+        captured["csv_path"] = csv_path
+        with open(csv_path, "rb") as fh:
+            captured["bytes"] = fh.read()
+        return {"written": 1, "file": None, "fixed": ["LR1"], "could_not_rebuild": [],
+                "dropped": [], "rejected": {}, "changed": {}, "manual_needed": []}
+
+    monkeypatch.setattr(fixmod, "regenerate_surface_b", fake_regen)
+
+    up = client.post("/fix", files={"file": ("rej.csv", b"x", "text/csv")})
+    fix_id = up.headers["x-fix-id"]
+    r = client.post(f"/fix/apply/{fix_id}", files={
+        "products_export": ("products_export.csv", b"Handle,Title\nabc,Kurta\n", "text/csv")})
+    assert r.status_code == 200
+    assert captured["csv_path"] and os.path.exists(captured["csv_path"])
+    assert captured["bytes"] == b"Handle,Title\nabc,Kurta\n"
+
+
+def test_apply_error_renders_panel_not_500(monkeypatch):
+    """Any failure inside apply must render a 200 error panel (htmx only swaps on
+    2xx), never a bare 500 that leaves the button looking dead."""
+    client = _client(raise_server=False)
+    monkeypatch.setattr(fixmod, "detect_format", lambda p: ("listings_report", ""))
+    monkeypatch.setattr(fixmod, "read_error_file", lambda p, rules: _lr_correctable())
+
+    def boom(skus, settings, fix_dir, csv_path=None):
+        raise RuntimeError("pipeline blew up")
+
+    monkeypatch.setattr(fixmod, "regenerate_surface_b", boom)
+
+    up = client.post("/fix", files={"file": ("rej.csv", b"x", "text/csv")})
+    fix_id = up.headers["x-fix-id"]
+    r = client.post(f"/fix/apply/{fix_id}", files={
+        "products_export": ("products_export.csv", b"Handle\nabc\n", "text/csv")})
+    assert r.status_code == 200
+    assert "could not" in r.text.lower()
+
+
+def test_apply_error_panel_escapes_exception_text(monkeypatch):
+    """Exception text (which can carry user-influenced content) must be HTML-escaped
+    so it cannot inject markup into the error panel."""
+    client = _client(raise_server=False)
+    monkeypatch.setattr(fixmod, "detect_format", lambda p: ("listings_report", ""))
+    monkeypatch.setattr(fixmod, "read_error_file", lambda p, rules: _lr_correctable())
+
+    def boom(skus, settings, fix_dir, csv_path=None):
+        raise RuntimeError("<script>alert(1)</script>")
+
+    monkeypatch.setattr(fixmod, "regenerate_surface_b", boom)
+
+    up = client.post("/fix", files={"file": ("rej.csv", b"x", "text/csv")})
+    fix_id = up.headers["x-fix-id"]
+    r = client.post(f"/fix/apply/{fix_id}", files={
+        "products_export": ("products_export.csv", b"Handle\nabc\n", "text/csv")})
+    assert r.status_code == 200
+    assert "<script>alert(1)</script>" not in r.text
+    assert "&lt;script&gt;" in r.text
 
 
 def test_apply_bogus_fix_id_returns_404():

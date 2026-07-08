@@ -1,10 +1,18 @@
 import io
+import os
 import openpyxl
+from PIL import Image
 from fastapi.testclient import TestClient
 
 from src.web.main import create_app
 from src.web.settings import Settings
 import src.web.routers.fix as fixmod
+
+
+def _fake_image_bytes():
+    buf = io.BytesIO()
+    Image.new("RGBA", (1000, 1200), (200, 30, 30, 255)).save(buf, "PNG")
+    return buf.getvalue()
 
 
 def _client(tmp_path):
@@ -61,8 +69,12 @@ def test_surface_a_end_to_end_excludes_explain_only(tmp_path, monkeypatch):
 
 def test_surface_b_end_to_end(monkeypatch, tmp_path):
     client = _client(tmp_path)
+    captured = {}
 
     def fake_regen(skus, settings, out_dir, csv_path=None):
+        captured["csv_path"] = csv_path
+        with open(csv_path, "rb") as fh:
+            captured["bytes"] = fh.read()
         path = f"{out_dir}/myntra_filled.xlsx"
         with open(path, "wb") as fh:
             fh.write(b"rebuilt")
@@ -81,6 +93,51 @@ def test_surface_b_end_to_end(monkeypatch, tmp_path):
     up = client.post("/fix", files={"file": ("MDirect_Listings_Report.csv", listings, "text/csv")})
     assert up.status_code == 200
     fix_id = up.headers["x-fix-id"]
-    r = client.post(f"/fix/apply/{fix_id}", data={})
+    # Surface B now requires the Shopify export; attach it so the rebuild proceeds.
+    r = client.post(f"/fix/apply/{fix_id}", files={
+        "products_export": ("products_export.csv", b"Handle,Variant SKU\nx,127SDE826NSB\n", "text/csv")})
     assert r.status_code == 200
     assert "Download corrected xlsx" in r.text
+    # the uploaded export was threaded through to the rebuild as a real file
+    assert captured["csv_path"] and os.path.exists(captured["csv_path"])
+    assert captured["bytes"] == b"Handle,Variant SKU\nx,127SDE826NSB\n"
+
+
+def test_surface_b_real_rebuild_end_to_end(monkeypatch, tmp_path):
+    """No monkeypatch of regenerate_surface_b: drive the REAL pipeline from an
+    uploaded products export. This is the path the prod bug crashed on (the
+    pipeline defaulted csv_path to a missing input/ file); only the image fetch
+    and S3 upload are stubbed so the test stays offline."""
+    import src.myntra.pipeline as pipe
+    import src.myntra.corrector as corrector
+    import src.core.s3_upload as s3
+    from src.core.images import process_images as real_process_images
+
+    img = _fake_image_bytes()
+    monkeypatch.setattr(pipe, "process_images",
+                        lambda p, specs, out_dir: real_process_images(
+                            p, specs, out_dir, fetch=lambda url: img))
+    monkeypatch.setattr(s3, "upload_images", lambda *a, **k: [])
+    # Unknown registry -> fresh sequential ids, no pins needed for the rebuild.
+    monkeypatch.setattr(corrector, "read_registry", lambda store: {})
+    monkeypatch.setattr(corrector, "sku_registry_store", lambda s: object())
+
+    client = _client(tmp_path)
+    listings = (b'"style status","seller sku code","onhold reason","style id"\r\n'
+                b'"PMR","TST001","manufacturer and packer information is incomplete","43214808"\r\n')
+    up = client.post("/fix", files={"file": ("MDirect_Listings_Report.csv", listings, "text/csv")})
+    assert up.status_code == 200
+    fix_id = up.headers["x-fix-id"]
+
+    with open("tests/fixtures/products_export.csv", "rb") as fh:
+        export_bytes = fh.read()
+    r = client.post(f"/fix/apply/{fix_id}", files={
+        "products_export": ("products_export.csv", export_bytes, "text/csv")})
+    assert r.status_code == 200
+    assert "Download corrected xlsx" in r.text
+
+    dl = client.get(f"/fix/download/{fix_id}")
+    assert dl.status_code == 200
+    wb = openpyxl.load_workbook(io.BytesIO(dl.content))
+    ws = wb["Sarees"]
+    assert ws.cell(row=4, column=3).value not in (None, "")  # TST001 rebuilt into the sheet

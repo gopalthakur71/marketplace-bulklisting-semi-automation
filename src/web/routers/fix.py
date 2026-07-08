@@ -1,4 +1,5 @@
 import dataclasses
+import html
 import json
 import os
 import re
@@ -105,11 +106,46 @@ def fix_upload(request: Request, file: UploadFile = File(...)):
 
     correctable = [i for i in issues if i.action != "explain_only"]
     explain_only = [i for i in issues if i.action == "explain_only"]
+    # Surface B (whole-sheet csv / per-SKU Listings Report) rebuilds SKUs by
+    # re-running the pipeline, which needs the Shopify products export. Prod has
+    # no baked-in export, so ask the user to upload it alongside the fix.
+    needs_export = source_type in ("sheet_csv", "listings_report") and bool(correctable)
     resp = _templates().TemplateResponse(request, "_fix_review.html", {
         "correctable": correctable, "explain_only": explain_only,
-        "fix_id": fix_id})
+        "fix_id": fix_id, "needs_export": needs_export})
     resp.headers["x-fix-id"] = fix_id
     return resp
+
+
+def _error_panel(exc):
+    """Render any apply failure as a 200 panel. htmx only swaps on 2xx, so a bare
+    500 would leave the Proceed button looking dead (the original prod bug)."""
+    # Exception text can carry user-influenced content (e.g. an uploaded filename
+    # in a FileNotFoundError). Escape it so it can never break out of the <pre>.
+    detail = html.escape(str(exc) or exc.__class__.__name__)
+    return HTMLResponse(
+        '<div class="panel"><h3>Something went wrong</h3>'
+        '<p>We could not complete the fix. Please try again, and if it keeps '
+        'happening share this detail with support:</p><pre>%s</pre></div>' % detail)
+
+
+def _export_prompt_panel():
+    return HTMLResponse(
+        '<div class="panel"><h3>We need your Shopify products export</h3>'
+        '<p>To rebuild these SKUs we re-run the listing pipeline, which needs the '
+        'Shopify <strong>products export</strong> you generated them from. Go back, '
+        'attach that CSV in the box next to &ldquo;Proceed&rdquo;, and try again.</p></div>')
+
+
+def _save_export(upload, fix_dir):
+    """Persist an uploaded Shopify products export to the fix dir; return its path,
+    or None if no usable file was submitted."""
+    if upload is None or not getattr(upload, "filename", None):
+        return None
+    path = os.path.join(fix_dir, "products_export.csv")
+    with open(path, "wb") as out:
+        shutil.copyfileobj(upload.file, out)
+    return path
 
 
 def _load_issues(fix_dir):
@@ -127,12 +163,23 @@ async def fix_apply(request: Request, fix_id: str):
     settings = get_settings(request)
     fix_id = _safe_fix_id(fix_id)
     fix_dir = _fix_dir(fix_id)
+    try:
+        return await _fix_apply(request, settings, fix_id, fix_dir)
+    except HTTPException:
+        raise  # 404 for expired/unknown session stays a real error
+    except Exception as exc:  # noqa: BLE001 - any failure -> visible panel, not a dead button
+        return _error_panel(exc)
+
+
+async def _fix_apply(request, settings, fix_id, fix_dir):
     source_type, issues = _load_issues(fix_dir)
 
     form = await request.form()
-    answers, submitted_drops = {}, set()
+    answers, submitted_drops, export_upload = {}, set(), None
     for key, value in form.items():
-        if key.startswith("answer__") and str(value).strip():
+        if key == "products_export":
+            export_upload = value
+        elif key.startswith("answer__") and str(value).strip():
             _, sku, field = key.split("__", 2)
             answers.setdefault(sku, {})[field] = value
         elif key.startswith("drop__"):
@@ -164,7 +211,12 @@ async def fix_apply(request: Request, fix_id: str):
                                              for i in issues if i.action == "explain_only"]}
                 return _templates().TemplateResponse(request, "_fix_result.html",
                                                      {"summary": summary, "fix_id": fix_id})
-        summary = regenerate_surface_b(skus, settings, fix_dir)
+        # A real Surface-B rebuild needs the Shopify products export. Prod has no
+        # baked-in export, so require the user to upload it rather than 500.
+        csv_path = _save_export(export_upload, fix_dir)
+        if csv_path is None:
+            return _export_prompt_panel()
+        summary = regenerate_surface_b(skus, settings, fix_dir, csv_path=csv_path)
         if summary.get("file") and os.path.exists(summary["file"]):
             shutil.copyfile(summary["file"], out_path)
         # regenerate_surface_b always returns manual_needed=[] (key present but
