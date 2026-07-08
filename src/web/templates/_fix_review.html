@@ -1,6 +1,14 @@
 <div id="review">
 <form hx-post="/fix/apply/{{ fix_id }}" hx-target="#review" hx-swap="innerHTML"
       {% if needs_export %}hx-encoding="multipart/form-data"{% endif %}>
+  {% if needs_export %}
+    <div class="card need">
+      <label for="products_export">To rebuild these SKUs, upload the Shopify products export you generated them from</label>
+      <input id="products_export" type="file" name="products_export" accept=".csv" required>
+      <div class="hint">This is the same <span class="mono">products_export.csv</span> you used to create the original listing.</div>
+    </div>
+  {% endif %}
+
   {% if correctable %}
     <h3>We can fix these ({{ correctable|length }})</h3>
     {% for i in correctable %}
@@ -23,6 +31,7 @@
           <div class="hint mono">raw: {{ i.raw_reason }}</div></div>
       {% endif %}
     {% endfor %}
+    <button class="btn" type="submit" name="action" value="fix">Download now to fix →</button>
   {% endif %}
 
   {% if explain_only %}
@@ -37,7 +46,7 @@
       <p><strong>These need a real fix the app can't do (photos, image quality, resolution).</strong></p>
       <p>Fix them in <strong>Shopify first</strong> — re-shoot and upload the corrected photos onto the
          product — then <strong>re-export just these SKUs</strong> from Shopify and drop that file in the
-         box below.</p>
+         upload box at the top.</p>
       <p>Click <strong>Download listing file</strong> and the app rebuilds a ready-to-upload Myntra sheet
          for these SKUs with your new images, keeping the <strong>same HSN and style group</strong> as your
          first attempt so Myntra won't reject them again.</p>
@@ -45,18 +54,7 @@
     </div>
   {% endif %}
 
-  {% if needs_export %}
-    <div class="card need">
-      <label for="products_export">To rebuild these SKUs, upload the Shopify products export you generated them from</label>
-      <input id="products_export" type="file" name="products_export" accept=".csv" required>
-      <div class="hint">This is the same <span class="mono">products_export.csv</span> you used to create the original listing.</div>
-    </div>
-  {% endif %}
-
   <div class="actions">
-    {% if correctable %}
-      <button class="btn" type="submit" name="action" value="fix">Fix &amp; download now →</button>
-    {% endif %}
     <a class="btn ghost" hx-get="/fix/dismiss" hx-target="#review" hx-swap="innerHTML">Do not make any changes</a>
   </div>
 </form>

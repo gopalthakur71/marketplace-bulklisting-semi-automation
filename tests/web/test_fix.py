@@ -123,7 +123,7 @@ def test_upload_groups_correctable_and_explain_only(monkeypatch):
     r = client.post("/fix", files={"file": ("rej.xlsx", b"x",
                     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")})
     assert r.status_code == 200
-    assert "Fix &amp; download now" in r.text
+    assert "Download now to fix" in r.text
     assert "Do not make any changes" in r.text
     assert "78SAZ" in r.text and "IMG1" in r.text
 
@@ -142,7 +142,7 @@ def test_upload_explain_only_shows_manual_download_button_and_guidance(monkeypat
     assert "re-export just these SKUs" in r.text          # guidance copy
     assert 'name="products_export"' in r.text              # shared export input now shown
     assert 'value="fix"' in r.text                         # correctable button carries action=fix
-    assert "Fix &amp; download now" in r.text
+    assert "Download now to fix" in r.text
 
 
 def test_unknown_format_shows_guidance(monkeypatch):
