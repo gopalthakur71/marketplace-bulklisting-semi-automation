@@ -181,8 +181,11 @@ async def _fix_apply(request, settings, fix_id, fix_dir):
 
     form = await request.form()
     answers, submitted_drops, export_upload = {}, set(), None
+    action = "fix"
     for key, value in form.items():
-        if key == "products_export":
+        if key == "action":
+            action = str(value) or "fix"
+        elif key == "products_export":
             export_upload = value
         elif key.startswith("answer__") and str(value).strip():
             _, sku, field = key.split("__", 2)
@@ -191,6 +194,26 @@ async def _fix_apply(request, settings, fix_id, fix_dir):
             submitted_drops.add(key.split("__", 1)[1])
 
     out_path = os.path.join(fix_dir, "myntra_corrected.xlsx")
+    if action == "manual":
+        # Rebuild ONLY the explain-only SKUs into a fresh Myntra sheet, pinning the
+        # original HSN/styleGroupId (regenerate_surface_b reads the registry). This
+        # is the "I fixed the photo in Shopify, re-export, give me a sheet" path.
+        skus = sorted({i.sku for i in issues
+                       if i.sku and i.action == "explain_only"})
+        if not skus:
+            summary = {"written": 0, "file": None, "fixed": [], "could_not_rebuild": [],
+                       "dropped": [], "rejected": {}, "changed": {}, "manual_needed": []}
+            return _templates().TemplateResponse(request, "_fix_result.html",
+                                                 {"summary": summary, "fix_id": fix_id})
+        csv_path = _save_export(export_upload, fix_dir)
+        if csv_path is None:
+            return _export_prompt_panel()
+        summary = regenerate_surface_b(skus, settings, fix_dir, csv_path=csv_path)
+        if summary.get("file") and os.path.exists(summary["file"]):
+            shutil.copyfile(summary["file"], out_path)
+        return _templates().TemplateResponse(request, "_fix_result.html",
+                                             {"summary": summary, "fix_id": fix_id})
+
     if source_type == "sku_xlsx":
         template = read_template(_resolve_template_path())
         summary = correct_from_issues(

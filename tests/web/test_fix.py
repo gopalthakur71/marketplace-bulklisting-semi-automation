@@ -33,6 +33,89 @@ def _lr_correctable():
     ]
 
 
+def _lr_mixed():
+    """One correctable (LR1, auto_fix pincode) + one explain-only (IMGX, no rule match)."""
+    from src.myntra.error_sources import ErrorItem
+    return [
+        ErrorItem(sku="LR1", style_id=None, source_type="listings_report", scope="sku",
+                  raw_reason="Pincode is missing", cells={}),
+        ErrorItem(sku="IMGX", style_id=None, source_type="listings_report", scope="sku",
+                  raw_reason="Image resolution is too low and totally unmatched by any rule", cells={}),
+    ]
+
+
+def test_apply_manual_rebuilds_only_explain_only_skus(monkeypatch):
+    client = _client()
+    monkeypatch.setattr(fixmod, "detect_format", lambda p: ("listings_report", ""))
+    monkeypatch.setattr(fixmod, "read_error_file", lambda p, rules: _lr_mixed())
+
+    captured = {}
+
+    def fake_regen(skus, settings, fix_dir, csv_path=None):
+        captured["skus"] = list(skus)
+        with open(csv_path, "rb") as fh:
+            captured["bytes"] = fh.read()
+        return {"written": 1, "file": None, "fixed": list(skus), "could_not_rebuild": [],
+                "dropped": [], "rejected": {}, "changed": {}, "manual_needed": []}
+
+    monkeypatch.setattr(fixmod, "regenerate_surface_b", fake_regen)
+
+    up = client.post("/fix", files={"file": ("rej.csv", b"x", "text/csv")})
+    fix_id = up.headers["x-fix-id"]
+    r = client.post(f"/fix/apply/{fix_id}",
+                    data={"action": "manual"},
+                    files={"products_export": ("products_export.csv", b"Handle\nabc\n", "text/csv")})
+    assert r.status_code == 200
+    assert captured["skus"] == ["IMGX"]            # only the explain-only SKU, NOT LR1
+    assert captured["bytes"] == b"Handle\nabc\n"
+
+
+def test_apply_manual_without_export_prompts_and_does_not_rebuild(monkeypatch):
+    client = _client()
+    monkeypatch.setattr(fixmod, "detect_format", lambda p: ("listings_report", ""))
+    monkeypatch.setattr(fixmod, "read_error_file", lambda p, rules: _lr_mixed())
+
+    called = {"regen": False}
+
+    def fake_regen(skus, settings, fix_dir, csv_path=None):
+        called["regen"] = True
+        return {}
+
+    monkeypatch.setattr(fixmod, "regenerate_surface_b", fake_regen)
+
+    up = client.post("/fix", files={"file": ("rej.csv", b"x", "text/csv")})
+    fix_id = up.headers["x-fix-id"]
+    r = client.post(f"/fix/apply/{fix_id}", data={"action": "manual"})
+    assert r.status_code == 200
+    assert called["regen"] is False
+    assert "products export" in r.text.lower()
+
+
+def test_apply_fix_action_still_scopes_to_correctable_only(monkeypatch):
+    """Regression: the default action=fix must rebuild only correctable SKUs, never
+    the explain-only ones."""
+    client = _client()
+    monkeypatch.setattr(fixmod, "detect_format", lambda p: ("listings_report", ""))
+    monkeypatch.setattr(fixmod, "read_error_file", lambda p, rules: _lr_mixed())
+
+    captured = {}
+
+    def fake_regen(skus, settings, fix_dir, csv_path=None):
+        captured["skus"] = list(skus)
+        return {"written": 1, "file": None, "fixed": list(skus), "could_not_rebuild": [],
+                "dropped": [], "rejected": {}, "changed": {}, "manual_needed": []}
+
+    monkeypatch.setattr(fixmod, "regenerate_surface_b", fake_regen)
+
+    up = client.post("/fix", files={"file": ("rej.csv", b"x", "text/csv")})
+    fix_id = up.headers["x-fix-id"]
+    r = client.post(f"/fix/apply/{fix_id}",
+                    data={"action": "fix"},
+                    files={"products_export": ("products_export.csv", b"Handle\nabc\n", "text/csv")})
+    assert r.status_code == 200
+    assert captured["skus"] == ["LR1"]             # only correctable, IMGX excluded
+
+
 def test_upload_groups_correctable_and_explain_only(monkeypatch):
     client = _client()
     monkeypatch.setattr(fixmod, "detect_format", lambda p: ("sku_xlsx", ""))
