@@ -222,9 +222,11 @@ Python 3.12 · pandas · openpyxl · Pillow · PyYAML · requests · boto3 · py
 ```
 python -m pytest -v
 ```
-29 tests cover x14 vocab parsing, variant grouping, vocab validation, pricing,
+171 tests cover x14 vocab parsing, variant grouping, vocab validation, pricing,
 HSN/colour rules, transparency flatten, dropdown handling, numeric cell storage,
-S3 upload (stubbed, incl. per-SKU key mirroring), and an end-to-end run.
+S3 upload (stubbed, incl. per-SKU key mirroring), an end-to-end run, the
+styleGroupId ledger, HSN knowledge base, per-SKU dedup guard, error-file
+classification + correction, and the full web app (Generate + Fix flows).
 
 ---
 

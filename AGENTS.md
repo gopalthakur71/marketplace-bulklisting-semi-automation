@@ -52,7 +52,7 @@ LEDGER_LOCAL_PATH=src/web/runtime/ledger.json HSN_LOCAL_PATH=src/web/runtime/hsn
 #   $env:LEDGER_LOCAL_PATH="src/web/runtime/ledger.json"; $env:HSN_LOCAL_PATH="src/web/runtime/hsn_kb.json"; $env:SKU_REGISTRY_LOCAL_PATH="src/web/runtime/sku_registry.json"; $env:AUTH_DISABLED="1"; uvicorn src.web.main:app --reload
 # → http://localhost:8000/   (container runs on 8080; local uvicorn defaults to 8000)
 
-# Tests (74; this is the CI gate)
+# Tests (171; this is the CI gate)
 python -m pytest -q
 ```
 
@@ -84,6 +84,7 @@ CSS + vendored htmx + vendored fonts (no runtime CDN).
 |---|---|
 | What module does what + data flow + integration boundaries | [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) |
 | Usage + the Myntra upload rules (pricing, HSN, colours) | [`README.md`](README.md) |
+| A plain-English tour of every feature / every technology (non-technical) | [`docs/APP-FEATURES-GUIDE.md`](docs/APP-FEATURES-GUIDE.md), [`docs/TECH-EXPLAINED-FOR-BEGINNERS.md`](docs/TECH-EXPLAINED-FOR-BEGINNERS.md) |
 | **Why** something is built the way it is (design decisions) | [`docs/decisions/`](docs/decisions/) |
 | How to set up / operate AWS (Cognito, SSM/Secrets, CI/CD, EC2) | [`docs/runbooks/`](docs/runbooks/) |
 | Deep design specs + implementation plans | [`docs/superpowers/specs/`](docs/superpowers/specs/), [`docs/superpowers/plans/`](docs/superpowers/plans/) |

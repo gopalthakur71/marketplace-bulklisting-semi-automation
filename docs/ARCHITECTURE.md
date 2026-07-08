@@ -65,7 +65,8 @@ src/
     models.py shopify_reader.py images.py s3_upload.py
   myntra/                      # Myntra-specific
     pipeline.py template_reader.py mapper.py fill.py report.py     # Layer 1
-    groupid_ledger.py error_reader.py corrector.py                 # Layer 2
+    groupid_ledger.py hsn_kb.py sku_registry.py                    # Layer 2
+    error_reader.py corrector.py                                   # Layer 2
   web/                         # Layer 3 (FastAPI app)
     main.py settings.py auth.py jobs.py
     routers/ pages.py generate.py fix.py
@@ -87,7 +88,7 @@ S3/                            # IAM + bucket policies for image hosting (app→
 docs/
   ARCHITECTURE.md (this file)  decisions/ (ADRs / why)  runbooks/ (ops)
   superpowers/specs/ + plans/  journal/ (history)
-tests/                         # 57 tests; tests/web/ covers Layer 3
+tests/                         # 171 tests; tests/web/ covers Layer 3
 ```
 
 ---
@@ -178,9 +179,9 @@ htmx. **No business logic here** — routers call `src/myntra` / `src/core`.
 | `GET /generate/download/{job_id}` | Download `myntra_filled.xlsx`. |
 | `POST /generate/confirm/{job_id}` | `confirm()` the batch → **advances the ledger**. |
 | `GET /fix` | Fix form. |
-| `POST /fix` | Upload rejection `.xlsx` → classify → persist `rows.json` → return review partial (header `x-fix-id`). |
-| `POST /fix/apply/{fix_id}` | Apply typed answers + drop checkboxes → `correct()` → result partial. |
-| `GET /fix/download/{fix_id}` | Download `myntra_corrected.xlsx`. |
+| `POST /fix` | Upload a rejection file (**3 formats:** per-SKU `.xlsx`, file-level `.csv`, or MDirect Listings Report) → detect format → classify → persist `rows.json` → return review partial (header `x-fix-id`) split into **correctable** vs **explain_only** groups. |
+| `POST /fix/apply/{fix_id}` | Two submit actions from `_fix_review.html`: **`action=fix`** applies typed answers + drop checkboxes → `correct()` → corrected sheet of *only the correctable* SKUs ("Download now to fix"); **`action=manual`** rebuilds a fresh sheet for *only the explain_only* SKUs from an uploaded Shopify export, pinning their original HSN + styleGroupId ("Download listing file"). Surface-B correctable rebuilds and every manual rebuild need `products_export` (`needs_export`); the whole handler is wrapped so any error returns a 200 error panel, never a swallowed 500. |
+| `GET /fix/download/{fix_id}` | Download the rebuilt `.xlsx`. |
 
 ### Flow A — Generate (request lifecycle)
 
@@ -194,9 +195,14 @@ user ─► GET /generate/download/<job>   then   POST /generate/confirm/<job> �
 ### Flow B — Fix (request lifecycle)
 
 ```
-POST /fix (rejection.xlsx) ─► save to runtime/fix-<id>/ ─► read_errors()+classify ─► rows.json
-                            └► _fix_review.html (typed free-text inputs + drop checkboxes)
-POST /fix/apply/<id> ─► parse answer__<sku>__<field> + drop__<sku> ─► correct() ─► myntra_corrected.xlsx
+POST /fix (rejection file) ─► save to runtime/fix-<id>/ ─► detect_format ─► read_errors()+classify ─► rows.json
+                            └► _fix_review.html: shared products_export upload (if needs_export) at top,
+                               then "We can fix these" (correctable: typed inputs + drop checkboxes +
+                               "Download now to fix" action=fix), then "You must fix these yourself first"
+                               (explain_only + guidance + "Download listing file" action=manual)
+POST /fix/apply/<id> ─► action=fix : correct() correctable SKUs ────────────┐
+                     └► action=manual: rebuild explain_only SKUs from ───────┤► rebuilt .xlsx
+                        products_export, pinning original HSN + styleGroupId ┘
 GET /fix/download/<id>
 ```
 
@@ -295,12 +301,13 @@ This is the section to read when something *outside* the code changes.
 
 ---
 
-## 9. Tests — `tests/` (57)
+## 9. Tests — `tests/` (171)
 
 Layers 1–2 in `tests/*.py` (template reader, shopify reader, mapper, images, s3 upload, fill /
 inline strings / dropdowns, report, models, config load, end-to-end, **groupid_ledger**,
-**error_reader**, **corrector**, **pipeline_override**). Layer 3 in `tests/web/` (settings,
-auth, jobs, pages, generate, fix). `python -m pytest -q` is the CI gate.
+**hsn_kb**, **sku_registry**, **error_reader**, **corrector**, **pipeline_override**). Layer 3 in
+`tests/web/` (settings, auth, jobs, pages, generate, fix, and a real-pipeline fix e2e). `python
+-m pytest -q` is the CI gate.
 
 ---
 
@@ -311,6 +318,8 @@ auth, jobs, pages, generate, fix). `python -m pytest -q` is the CI gate.
 | `../AGENTS.md` | Orientation + invariants (entry point). |
 | `ARCHITECTURE.md` | This file — map + flow + boundaries. |
 | `../README.md` | Usage + Myntra upload rules. |
+| `APP-FEATURES-GUIDE.md` | Plain-English tour of **every user-facing feature** (non-technical). |
+| `TECH-EXPLAINED-FOR-BEGINNERS.md` | Plain-English tour of **every technology** used (zero prior tech knowledge). |
 | `decisions/` | ADRs — *why* (e.g. SSM/Secrets rationale). |
 | `runbooks/` | Ops click-throughs: CI/CD, Cognito, SSM/Secrets, EC2 deploy. |
 | `superpowers/specs/`, `superpowers/plans/` | Deep design + implementation plans. |
