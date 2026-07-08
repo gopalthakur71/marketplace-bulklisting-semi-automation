@@ -40,9 +40,26 @@ def test_upload_groups_correctable_and_explain_only(monkeypatch):
     r = client.post("/fix", files={"file": ("rej.xlsx", b"x",
                     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")})
     assert r.status_code == 200
-    assert "Proceed" in r.text
+    assert "Fix &amp; download now" in r.text
     assert "Do not make any changes" in r.text
     assert "78SAZ" in r.text and "IMG1" in r.text
+
+
+def test_upload_explain_only_shows_manual_download_button_and_guidance(monkeypatch):
+    """The explain-only group must offer a 'Download listing file' button (action=manual),
+    guidance copy, and the shared products_export input — even for a sku_xlsx rejection."""
+    client = _client()
+    monkeypatch.setattr(fixmod, "detect_format", lambda p: ("sku_xlsx", ""))
+    monkeypatch.setattr(fixmod, "read_error_file", lambda p, rules: _items())
+    r = client.post("/fix", files={"file": ("rej.xlsx", b"x",
+                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")})
+    assert r.status_code == 200
+    assert 'value="manual"' in r.text
+    assert "Download listing file" in r.text
+    assert "re-export just these SKUs" in r.text          # guidance copy
+    assert 'name="products_export"' in r.text              # shared export input now shown
+    assert 'value="fix"' in r.text                         # correctable button carries action=fix
+    assert "Fix &amp; download now" in r.text
 
 
 def test_unknown_format_shows_guidance(monkeypatch):

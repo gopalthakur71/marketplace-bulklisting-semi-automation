@@ -109,7 +109,12 @@ def fix_upload(request: Request, file: UploadFile = File(...)):
     # Surface B (whole-sheet csv / per-SKU Listings Report) rebuilds SKUs by
     # re-running the pipeline, which needs the Shopify products export. Prod has
     # no baked-in export, so ask the user to upload it alongside the fix.
-    needs_export = source_type in ("sheet_csv", "listings_report") and bool(correctable)
+    # Either a Surface-B correctable fix OR a manual-fix rebuild (of the
+    # explain-only SKUs) re-runs the pipeline, which needs the Shopify export.
+    needs_export = (
+        (source_type in ("sheet_csv", "listings_report") and bool(correctable))
+        or bool(explain_only)
+    )
     resp = _templates().TemplateResponse(request, "_fix_review.html", {
         "correctable": correctable, "explain_only": explain_only,
         "fix_id": fix_id, "needs_export": needs_export})

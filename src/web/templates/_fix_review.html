@@ -33,6 +33,16 @@
         <span>explain only</span><div>{{ i.explanation }}</div>
         <div class="hint mono">raw: {{ i.raw_reason }}</div></div>
     {% endfor %}
+    <div class="card need">
+      <p><strong>These need a real fix the app can't do (photos, image quality, resolution).</strong></p>
+      <p>Fix them in <strong>Shopify first</strong> — re-shoot and upload the corrected photos onto the
+         product — then <strong>re-export just these SKUs</strong> from Shopify and drop that file in the
+         box below.</p>
+      <p>Click <strong>Download listing file</strong> and the app rebuilds a ready-to-upload Myntra sheet
+         for these SKUs with your new images, keeping the <strong>same HSN and style group</strong> as your
+         first attempt so Myntra won't reject them again.</p>
+      <button class="btn" type="submit" name="action" value="manual">Download listing file for these SKUs →</button>
+    </div>
   {% endif %}
 
   {% if needs_export %}
@@ -45,7 +55,7 @@
 
   <div class="actions">
     {% if correctable %}
-      <button class="btn" type="submit">Proceed with fix &amp; download corrected file →</button>
+      <button class="btn" type="submit" name="action" value="fix">Fix &amp; download now →</button>
     {% endif %}
     <a class="btn ghost" hx-get="/fix/dismiss" hx-target="#review" hx-swap="innerHTML">Do not make any changes</a>
   </div>
