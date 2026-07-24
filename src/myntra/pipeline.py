@@ -11,6 +11,9 @@ from src.myntra.report import write_report
 from src.myntra.sku_registry import content_hash
 
 
+DEFAULT_TEMPLATE_NAME = "Myntra-Sku-Template-2026-07-24.xlsx"
+
+
 def _resolve(name, subdir="input"):
     """Prefer <subdir>/<name>, else repo-root <name>."""
     cand = os.path.join(subdir, name)
@@ -20,8 +23,7 @@ def _resolve(name, subdir="input"):
 def main(template_path=None, csv_path=None, out_dir="output", config_dir="config/myntra",
          fetch=None, upload=None, style_group_id_start=None, hsn_by_signature=None,
          only_skus=None, style_group_id_by_sku=None, hsn_by_sku=None):
-    template_path = template_path or _resolve(
-        "Myntra-Sku-Template-2026-06-16.xlsx", "templates/myntra")
+    template_path = template_path or _resolve(DEFAULT_TEMPLATE_NAME, "templates/myntra")
     csv_path = csv_path or _resolve("products_export.csv")
 
     column_map = yaml.safe_load(open(os.path.join(config_dir, "column_map.yaml")))
@@ -97,8 +99,7 @@ def main(template_path=None, csv_path=None, out_dir="output", config_dir="config
 def scan_content_hashes(csv_path, template_path=None, config_dir="config/myntra"):
     """(sku, content_hash) per product with HSN unset and no image work — the
     upload-time input to the duplicate-generation guard."""
-    template_path = template_path or _resolve(
-        "Myntra-Sku-Template-2026-06-16.xlsx", "templates/myntra")
+    template_path = template_path or _resolve(DEFAULT_TEMPLATE_NAME, "templates/myntra")
     column_map = yaml.safe_load(open(os.path.join(config_dir, "column_map.yaml")))
     constants = yaml.safe_load(open(os.path.join(config_dir, "constants.yaml")))
     rules = yaml.safe_load(open(os.path.join(config_dir, "rules.yaml")))

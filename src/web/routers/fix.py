@@ -21,7 +21,7 @@ from src.web.routers.pages import get_user, get_settings
 router = APIRouter()
 RUNTIME = os.path.join(os.path.dirname(os.path.dirname(__file__)), "runtime")
 CONSTANTS = os.path.join("config", "myntra", "constants.yaml")
-TEMPLATE = os.path.join("templates", "myntra", "Myntra-Sku-Template-2026-06-16.xlsx")
+TEMPLATE = os.path.join("templates", "myntra", "Myntra-Sku-Template-2026-07-24.xlsx")
 
 _ACCEPTED_EXT = (".xlsx", ".csv")
 

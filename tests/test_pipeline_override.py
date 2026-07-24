@@ -5,6 +5,15 @@ from PIL import Image
 from src.myntra.pipeline import main
 
 
+def test_default_template_is_v13_and_has_vocab():
+    from src.myntra.pipeline import DEFAULT_TEMPLATE_NAME, _resolve
+    from src.myntra.template_reader import read_template
+    assert DEFAULT_TEMPLATE_NAME == "Myntra-Sku-Template-2026-07-24.xlsx"
+    path = _resolve(DEFAULT_TEMPLATE_NAME, "templates/myntra")
+    t = read_template(path)
+    assert "Banarasi" in t.vocab_by_header["Type"]
+
+
 def _fake_fetch():
     buf = io.BytesIO()
     Image.new("RGB", (1000, 1000), (10, 20, 30)).save(buf, "PNG")
