@@ -95,27 +95,34 @@ def _template_with_rules():
     )
 
 
-def test_cotton_fabric_block_and_colour_and_forced_brand():
+def test_fabric_and_colour_no_longer_auto_filled():
     p = Product(handle="h", sku="S1", title="Lavender Pure Cotton Saree", vendor="V",
                 tags="", body_html="", price=2000.0, compare_at_price=None,
                 color=None, fabric=None, size=None, status="active", images=[])
     consts = {"brand": "Ijor Ethnic Partners"}
-    row = map_product(p, _template_with_rules(), {}, consts, FABRIC_RULES)
-    assert row.cells["Saree Fabric"] == "Pure Cotton"
-    assert row.cells["Wash Care"] == "Hand Wash"
-    assert row.cells["Prominent Colour"] == "Lavender"  # from name
-    assert row.cells["brand"] == "Ijor Ethnic Partners"  # forced even if not in vocab
-    assert any(f.field == "brand" for f in row.flags)    # but flagged
+    rules = {**FABRIC_RULES,
+             "user_filled_attributes": ["Saree Fabric", "Wash Care", "Prominent Colour"]}
+    row = map_product(p, _template_with_rules(), {}, consts, rules)
+    assert "Saree Fabric" not in row.cells
+    assert "Wash Care" not in row.cells
+    assert "Prominent Colour" not in row.cells
+    assert row.cells["brand"] == "Ijor Ethnic Partners"   # forced even if not in vocab
+    assert any(f.field == "brand" for f in row.flags)      # but flagged
 
 
-def test_silk_fabric_block():
+def test_silk_attributes_left_blank_but_hsn_signature_still_derivable():
     p = Product(handle="h", sku="S2", title="Banarasi Silk Saree Blue", vendor="V",
                 tags="", body_html="", price=3000.0, compare_at_price=None,
                 color=None, fabric=None, size=None, status="active", images=[])
-    row = map_product(p, _template_with_rules(), {}, {}, FABRIC_RULES)
-    assert row.cells["Saree Fabric"] == "Pure Silk"
-    assert row.cells["Wash Care"] == "Dry Clean"
-    assert row.cells["Prominent Colour"] == "Blue"
+    rules = {**FABRIC_RULES,
+             "user_filled_attributes": ["Saree Fabric", "Wash Care", "Prominent Colour"]}
+    hsn_map = {"saree|silk": "50072010"}
+    consts = {"articleType": "Sarees"}
+    row = map_product(p, _template_with_rules(), {}, consts, rules,
+                      hsn_by_signature=hsn_map)
+    assert "Saree Fabric" not in row.cells
+    assert "Prominent Colour" not in row.cells
+    assert row.cells["HSN"] == "50072010"   # fabric keyword 'silk' still feeds HSN
 
 
 def test_hsn_set_from_injected_map():
@@ -146,6 +153,20 @@ def test_fabric_block_no_longer_sets_hsn():
                 fabric=None, size=None, status="active", images=[])
     row = map_product(p, _template_with_rules(), {}, {}, FABRIC_RULES)  # no map
     assert "HSN" not in row.cells
+
+
+def test_user_filled_attributes_are_left_blank():
+    rules = {"user_filled_attributes": ["Prominent Colour", "Saree Fabric", "Type"]}
+    p = Product(handle="h", sku="S1", title="Banarasi Silk Saree Blue", vendor="V",
+                tags="Banarasi, Silk", body_html="", price=1000.0, compare_at_price=None,
+                color="Blue", fabric="silk", size=None, status="active", images=[])
+    # even if the column map points at them, they must be blanked
+    cmap = {"title": "vendorArticleName", "sku": "vendorSkuCode",
+            "color": "Prominent Colour", "fabric": "Saree Fabric"}
+    row = map_product(p, _template(), cmap, {}, rules)
+    for h in ["Prominent Colour", "Saree Fabric", "Type"]:
+        assert h not in row.cells
+    assert row.cells["vendorSkuCode"] == "S1"   # non-attribute columns still filled
 
 
 def test_replicate_constant_across_numbered_cols():

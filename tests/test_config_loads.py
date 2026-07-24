@@ -28,4 +28,12 @@ def test_rules_config():
     assert "HSN" not in r["fabric_detection"]["cotton"]
     assert "HSN" not in r["fabric_detection"]["silk"]
     assert r["fabric_detection"]["silk"]["Saree Fabric"] == "Pure Silk"
-    assert r["prominent_colour_from_name"] is True
+    # Colour/fabric/etc. are no longer auto-derived; the user fills them in Excel.
+    assert "prominent_colour_from_name" not in r
+    assert "colour_scan_exclude" not in r
+    assert "colour_synonyms" not in r
+    assert "brand_colour_remarks_from_prominent" not in r
+    for header in ["Prominent Colour", "Saree Fabric", "Blouse Fabric", "Type",
+                   "Ornamentation", "Border", "Pattern", "Print or Pattern Type",
+                   "Wash Care"]:
+        assert header in r["user_filled_attributes"]

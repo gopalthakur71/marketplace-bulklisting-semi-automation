@@ -1,9 +1,10 @@
 # Deterministic per-row rules (no LLM). Applied by src/mapper.py.
 
 # Fabric detection: first keyword found in the product name (then the Shopify
-# fabric field) selects the fabric block. Each block fills Saree Fabric,
-# Blouse Fabric, and Wash Care. (HSN is NO LONGER set here — it is learned per
-# category|fabric signature by the HSN knowledge base; see src/myntra/hsn_kb.py.)
+# fabric field) is used ONLY to derive the category|fabric signature fed to the
+# HSN knowledge base (see src/myntra/hsn_kb.py). Saree Fabric, Blouse Fabric, and
+# Wash Care are NOT written from this block anymore — see user_filled_attributes
+# below; the seller fills them by hand in Excel via the template dropdowns.
 fabric_detection:
   order: [cotton, silk]   # check in this order; first match wins
   cotton:
@@ -21,22 +22,19 @@ fabric_detection:
 replicate_constant_across_numbered:
   - "Country Of Origin"
 
-# Derive Prominent Colour by scanning the product name, then description,
-# for any value in the Prominent Colour dropdown (longest/earliest match wins).
-prominent_colour_from_name: true
-
-# Dropdown vocab values never considered as a colour match (false positives).
-colour_scan_exclude:
-  - "NA"
-
-# Deterministic colour synonyms: name keyword (left) -> Myntra dropdown value (right).
-# Used when the raw colour word isn't itself a Myntra dropdown value.
-colour_synonyms:
-  golden: "Gold"
-  ivory: "White"   # Myntra has no Ivory; list it as White
-
-# Write lowercase prominent colour into the free-text "Brand Colour (Remarks)".
-brand_colour_remarks_from_prominent: true
+# Attributes the user fills by hand in Excel via the template dropdowns. The mapper
+# leaves these BLANK (the app never guesses them). The preview (Feature B) also reads
+# this list to know which columns are user-owned.
+user_filled_attributes:
+  - Prominent Colour
+  - Saree Fabric
+  - Blouse Fabric
+  - Type
+  - Ornamentation
+  - Border
+  - Pattern
+  - Print or Pattern Type
+  - Wash Care
 
 # Assign a sequential styleGroupId to each product row, continuing from the
 # seller's existing Myntra catalog. styleGroupId of row i = style_group_id_start + (i-1).

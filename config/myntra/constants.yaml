@@ -15,7 +15,6 @@ season: Summer
 
 # --- Mandatory attribute defaults (proven values from the working upload) ---
 materialCareDescription: Dry clean or dry wash only
-Type: NA
 Blouse: NA
 Sustainable: Regular
 Multipack Set: NA
@@ -23,6 +22,4 @@ Net Quantity Unit: Piece
 Net Quantity: "1"
 
 # --- Content defaults copied from the working file — REVIEW per product ---
-Pattern: Solid
-Border: Solid
 Occasion: Work

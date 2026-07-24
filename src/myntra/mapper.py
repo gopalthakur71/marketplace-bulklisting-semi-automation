@@ -150,14 +150,9 @@ def map_product(product, template, column_map, constants, rules=None, hsn_by_sig
     _set(row, template, "MRP", _fmt_num(mrp))
     _set(row, template, "ISP", _fmt_num(product.price))
 
-    # 5. Fabric detection -> Saree/Blouse Fabric, Wash Care, HSN
+    # 5. Fabric keyword config is retained ONLY to feed the HSN signature below;
+    # Saree/Blouse Fabric and Wash Care are user-filled in Excel (blanked in step 8).
     fabric_cfg = rules.get("fabric_detection") or {}
-    haystack = f"{product.title or ''} {product.fabric or ''}".lower()
-    for keyword in (fabric_cfg.get("order") or []):
-        if keyword.lower() in haystack:
-            for header, value in (fabric_cfg.get(keyword) or {}).items():
-                _set(row, template, header, value)
-            break
 
     # 5b. HSN. A pinned per-SKU code (hsn_override, e.g. a rebuild from the SKU
     # registry) wins; otherwise use the injected signature->hsn map from the KB
@@ -176,24 +171,9 @@ def map_product(product, template, column_map, constants, rules=None, hsn_by_sig
             row.flags.append(Flag(sku=row.sku, field="HSN",
                                   reason="no HSN learned for signature", value=sig))
 
-    # 6. Prominent Colour from name, then description
-    if rules.get("prominent_colour_from_name") and "Prominent Colour" in template.vocab_by_header:
-        vocab = template.vocab_by_header["Prominent Colour"]
-        exclude = rules.get("colour_scan_exclude") or []
-        synonyms = rules.get("colour_synonyms") or {}
-        colour = (pick_colour_from_text(product.title, vocab, exclude)
-                  or pick_colour_from_text(product.body_html, vocab, exclude)
-                  or pick_colour_synonym(product.title, synonyms)
-                  or pick_colour_synonym(product.body_html, synonyms))
-        if colour:
-            row.cells["Prominent Colour"] = colour
-            # Brand Colour (Remarks) is free text; use the lowercase colour.
-            if rules.get("brand_colour_remarks_from_prominent"):
-                _set(row, template, "Brand Colour (Remarks)", colour.lower())
-        else:
-            row.flags.append(Flag(sku=row.sku, field="Prominent Colour",
-                                  reason="no dropdown colour found in name/description",
-                                  value=product.title))
+    # 8. Attributes the user fills by hand in Excel — never emitted by the pipeline.
+    for header in (rules.get("user_filled_attributes") or []):
+        row.cells.pop(header, None)
 
     # 7. record vocab-controlled headers left blank (manual / Phase 2 fill)
     for header in template.vocab_by_header:
