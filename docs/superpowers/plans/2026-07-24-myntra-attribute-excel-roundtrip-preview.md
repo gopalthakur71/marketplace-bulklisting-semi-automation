@@ -808,7 +808,7 @@ def test_preview_shows_reconstruction_and_specs(tmp_path):
     assert "Floral Zari Pure Silk Banarasi Saree With Unstitched Blouse Piece" in r.text
     assert "Blue Banarasi sarees" in r.text
     assert "Wash Care" in r.text          # a spec row label is shown
-    assert "Wash Care" in r.text
+    assert "best reconstruction" in r.text  # the "approximate" badge is shown
 
 
 def test_preview_rejects_non_xlsx(tmp_path):
