@@ -32,6 +32,10 @@ def main(template_path=None, csv_path=None, out_dir="output", config_dir="config
     rules = yaml.safe_load(open(os.path.join(config_dir, "rules.yaml")))
 
     template = read_template(template_path)
+
+    from src.myntra.template_guard import assert_template_compatible
+    assert_template_compatible(template, column_map, constants)
+
     products = read_products(csv_path)
     if only_skus is not None:
         products = [p for p in products if p.sku in only_skus]
