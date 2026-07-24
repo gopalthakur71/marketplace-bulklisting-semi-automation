@@ -38,6 +38,16 @@ def test_reconstruct_design_details_minimal():
     assert reconstruct_design_details(attrs) == ["Red sarees"]
 
 
+def test_design_details_l2_only_border_single_space():
+    # Pattern unset, Border set -> leading space stripped, no double space
+    assert reconstruct_design_details({"Border": "Zari"}) == ["saree with Zari Border"]
+
+
+def test_design_details_l2_only_pattern_collapses_double_space():
+    # Border unset, Pattern set -> the "  Border" double space is collapsed
+    assert reconstruct_design_details({"Pattern": "Solid"}) == ["Solid saree with Border"]
+
+
 def test_missing_attributes_flags_blank_and_na():
     uf = ["Type", "Border", "Prominent Colour"]
     attrs = {"Type": "Banarasi", "Border": "NA", "Prominent Colour": ""}

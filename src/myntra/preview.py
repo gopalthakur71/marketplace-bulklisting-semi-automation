@@ -58,18 +58,21 @@ def missing_attributes(attrs, user_filled):
 
 def read_filled_rows(xlsx_path, template):
     """One {header: value_or_None} dict per data row that carries a vendorSkuCode."""
-    warnings.filterwarnings("ignore")
-    wb = openpyxl.load_workbook(xlsx_path, read_only=True, data_only=True)
-    ws = wb[SHEET_SAREES_NAME]
-    sku_col = template.col_index_by_header.get("vendorSkuCode")
-    rows = []
-    for r in range(template.first_data_row, ws.max_row + 1):
-        if sku_col is None or not is_set(ws.cell(row=r, column=sku_col).value):
-            continue
-        cells = {}
-        for header, col in template.col_index_by_header.items():
-            v = ws.cell(row=r, column=col).value
-            cells[header] = None if v is None else str(v).strip()
-        rows.append(cells)
-    wb.close()
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        wb = openpyxl.load_workbook(xlsx_path, read_only=True, data_only=True)
+        try:
+            ws = wb[SHEET_SAREES_NAME]
+            sku_col = template.col_index_by_header.get("vendorSkuCode")
+            rows = []
+            for r in range(template.first_data_row, ws.max_row + 1):
+                if sku_col is None or not is_set(ws.cell(row=r, column=sku_col).value):
+                    continue
+                cells = {}
+                for header, col in template.col_index_by_header.items():
+                    v = ws.cell(row=r, column=col).value
+                    cells[header] = None if v is None else str(v).strip()
+                rows.append(cells)
+        finally:
+            wb.close()
     return rows
