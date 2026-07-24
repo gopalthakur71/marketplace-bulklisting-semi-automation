@@ -14,7 +14,7 @@ def test_constants_and_specs():
     c = yaml.safe_load(open("config/myntra/constants.yaml"))
     assert c["articleType"] == "Sarees"
     assert c["Country Of Origin"] == "India"
-    assert c["brand"] == "Ijor Ethnic Partners"
+    assert c["brand"] == "Ijor"
     assert c["AgeGroup"] == "Adults-Women"
     assert c["Standard Size"] == "Onesize"
     assert c["Year"] == "2026"
