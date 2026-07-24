@@ -36,11 +36,12 @@ def create_app(settings=None) -> FastAPI:
     app.state.settings = settings or load_settings()
     app.mount("/static", StaticFiles(directory=os.path.join(_HERE, "static")), name="static")
 
-    from src.web.routers import pages, generate, fix, auth_routes
+    from src.web.routers import pages, generate, fix, auth_routes, preview
     app.include_router(pages.router)
     app.include_router(generate.router)
     app.include_router(fix.router)
     app.include_router(auth_routes.router)
+    app.include_router(preview.router)
 
     @app.exception_handler(AuthError)
     async def _auth_handler(request: Request, exc: AuthError):

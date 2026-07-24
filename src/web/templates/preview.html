@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="panel">
+  <h2>Preview Myntra listings</h2>
+  <p class="hint">Fill the attribute columns (Colour, Fabric, Type, Ornamentation,
+    Border, Pattern, Print/Pattern, Wash Care) in the downloaded Excel file, then
+    upload it here to see how each listing will look on Myntra before you upload it there.</p>
+  <form hx-post="/preview" hx-target="#preview-out" hx-swap="innerHTML"
+        hx-encoding="multipart/form-data">
+    <input type="file" name="file" accept=".xlsx" required>
+    <button class="btn" type="submit">Preview listings →</button>
+  </form>
+  <div id="preview-out"></div>
+</div>
+{% endblock %}
