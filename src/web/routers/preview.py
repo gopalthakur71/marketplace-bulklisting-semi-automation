@@ -8,10 +8,11 @@ from fastapi.responses import HTMLResponse
 from src.myntra.template_reader import read_template
 from src.myntra.preview import (read_filled_rows, reconstruct_title,
                                 reconstruct_design_details, missing_attributes)
+from src.myntra.pipeline import DEFAULT_TEMPLATE_NAME
 from src.web.routers.pages import get_user
 
 router = APIRouter()
-TEMPLATE = os.path.join("templates", "myntra", "Myntra-Sku-Template-2026-07-24.xlsx")
+TEMPLATE = os.path.join("templates", "myntra", DEFAULT_TEMPLATE_NAME)
 _FALLBACK_USER_FILLED = [
     "Prominent Colour", "Saree Fabric", "Blouse Fabric", "Type", "Ornamentation",
     "Border", "Pattern", "Print or Pattern Type", "Wash Care"]
@@ -30,14 +31,14 @@ def _user_filled():
 
 @router.get("/preview", response_class=HTMLResponse)
 def preview_form(request: Request):
-    get_user(request)
-    return _templates().TemplateResponse(request, "preview.html", {"user": get_user(request)})
+    user = get_user(request)
+    return _templates().TemplateResponse(request, "preview.html", {"user": user})
 
 
 @router.post("/preview", response_class=HTMLResponse)
 async def preview_submit(request: Request, file: UploadFile = File(...)):
     get_user(request)
-    if not file.filename.lower().endswith(".xlsx"):
+    if not (file.filename or "").lower().endswith(".xlsx"):
         raise HTTPException(status_code=400, detail="Please upload the filled .xlsx file")
     fd, path = tempfile.mkstemp(suffix=".xlsx")
     os.close(fd)
@@ -55,6 +56,5 @@ async def preview_submit(request: Request, file: UploadFile = File(...)):
         "design_details": reconstruct_design_details(attrs),
         "specs": [(h, attrs.get(h)) for h in user_filled],
         "missing": missing_attributes(attrs, user_filled),
-        "front_image": attrs.get("Front Image"),
     } for attrs in rows]
     return _templates().TemplateResponse(request, "_preview.html", {"cards": cards})

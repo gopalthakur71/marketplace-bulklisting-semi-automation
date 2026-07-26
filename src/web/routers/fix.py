@@ -15,13 +15,14 @@ from src.myntra.error_sources import detect_format, read_error_file
 from src.myntra.explainer import explain_item, ExplainedIssue
 from src.myntra.corrector import correct_from_issues, regenerate_surface_b
 from src.myntra.template_reader import read_template
+from src.myntra.pipeline import DEFAULT_TEMPLATE_NAME
 from src.web.settings import explanation_store, correction_log_store
 from src.web.routers.pages import get_user, get_settings
 
 router = APIRouter()
 RUNTIME = os.path.join(os.path.dirname(os.path.dirname(__file__)), "runtime")
 CONSTANTS = os.path.join("config", "myntra", "constants.yaml")
-TEMPLATE = os.path.join("templates", "myntra", "Myntra-Sku-Template-2026-07-24.xlsx")
+TEMPLATE = os.path.join("templates", "myntra", DEFAULT_TEMPLATE_NAME)
 
 _ACCEPTED_EXT = (".xlsx", ".csv")
 

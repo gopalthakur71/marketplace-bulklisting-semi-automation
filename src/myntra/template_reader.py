@@ -3,7 +3,7 @@ import zipfile
 import warnings
 
 import openpyxl
-from openpyxl.utils import column_index_from_string, get_column_letter
+from openpyxl.utils import column_index_from_string
 
 from src.core.models import TemplateInfo
 

@@ -77,8 +77,6 @@ FABRIC_RULES = {
         "cotton": {"Saree Fabric": "Pure Cotton", "Wash Care": "Hand Wash"},
         "silk": {"Saree Fabric": "Pure Silk", "Wash Care": "Dry Clean"},
     },
-    "prominent_colour_from_name": True,
-    "colour_scan_exclude": ["NA"],
 }
 
 

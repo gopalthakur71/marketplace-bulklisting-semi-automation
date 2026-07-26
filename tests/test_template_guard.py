@@ -22,3 +22,16 @@ def test_guard_raises_listing_missing_headers():
     with pytest.raises(TemplateIncompatibleError) as exc:
         assert_template_compatible(t, {"title": "vendorArticleName"}, {"brand": "Ijor"})
     assert "vendorArticleName" in str(exc.value)
+
+
+def test_guard_catches_missing_pipeline_written_header():
+    from src.core.models import TemplateInfo
+    # a template with the config headers but MISSING productDisplayName
+    headers = ["vendorArticleName", "brand"]
+    t = TemplateInfo(headers=headers, header_row=3, first_data_row=4,
+                     col_index_by_header={h: i + 1 for i, h in enumerate(headers)},
+                     vocab_by_header={})
+    import pytest
+    with pytest.raises(TemplateIncompatibleError) as exc:
+        assert_template_compatible(t, {"title": "vendorArticleName"}, {"brand": "Ijor"})
+    assert "productDisplayName" in str(exc.value)
