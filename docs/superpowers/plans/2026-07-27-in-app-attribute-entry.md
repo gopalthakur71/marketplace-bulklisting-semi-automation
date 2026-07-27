@@ -529,11 +529,11 @@ Both preview surfaces must render identical cards. Extract the card dict into `p
 - Modify: `src/myntra/preview.py` (add `build_card`)
 - Create: `src/web/templates/_preview_card.html`
 - Modify: `src/web/templates/_preview.html`
-- Modify: `src/web/routers/preview.py:52-60`
+- Modify: `src/web/routers/preview.py` (imports, `_user_filled` removal, card building in `preview_submit`)
 - Test: `tests/test_preview.py`
 
 **Interfaces:**
-- Consumes: `reconstruct_title`, `reconstruct_design_details`, `missing_attributes`.
+- Consumes: `reconstruct_title`, `reconstruct_design_details`, `missing_attributes`; `user_filled_attributes` (Task 2).
 - Produces: `build_card(attrs: dict, user_filled: list[str]) -> dict` with keys `sku`, `title`, `design_details`, `specs` (list of `(header, value)` pairs), `missing`. `_preview_card.html` renders a card from a context variable named `c`.
 
 - [ ] **Step 1: Write the failing test**
@@ -623,11 +623,15 @@ from src.myntra.preview import (read_filled_rows, build_card)
 ```
 
 ```python
-    user_filled = _user_filled()
+    user_filled = user_filled_attributes()
     cards = [build_card(attrs, user_filled) for attrs in rows]
 ```
 
-(`reconstruct_title`, `reconstruct_design_details` and `missing_attributes` are no longer used in this module — drop them from the import. Keep `_user_filled` for now; Task 5 replaces it.)
+Spec §5.3 requires **one** column-list loader, so this module stops carrying its own copy: add
+`from src.myntra.attribute_entry import user_filled_attributes`, and **delete** the now-unused
+`_user_filled()` function, the `_FALLBACK_USER_FILLED` constant, and the `import yaml` line from
+`src/web/routers/preview.py`. (`reconstruct_title`, `reconstruct_design_details` and
+`missing_attributes` are no longer used in this module either — drop them from the import.)
 
 - [ ] **Step 4: Run tests to verify they pass**
 
