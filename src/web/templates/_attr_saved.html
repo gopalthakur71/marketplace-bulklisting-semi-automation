@@ -1,0 +1,12 @@
+<div class="panel">
+  {% if error %}
+    <h3 class="flag">⚠ Nothing was saved</h3>
+    <p class="mono">{{ error }}</p>
+    <p class="hint">Reload the screen and pick a value from the dropdown.</p>
+  {% else %}
+    <h3 class="ok">✅ Saved — {{ saved }} product(s) updated</h3>
+    <p class="hint">Anything you left blank is still blank in the file and keeps its
+      Excel dropdown, so you can finish in Excel if you prefer.</p>
+    <a class="btn" href="/generate/download/{{ job_id }}">⬇ Download xlsx</a>
+  {% endif %}
+</div>

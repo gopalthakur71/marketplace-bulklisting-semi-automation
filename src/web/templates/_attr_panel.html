@@ -1,0 +1,37 @@
+<details class="attr-panel">
+  <summary>
+    <strong class="mono">{{ p.sku }}</strong>
+    <span class="hint">{{ p.product_title }}</span>
+    <span class="hint">{{ p.filled }}/{{ total }} filled</span>
+  </summary>
+  <input type="hidden" name="sku__{{ p.ordinal }}" value="{{ p.sku }}">
+  <div class="attr-body">
+    <div class="attr-photo">
+      {% if p.image %}
+        <img src="{{ p.image }}" alt="{{ p.sku }}" loading="lazy">
+      {% else %}
+        <div class="drop">no photo</div>
+      {% endif %}
+    </div>
+    <div class="attr-grid"
+         hx-post="/generate/attributes/{{ job_id }}/preview"
+         hx-trigger="change"
+         hx-include="closest .attr-panel"
+         hx-target="#attr-preview-{{ p.ordinal }}"
+         hx-swap="innerHTML">
+      {% for column in columns %}
+      <label class="hint">{{ column }}
+        <select name="attr__{{ p.ordinal }}__{{ loop.index0 }}">
+          <option value="">— choose —</option>
+          {% for v in vocab[column] %}
+          <option value="{{ v }}"{% if p.chosen[column] == v %} selected{% endif %}>{{ v }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      {% endfor %}
+    </div>
+    <div class="attr-preview" id="attr-preview-{{ p.ordinal }}">
+      {% with c = p.card %}{% include "_preview_card.html" %}{% endwith %}
+    </div>
+  </div>
+</details>
