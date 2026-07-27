@@ -29,6 +29,9 @@
         </select>
       </label>
       {% endfor %}
+      <p class="hint attr-derived">Brand Colour (Remarks):
+        <strong class="mono">{{ p.brand_colour or "—" }}</strong>
+        — filled automatically from Prominent Colour</p>
     </div>
     <div class="attr-preview" id="attr-preview-{{ p.ordinal }}">
       {% with c = p.card %}{% include "_preview_card.html" %}{% endwith %}

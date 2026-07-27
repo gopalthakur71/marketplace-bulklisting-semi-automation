@@ -4,8 +4,9 @@ from fastapi import APIRouter, Request, HTTPException
 from fastapi.responses import HTMLResponse
 
 from src.core.shopify_reader import read_products
-from src.myntra.attribute_entry import (AttributeValueError, SkuMismatchError,
-                                        attribute_vocab, user_filled_attributes,
+from src.myntra.attribute_entry import (BRAND_COLOUR_HEADER, AttributeValueError,
+                                        SkuMismatchError, attribute_vocab,
+                                        derive_brand_colour, user_filled_attributes,
                                         validate_submitted, write_attributes)
 from src.myntra.pipeline import DEFAULT_TEMPLATE_NAME
 from src.myntra.preview import build_card, is_set, read_filled_rows
@@ -56,6 +57,9 @@ def _panels(xlsx, csv_path, template, columns):
             # method), silently breaking the pre-selection comparison.
             "chosen": {c: attrs.get(c) for c in columns},
             "filled": sum(1 for c in columns if is_set(attrs.get(c))),
+            # Shown read-only: what is in the sheet now, not a guess at what a
+            # pending selection would produce.
+            "brand_colour": attrs.get(BRAND_COLOUR_HEADER),
             "card": build_card(attrs, columns),
         })
     return panels
@@ -113,10 +117,15 @@ async def attributes_save(request: Request, job_id: str):
     vocab = attribute_vocab(template, columns)
     entries = _submitted(await request.form(), columns)
 
+    has_brand_colour = BRAND_COLOUR_HEADER in template.col_index_by_header
     try:
-        payload = [{"ordinal": ordinal, "sku": e["sku"],
-                    "values": validate_submitted(e["values"], vocab)}
-                   for ordinal, e in entries.items()]
+        payload = []
+        for ordinal, e in entries.items():
+            values = validate_submitted(e["values"], vocab)
+            # Derived, never typed — Myntra rejects a null Brand Colour (Remarks).
+            if has_brand_colour:
+                values[BRAND_COLOUR_HEADER] = derive_brand_colour(values)
+            payload.append({"ordinal": ordinal, "sku": e["sku"], "values": values})
         saved = write_attributes(xlsx, template, payload)
     except (AttributeValueError, SkuMismatchError) as exc:
         return _templates().TemplateResponse(

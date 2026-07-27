@@ -52,7 +52,7 @@ LEDGER_LOCAL_PATH=src/web/runtime/ledger.json HSN_LOCAL_PATH=src/web/runtime/hsn
 #   $env:LEDGER_LOCAL_PATH="src/web/runtime/ledger.json"; $env:HSN_LOCAL_PATH="src/web/runtime/hsn_kb.json"; $env:SKU_REGISTRY_LOCAL_PATH="src/web/runtime/sku_registry.json"; $env:AUTH_DISABLED="1"; uvicorn src.web.main:app --reload
 # → http://localhost:8000/   (container runs on 8080; local uvicorn defaults to 8000)
 
-# Tests (215; this is the CI gate)
+# Tests (222; this is the CI gate)
 python -m pytest -q
 ```
 

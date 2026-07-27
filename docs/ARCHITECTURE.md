@@ -16,6 +16,7 @@ for *why* decisions were made see [decisions/](decisions/).
 | Myntra rejects a value as not in the dropdown | `src/myntra/mapper.py` (`validate_value`) + `src/myntra/template_reader.py` (vocab parse). **Invariant: value must match template spelling.** |
 | The downloaded sheet has no dropdowns in Excel | `src/myntra/pipeline.py` (`DEFAULT_TEMPLATE_NAME` must be the V13 plain-validation template) + `src/myntra/fill.py`. Any re-save with openpyxl must also re-run the shared→inline conversion. |
 | The Myntra title/description isn't what we expected | Nothing to fix in the sheet — Myntra **generates** them from the attributes. `src/myntra/preview.py` reconstructs them (approximate); see journal 2026-07-24. |
+| `Brand Colour (Remarks) cannot be null` on upload | Free-text, mandatory, and **not** filled by the pipeline. Saving via Flow D derives it from Prominent Colour (`attribute_entry.derive_brand_colour`); a sheet filled only in Excel still leaves it blank and Flow B backfills it (`corrector.py`). |
 | Image rejected (`.webp` / extension / size) | `src/core/images.py` + `src/core/s3_upload.py` + `config/myntra/image_specs.yaml` |
 | styleGroupId wrong, duplicated, or skipped | `src/myntra/groupid_ledger.py` (reserve vs confirm) + `style_group_id_start` in `rules.yaml` |
 | Sheet structurally rejected (`SHEET_VALIDATION_FAILED`, null brand) | `src/myntra/fill.py` (clears stray rows; inline strings; dropdowns) — see journal 2026-06-24/25 |
@@ -91,7 +92,7 @@ S3/                            # IAM + bucket policies for image hosting (app→
 docs/
   ARCHITECTURE.md (this file)  decisions/ (ADRs / why)  runbooks/ (ops)
   superpowers/specs/ + plans/  journal/ (history)
-tests/                         # 215 tests; tests/web/ covers Layer 3
+tests/                         # 222 tests; tests/web/ covers Layer 3
 ```
 
 ---
@@ -135,7 +136,7 @@ tests/                         # 215 tests; tests/web/ covers Layer 3
 | `src/myntra/mapper.py` | Map + validate + rules | Constants, pricing, HSN-by-signature, **`validate_value`** (canonicalize to template spelling or flag). **Pops every `user_filled_attributes` header** so the 12 seller-decided attributes are never guessed. Returns `MappedRow`. |
 | `src/myntra/fill.py` | Write the Sarees sheet | Numeric cells (`NUMERIC_HEADERS`), S3 image URLs, **clears stray template rows**, **shared→inline strings** (Myntra's parser cannot resolve shared strings), x14 re-injection off by default (`preserve_dropdowns=False`; it breaks Myntra's parser — the V13 template's *plain* validations survive without it). |
 | `src/myntra/preview.py` | Reconstruct the Myntra listing | `reconstruct_title` / `reconstruct_design_details` (approximate — Myntra generates these from attributes), `missing_attributes`, `read_filled_rows`, **`build_card`** (the one place a listing card is assembled, so Flow C and Flow D can never drift apart). Read-only. |
-| `src/myntra/attribute_entry.py` | The seller-decided attributes | `user_filled_attributes()` (reads `rules.yaml` — the single loader), `attribute_vocab(template, columns)` (options **straight from** `vocab_by_header`; nothing added), `validate_submitted` (blank → `None`; non-blank must be an exact vocab member else `AttributeValueError`), `write_attributes(xlsx, template, entries)` (writes into an **already-built** workbook: verifies every row's SKU first, blanks on `None`, then re-applies `fill.shared_to_inline`). Drives Flow D. |
+| `src/myntra/attribute_entry.py` | The seller-decided attributes | `user_filled_attributes()` (reads `rules.yaml` — the single loader), `attribute_vocab(template, columns)` (options **straight from** `vocab_by_header`; nothing added), `validate_submitted` (blank → `None`; non-blank must be an exact vocab member else `AttributeValueError`), `write_attributes(xlsx, template, entries)` (writes into an **already-built** workbook: verifies every row's SKU first, blanks on `None`, then re-applies `fill.shared_to_inline`), **`derive_brand_colour`** (`Brand Colour (Remarks)` = the chosen Prominent Colour, lowercased; `NA`/blank → nothing). Drives Flow D. |
 | `src/myntra/report.py` | Audit report | `output/report.txt`: per-SKU filled count, blanks, vocab flags, image pass/fail. |
 
 ### The seller-decided attributes (why 12 columns come out blank)
@@ -223,7 +224,7 @@ htmx. **No business logic here** — routers call `src/myntra` / `src/core`.
 | `POST /generate/confirm/{job_id}` | `confirm()` the batch → **advances the ledger**. |
 | `POST /generate/unconfirm/{job_id}` | Undo a mark-as-uploaded (refuses if a later batch was confirmed). |
 | `POST /generate/style-start` + `/undo` | Seed the ledger from the last styleGroupId already used on Myntra. |
-| `GET /generate/attributes/{job_id}` | Flow D form: one accordion panel per SKU — product photo, the 12 vocabulary-only dropdowns (pre-selected from the workbook), an `n/12 filled` counter, and the current listing card. |
+| `GET /generate/attributes/{job_id}` | Flow D form: one accordion panel per SKU — product photo, the 12 vocabulary-only dropdowns (pre-selected from the workbook), an `n/12 filled` counter, the read-only derived `Brand Colour (Remarks)`, and the current listing card. |
 | `POST /generate/attributes/{job_id}/preview` | htmx fragment: re-renders **one** listing card from the posted dropdown values via the same `build_card`. Touches no file. |
 | `POST /generate/attributes/{job_id}` | Save: validate every value against the template vocabulary, then write all SKUs' attributes into the built workbook. Returns a 200 panel on success **and** on validation failure (htmx-swappable, never a 500); an off-vocab value writes nothing at all. |
 | `GET /preview` | Preview form (Flow C). |
@@ -273,6 +274,7 @@ on every dropdown change ─► POST /generate/attributes/<job>/preview  (hx-inc
 
 "Save attributes" ─► POST /generate/attributes/<job>
     validate_submitted(values, vocab)   → off-vocab ⇒ 200 error panel, NOTHING written
+    derive_brand_colour(values)         → Brand Colour (Remarks) = colour.lower()  (13th cell)
     write_attributes(xlsx, ...)         → row SKUs verified, cells written, blanks cleared
                                         → fill.shared_to_inline() RE-APPLIED  (see below)
 GET /generate/download/<job> ─► the same file, now with the chosen attributes AND live dropdowns
@@ -396,7 +398,7 @@ This is the section to read when something *outside* the code changes.
 
 ---
 
-## 9. Tests — `tests/` (215)
+## 9. Tests — `tests/` (222)
 
 Layers 1–2 in `tests/*.py` (template reader, shopify reader, mapper, images, s3 upload, fill /
 inline strings / dropdowns, report, models, config load, end-to-end, **groupid_ledger**,

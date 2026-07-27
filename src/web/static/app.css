@@ -67,3 +67,4 @@ input[type=text]{background:var(--bg);border:1px solid var(--marigold);color:var
 .attr-grid select{width:100%;background:var(--panel);color:var(--ink);
   border:1px solid var(--line);border-radius:6px;padding:6px}
 .attr-preview{flex:1;min-width:260px}
+.attr-derived{grid-column:1/-1;margin:2px 0 0}

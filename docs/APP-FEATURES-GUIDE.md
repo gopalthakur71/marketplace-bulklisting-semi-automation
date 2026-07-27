@@ -104,6 +104,11 @@ the sheet the app already built for you.
 
 A few things worth knowing:
 
+- **Brand Colour is filled for you.** Myntra has a separate, compulsory "Brand Colour (Remarks)"
+  box that isn't a dropdown. The app writes it from the Prominent Colour you pick (so "Blue"
+  becomes "blue") and shows you the result on the panel — you never type it. This is the
+  "Brand Colour (Remarks) cannot be null" rejection you used to get, dealt with before upload
+  instead of after. If you don't pick a colour, it stays blank rather than the app inventing one.
 - **It's optional.** Fill all of them, some of them, or none. Whatever you skip stays blank.
 - **You can come back.** Reopen the screen and everything you saved is already selected, with an
   "n/12 filled" count on each row so you can see what's left.

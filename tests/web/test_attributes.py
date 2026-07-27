@@ -170,6 +170,53 @@ def test_save_keeps_dropdowns_alive_in_the_downloaded_file(tmp_path, monkeypatch
     wb.close()
 
 
+def _brand_colour(xlsx, template):
+    import openpyxl
+    wb = openpyxl.load_workbook(xlsx, data_only=True)
+    v = wb["Sarees"].cell(row=template.first_data_row,
+                          column=template.col_index_by_header["Brand Colour (Remarks)"]).value
+    wb.close()
+    return v
+
+
+def test_save_fills_brand_colour_from_the_prominent_colour(tmp_path, monkeypatch):
+    """Myntra rejects a null Brand Colour (Remarks); the app derives it."""
+    job = _job(tmp_path, monkeypatch, skus=("S1",))
+    _client(tmp_path).post(f"/generate/attributes/{job.id}",
+                           data={"sku__0": "S1", "attr__0__0": "Blue"})
+    assert _brand_colour(job.result["filled"], read_template(V13)) == "blue"
+
+
+def test_save_leaves_brand_colour_blank_when_no_colour_chosen(tmp_path, monkeypatch):
+    job = _job(tmp_path, monkeypatch, skus=("S1",))
+    _client(tmp_path).post(f"/generate/attributes/{job.id}",
+                           data={"sku__0": "S1", "attr__0__7": "Zari"})
+    assert _brand_colour(job.result["filled"], read_template(V13)) is None
+
+
+def test_save_rewrites_brand_colour_when_the_colour_changes(tmp_path, monkeypatch):
+    job = _job(tmp_path, monkeypatch, skus=("S1",))
+    client = _client(tmp_path)
+    client.post(f"/generate/attributes/{job.id}",
+                data={"sku__0": "S1", "attr__0__0": "Blue"})
+    client.post(f"/generate/attributes/{job.id}",
+                data={"sku__0": "S1", "attr__0__0": "Green"})
+    assert _brand_colour(job.result["filled"], read_template(V13)) == "green"
+
+
+def test_screen_shows_the_derived_brand_colour_read_only(tmp_path, monkeypatch):
+    job = _job(tmp_path, monkeypatch, skus=("S1",))
+    client = _client(tmp_path)
+    client.post(f"/generate/attributes/{job.id}",
+                data={"sku__0": "S1", "attr__0__0": "Blue"})
+    r = client.get(f"/generate/attributes/{job.id}")
+    assert "Brand Colour (Remarks)" in r.text
+    assert "filled automatically" in r.text
+    assert ">blue<" in r.text
+    # read-only: it must not be a form field the browser posts back
+    assert 'name="brand_colour' not in r.text
+
+
 def test_save_on_expired_job_says_session_expired(tmp_path, monkeypatch):
     monkeypatch.setattr(gen, "RUNTIME", str(tmp_path / "runtime"))
     r = _client(tmp_path).post("/generate/attributes/" + "0" * 32,

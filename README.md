@@ -21,7 +21,7 @@ The project ships in two layers, both live:
 > encountered has been diagnosed and fixed (see
 > [Myntra upload requirements](#myntra-upload-requirements-hard-won)). The web app is
 > **deployed to production** on EC2 with Cognito auth and Gemini-backed error
-> explanation enabled. **215 tests pass.**
+> explanation enabled. **222 tests pass.**
 
 > **Guiding principle:** the pipeline **guesses nothing.** All column mapping, pricing,
 > and validation is plain code. Any value that doesn't match Myntra's allowed dropdown
@@ -268,6 +268,11 @@ app already built.
   isn't in the list is refused and **nothing is written**.
 - **The preview uses the same reconstruction as Flow C**, so the two can't disagree:
   specifications exact, title/Design Details approximate and badged.
+- **`Brand Colour (Remarks)` is derived, not typed.** Myntra requires this free-text column
+  but the pipeline never filled it, so uploads came back with `Brand Colour (Remarks) cannot
+  be null`. Saving here writes the chosen Prominent Colour into it, lowercased, and shows the
+  result read-only on the panel. No colour chosen (or `NA`) → still blank; the app doesn't
+  invent one.
 - **Optional and resumable.** Fill all, some, or none; reopen the screen and your saved
   choices are pre-selected. Anything left on "— choose —" stays blank in the file.
 - **The downloaded file still has its live Excel dropdowns**, so you can finish in Excel if
@@ -522,7 +527,7 @@ No Node, no Tailwind, no Celery/Redis, no database.
 ```
 python -m pytest -v
 ```
-**215 tests** cover vocab parsing (both plain and x14 validations), the template-compatibility
+**222 tests** cover vocab parsing (both plain and x14 validations), the template-compatibility
 guard, variant grouping, vocab validation, pricing, the blanked seller-decided attributes, the
 listing-preview reconstruction, transparency flatten, dropdown handling, numeric cell storage,
 inline strings, S3 upload (stubbed, incl. per-SKU key mirroring), an end-to-end run, the

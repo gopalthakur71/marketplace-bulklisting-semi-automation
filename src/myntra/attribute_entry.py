@@ -10,8 +10,13 @@ import openpyxl
 import yaml
 
 from src.myntra.fill import SHEET_SAREES_NAME, sheet_xml_name, shared_to_inline
+from src.myntra.preview import is_set
 
 CONFIG_DIR = os.path.join("config", "myntra")
+
+# Free-text and mandatory in the Myntra template, but derived — never typed. See
+# docs/superpowers/specs/2026-07-27-brand-colour-auto-fill-design.md.
+BRAND_COLOUR_HEADER = "Brand Colour (Remarks)"
 
 # Used only if rules.yaml somehow lacks the key; the YAML is the source of truth.
 FALLBACK_USER_FILLED = [
@@ -50,6 +55,18 @@ def validate_submitted(values, vocab):
                 f"{column}: '{v}' is not one of Myntra's accepted values")
         out[column] = v
     return out
+
+
+def derive_brand_colour(values):
+    """Brand Colour (Remarks) follows Prominent Colour, lowercased.
+
+    Myntra requires this free-text column but derives nothing itself, so a blank
+    one gets the row rejected ('Brand Colour (Remarks) cannot be null') and the
+    fix flow ends up mirroring the colour in anyway. Deriving it at save time
+    closes that round-trip. `NA` is a real vocabulary value meaning 'no colour
+    stated', so it mirrors to nothing rather than the string 'na'."""
+    colour = values.get("Prominent Colour")
+    return str(colour).strip().lower() if is_set(colour) else None
 
 
 class SkuMismatchError(Exception):

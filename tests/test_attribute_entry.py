@@ -57,6 +57,25 @@ def test_validate_submitted_rejects_off_vocab_value():
     assert "Salmon Pink" in str(exc.value)
 
 
+def test_derive_brand_colour_mirrors_the_prominent_colour_lowercased():
+    from src.myntra.attribute_entry import derive_brand_colour
+    assert derive_brand_colour({"Prominent Colour": "Blue"}) == "blue"
+
+
+def test_derive_brand_colour_is_none_when_no_colour_was_chosen():
+    from src.myntra.attribute_entry import derive_brand_colour
+    assert derive_brand_colour({"Prominent Colour": None}) is None
+    assert derive_brand_colour({"Prominent Colour": "  "}) is None
+    assert derive_brand_colour({}) is None
+
+
+def test_derive_brand_colour_treats_na_as_no_colour():
+    """NA is a real member of the Prominent Colour vocabulary, so a plain
+    truthiness check would write the string 'na' into the sheet."""
+    from src.myntra.attribute_entry import derive_brand_colour
+    assert derive_brand_colour({"Prominent Colour": "NA"}) is None
+
+
 def test_validate_submitted_rejects_unknown_column():
     with pytest.raises(AttributeValueError):
         validate_submitted({"Nonexistent Column": "x"}, {"Border": ["Zari"]})
