@@ -29,7 +29,7 @@ def _coerce_numeric(header, value):
     return value
 
 
-def _sheet_xml_name(xlsx_path, sheet_title):
+def sheet_xml_name(xlsx_path, sheet_title):
     wb = openpyxl.load_workbook(xlsx_path, read_only=True)
     idx = wb.sheetnames.index(sheet_title)
     wb.close()
@@ -51,7 +51,7 @@ def _parse_shared_strings(xlsx_path):
     return out
 
 
-def _shared_to_inline(out_path, sheet_xml_name):
+def shared_to_inline(out_path, sheet_xml):
     """Convert shared-string cells (t="s") in one sheet to inline strings
     (t="inlineStr"). Myntra's upload parser does not resolve shared strings, so
     text — including the column headers — must be embedded inline."""
@@ -74,7 +74,7 @@ def _shared_to_inline(out_path, sheet_xml_name):
             zipfile.ZipFile(tmp_path, "w", zipfile.ZIP_DEFLATED) as zout:
         for item in zin.infolist():
             data = zin.read(item.filename)
-            if item.filename == sheet_xml_name:
+            if item.filename == sheet_xml:
                 data = pattern.sub(repl, data.decode("utf-8")).encode("utf-8")
             zout.writestr(item, data)
     shutil.move(tmp_path, out_path)
@@ -157,13 +157,13 @@ def fill_template(template_path, template, rows, out_path, preserve_dropdowns=Fa
 
     # Myntra's upload parser does not resolve shared strings; convert the Sarees
     # sheet's text cells (including headers) to inline strings.
-    sarees_xml = _sheet_xml_name(template_path, SHEET_SAREES_NAME)
-    _shared_to_inline(out_path, sarees_xml)
+    sarees_xml = sheet_xml_name(template_path, SHEET_SAREES_NAME)
+    shared_to_inline(out_path, sarees_xml)
 
     # Re-inject the dropdown validations openpyxl dropped on save (manual-edit copy
     # only — breaks Myntra's upload parser, so off by default).
     if preserve_dropdowns:
-        sheet_xml = _sheet_xml_name(template_path, SHEET_SAREES_NAME)
+        sheet_xml = sheet_xml_name(template_path, SHEET_SAREES_NAME)
         ext_block = _extract_validation_ext(template_path, sheet_xml)
         if ext_block:
             _inject_validations(out_path, sheet_xml, ext_block)

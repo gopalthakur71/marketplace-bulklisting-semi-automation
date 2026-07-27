@@ -4,8 +4,12 @@ The pipeline never guesses these; they are offered as dropdowns whose options co
 strictly from the Myntra template's own vocabulary, and are written into the built
 workbook only after an exact-membership check."""
 import os
+import warnings
 
+import openpyxl
 import yaml
+
+from src.myntra.fill import SHEET_SAREES_NAME, sheet_xml_name, shared_to_inline
 
 CONFIG_DIR = os.path.join("config", "myntra")
 
@@ -46,3 +50,48 @@ def validate_submitted(values, vocab):
                 f"{column}: '{v}' is not one of Myntra's accepted values")
         out[column] = v
     return out
+
+
+class SkuMismatchError(Exception):
+    """A submitted row ordinal does not carry the SKU the form claimed for it."""
+
+
+def write_attributes(xlsx_path, template, entries):
+    """Write the user-chosen attributes into an already-built workbook, in place.
+
+    entries: [{"ordinal": int, "sku": str, "values": {header: value_or_None}}]
+    A None value blanks the cell, so re-saving is idempotent and a cleared dropdown
+    really clears. Every entry is verified before anything is written."""
+    warnings.filterwarnings("ignore")
+    sku_col = template.col_index_by_header.get("vendorSkuCode")
+    if sku_col is None:
+        raise SkuMismatchError("Template has no vendorSkuCode column")
+
+    wb = openpyxl.load_workbook(xlsx_path)
+    try:
+        ws = wb[SHEET_SAREES_NAME]
+        # Pass 1: verify every target row before touching any cell.
+        for e in entries:
+            r = template.first_data_row + int(e["ordinal"])
+            actual = ws.cell(row=r, column=sku_col).value
+            actual = "" if actual is None else str(actual).strip()
+            if actual != str(e["sku"]).strip():
+                raise SkuMismatchError(
+                    f"Row {r} holds SKU '{actual}', not '{e['sku']}' — "
+                    "the sheet changed since the screen was opened")
+        # Pass 2: write.
+        for e in entries:
+            r = template.first_data_row + int(e["ordinal"])
+            for header, value in e["values"].items():
+                col = template.col_index_by_header.get(header)
+                if col is None:
+                    continue
+                ws.cell(row=r, column=col).value = value
+        wb.save(xlsx_path)
+    finally:
+        wb.close()
+
+    # openpyxl re-writes text as shared strings; Myntra's parser cannot resolve
+    # them, so re-apply fill.py's inline conversion (see fill.fill_template).
+    shared_to_inline(xlsx_path, sheet_xml_name(xlsx_path, SHEET_SAREES_NAME))
+    return len(entries)
