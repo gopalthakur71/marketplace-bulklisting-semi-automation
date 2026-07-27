@@ -14,8 +14,9 @@ from src.web.routers.pages import get_user
 router = APIRouter()
 TEMPLATE = os.path.join("templates", "myntra", DEFAULT_TEMPLATE_NAME)
 _FALLBACK_USER_FILLED = [
-    "Prominent Colour", "Saree Fabric", "Blouse Fabric", "Type", "Ornamentation",
-    "Border", "Pattern", "Print or Pattern Type", "Wash Care"]
+    "Prominent Colour", "Second Prominent Colour", "Third Prominent Colour",
+    "Saree Fabric", "Blouse Fabric", "Type", "Ornamentation", "Border",
+    "Pattern", "Print or Pattern Type", "Wash Care", "Usage"]
 
 
 def _templates():

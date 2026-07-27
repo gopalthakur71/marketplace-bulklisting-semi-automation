@@ -22,11 +22,14 @@ fabric_detection:
 replicate_constant_across_numbered:
   - "Country Of Origin"
 
-# Attributes the user fills by hand in Excel via the template dropdowns. The mapper
-# leaves these BLANK (the app never guesses them). The preview (Feature B) also reads
-# this list to know which columns are user-owned.
+# Attributes the user fills by hand — either in the app's "Fill attributes" screen
+# or in Excel via the template dropdowns. The mapper leaves these BLANK (the app
+# never guesses them). The preview and the attribute-entry screen both read this
+# list to know which columns are user-owned.
 user_filled_attributes:
   - Prominent Colour
+  - Second Prominent Colour
+  - Third Prominent Colour
   - Saree Fabric
   - Blouse Fabric
   - Type
@@ -35,6 +38,7 @@ user_filled_attributes:
   - Pattern
   - Print or Pattern Type
   - Wash Care
+  - Usage
 
 # Assign a sequential styleGroupId to each product row, continuing from the
 # seller's existing Myntra catalog. styleGroupId of row i = style_group_id_start + (i-1).
