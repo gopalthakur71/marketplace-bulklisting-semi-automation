@@ -69,3 +69,23 @@ def test_read_filled_rows_reads_by_header(tmp_path):
     assert rows[0]["vendorSkuCode"] == "S1"
     assert rows[0]["Type"] == "Banarasi"
     assert rows[0]["Prominent Colour"] == "Blue"
+
+
+def test_build_card_shapes_one_card():
+    from src.myntra.preview import build_card
+    attrs = {"vendorSkuCode": "S1", "Prominent Colour": "Blue", "Type": "Banarasi",
+             "Saree Fabric": "Pure Silk", "Border": "NA"}
+    uf = ["Prominent Colour", "Type", "Saree Fabric", "Border"]
+    card = build_card(attrs, uf)
+    assert card["sku"] == "S1"
+    assert card["title"] == "Pure Silk Banarasi Saree"
+    assert card["design_details"][0] == "Blue Banarasi sarees"
+    assert card["specs"] == [("Prominent Colour", "Blue"), ("Type", "Banarasi"),
+                             ("Saree Fabric", "Pure Silk"), ("Border", "NA")]
+    assert card["missing"] == ["Border"]          # NA counts as not filled
+
+
+def test_build_card_falls_back_to_skucode():
+    from src.myntra.preview import build_card
+    assert build_card({"SKUCode": "S9"}, [])["sku"] == "S9"
+    assert build_card({}, [])["sku"] == ""

@@ -1,0 +1,16 @@
+<div class="card">
+  <strong class="mono">{{ c.sku }}</strong>
+  {% if c.missing %}
+    <p class="flag mono">⚠ Not filled: {{ c.missing | join(", ") }}</p>
+  {% endif %}
+  <div class="hint">Title (approximate)</div>
+  <p><strong>{{ c.title }}</strong></p>
+  <div class="hint">Design Details (approximate)</div>
+  <ul>{% for line in c.design_details %}<li>{{ line }}</li>{% endfor %}</ul>
+  <div class="hint">Specifications (exact)</div>
+  <table>
+    {% for header, value in c.specs %}
+    <tr><td class="mono">{{ header }}</td><td>{{ value or "—" }}</td></tr>
+    {% endfor %}
+  </table>
+</div>

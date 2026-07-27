@@ -56,6 +56,18 @@ def missing_attributes(attrs, user_filled):
     return [h for h in user_filled if not is_set(attrs.get(h))]
 
 
+def build_card(attrs, user_filled):
+    """The one place a preview card is assembled, so the upload preview and the
+    in-app live preview can never drift apart."""
+    return {
+        "sku": attrs.get("vendorSkuCode") or attrs.get("SKUCode") or "",
+        "title": reconstruct_title(attrs),
+        "design_details": reconstruct_design_details(attrs),
+        "specs": [(h, attrs.get(h)) for h in user_filled],
+        "missing": missing_attributes(attrs, user_filled),
+    }
+
+
 def read_filled_rows(xlsx_path, template):
     """One {header: value_or_None} dict per data row that carries a vendorSkuCode."""
     with warnings.catch_warnings():
