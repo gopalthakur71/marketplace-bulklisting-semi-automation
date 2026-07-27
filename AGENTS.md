@@ -20,7 +20,7 @@ which is why the deploy/AWS machinery is richer than a one-off script would need
 |---|---|---|
 | 1. Core fill pipeline | `src/core/` + `src/myntra/` + `config/myntra/` | Shopify CSV → mapped/validated Myntra `.xlsx` + images → S3. Entry: `run.py`. |
 | 2. Error-correction backend | `src/myntra/{groupid_ledger,hsn_kb,sku_registry,error_reader,corrector}.py` | styleGroupId ledger; HSN knowledge base (learn HSN once per category\|fabric signature); per-SKU generation registry (duplicate-upload guard); read+classify Myntra rejection files; regenerate a corrected sheet. |
-| 3. Web app (FastAPI) | `src/web/` | "Marigold Ops" UI: Flow A *Generate*, Flow B *Fix*. Calls layers 1–2; no business logic of its own. |
+| 3. Web app (FastAPI) | `src/web/` | "Marigold Ops" UI: Flow A *Generate*, Flow B *Fix*, Flow C *Preview* (round-trip the filled sheet → see the Myntra listing before uploading). Calls layers 1–2; no business logic of its own. |
 | 4. Cloud / CI-CD / deploy | `Dockerfile`, `.github/workflows/ci-cd.yml`, `aws/`, `S3/`, `docs/runbooks/` | Image build, GitHub Actions → ECR via OIDC, **auto-deploy to EC2 via SSM**, Cognito/SSM/Secrets. |
 
 **Full map with data flow, every module, and integration boundaries:**
@@ -52,7 +52,7 @@ LEDGER_LOCAL_PATH=src/web/runtime/ledger.json HSN_LOCAL_PATH=src/web/runtime/hsn
 #   $env:LEDGER_LOCAL_PATH="src/web/runtime/ledger.json"; $env:HSN_LOCAL_PATH="src/web/runtime/hsn_kb.json"; $env:SKU_REGISTRY_LOCAL_PATH="src/web/runtime/sku_registry.json"; $env:AUTH_DISABLED="1"; uvicorn src.web.main:app --reload
 # → http://localhost:8000/   (container runs on 8080; local uvicorn defaults to 8000)
 
-# Tests (171; this is the CI gate)
+# Tests (190; this is the CI gate)
 python -m pytest -q
 ```
 
@@ -77,6 +77,18 @@ CSS + vendored htmx + vendored fonts (no runtime CDN).
 7. **Secrets never go in git.** `.env` is git-ignored; the deployed app reads all config —
    including the Cognito client secret (an SSM **SecureString**) — from SSM Parameter Store via
    the EC2 instance role. (Secrets Manager was retired 2026-07-02; SSM SecureString is free.)
+8. **The 12 name-driving attributes are the seller's call, never the machine's.** Myntra
+   generates the public title and "Design Details" from the attribute columns, so a guessed
+   attribute publishes a wrong title. `config/myntra/rules.yaml:user_filled_attributes` lists
+   them; the mapper writes them **blank** and every surface (Excel dropdowns, `/preview`) reads
+   that one list. No auto-extraction, no synonym map, no pre-fill, and dropdown options come
+   **strictly** from the template's own vocabulary — never invent a value or inject `NA` into a
+   list that lacks it. (Decided 2026-07-24; see `docs/ARCHITECTURE.md` §3.)
+9. **Keep the sheet's dropdowns alive and its strings inline.** The pipeline uses the V13
+   template because openpyxl preserves its *plain* data-validations (the older template's x14
+   ones are silently dropped). And Myntra's upload parser cannot resolve shared strings, so
+   `fill.py` rewrites the Sarees sheet's text as inline strings **after** saving — any other
+   code that re-saves a built workbook must re-apply that conversion, or Myntra rejects the file.
 
 ## Where the answers live
 

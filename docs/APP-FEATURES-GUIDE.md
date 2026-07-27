@@ -42,8 +42,12 @@ straight in.
 2. On the Generate screen, upload that CSV.
 3. The app works in the background and shows a **step-by-step progress bar** (reading products,
    processing images, filling the sheet…).
-4. When it's done, you **download the finished `.xlsx`** and upload it to Myntra.
-5. After Myntra accepts it, you click **Confirm** so the app locks in the style-group numbers it
+4. When it's done, you **download the finished `.xlsx`**.
+5. Open it in Excel and **choose the 12 attributes the app deliberately left blank** (see "The
+   attributes you choose yourself" below) — every one is a dropdown, so you just pick.
+6. Optional but recommended: upload the filled file to **Preview** (Screen 3) to see the listing
+   before Myntra does. Then upload the same file to Myntra.
+7. After Myntra accepts it, you click **Confirm** so the app locks in the style-group numbers it
    used (see "Style group numbers" below).
 
 **What the app does for you behind that one upload:**
@@ -55,10 +59,28 @@ straight in.
 - **Hosts your images** — Myntra needs public image links, not files. The app converts your
   photos to the right format and uploads them to your own cloud storage, then puts those links in
   the sheet.
-- **Picks the right colour word** — Myntra only accepts colours from its own list. The app matches
-  your colour to the closest allowed word (and *flags* it rather than guessing if unsure).
+- **Leaves the attributes that decide your product's public name to you** — with the dropdowns
+  live, so you pick from Myntra's own words (see below).
 - **Never invents data it isn't sure about** — anything questionable is flagged in a report so you
   can eyeball it, instead of silently shipping a wrong value that Myntra would reject.
+
+### The attributes you choose yourself
+
+Here's the thing that surprises everyone: **Myntra ignores the product name and description you
+send it.** It writes its own, out of the attribute columns. So the way you control what shoppers
+see is not by writing a title — it's by choosing the right attributes.
+
+Because a wrong attribute becomes a wrong public title, and because "is this silk or a silk
+blend?" or "does this count as a border?" is a judgment call about *your* product, the app does
+not guess them. It leaves these **12 columns blank, each with its Myntra dropdown attached**:
+
+Prominent Colour · Second Prominent Colour · Third Prominent Colour · Saree Fabric ·
+Blouse Fabric · Type · Ornamentation · Border · Pattern · Print or Pattern Type · Wash Care ·
+Usage
+
+You fill them in Excel by picking from the dropdowns. Only Myntra's own words are offered —
+nothing invented, and no "NA" option where Myntra doesn't actually allow one. Anything you leave
+blank just stays blank; nothing breaks.
 
 ### Supporting features on the Generate screen
 
@@ -137,6 +159,31 @@ business data.)
 
 ---
 
+## Screen 3 — Preview the Myntra listing
+
+**What it's for:** seeing what your listing will actually look like **before** Myntra sees it.
+
+**How you use it:** after you've filled the attribute dropdowns in Excel and saved, upload that
+same file on the Preview screen. You get one card per product. Then upload that same file to
+Myntra — the app never changes your file, it only reads it.
+
+**What's on a card, and how much to trust it:**
+
+- **Specifications — exact.** These are the values you entered, shown the way Myntra will list
+  them. What you see is what Myntra gets.
+- **Title and "Design Details" — our best reconstruction, not a promise.** Myntra writes these
+  itself from the attributes. We worked out its pattern from real Ijor listings and rebuild it
+  here, and the screen says plainly that it's approximate. Two useful things we learned doing
+  that: the **colour never appears in a saree title** (it shows in Design Details and the colour
+  filter instead), and the "Zari Border Border" doubling you sometimes see on Myntra is **Myntra's
+  own display quirk** — the dropdown words are clean, and it isn't something we can fix.
+- **"Not filled" warnings.** Any of the 12 attributes you missed is called out on the card, so you
+  catch it here instead of after a rejection.
+
+Use it as a last look: if the title reads wrong, the fix is to change an *attribute*, not a name.
+
+---
+
 ## The report you get
 
 Alongside every generated sheet, the app produces an **audit report**: per product, how many
@@ -149,6 +196,9 @@ review, and whether each image passed. This is your "check before you send to My
 
 - It won't **guess** a Myntra colour or vocabulary word — it flags instead, because a wrong guess
   means a rejected upload.
+- It won't **choose the 12 attributes that decide your public title** — those are yours, picked
+  from Myntra's own dropdowns. It also won't pretend to know Myntra's generated wording
+  word-for-word; the preview says it's approximate because it is.
 - It won't **fake** fixes it can't really make (bad images, quality issues) — it tells you the
   truth and points you to the real fix.
 - It won't **advance your style-group counter** until you confirm Myntra accepted the batch, so
@@ -161,7 +211,8 @@ straight with you about the 10% that needs your eyes.
 
 ## The typical end-to-end day
 
-1. Export products from Shopify → **Generate** → download sheet → upload to Myntra → **Confirm**.
+1. Export products from Shopify → **Generate** → download sheet → **fill the 12 attribute
+   dropdowns in Excel** → **Preview** to check the listing → upload to Myntra → **Confirm**.
 2. Myntra rejects a few → **Fix** → read the plain-English explanations.
 3. Auto-fixable ones → **Download now to fix** → re-upload.
 4. Image/quality ones → fix in Shopify → re-export those SKUs → **Download listing file** →

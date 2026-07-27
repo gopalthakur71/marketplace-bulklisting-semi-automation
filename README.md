@@ -21,14 +21,15 @@ The project ships in two layers, both live:
 > encountered has been diagnosed and fixed (see
 > [Myntra upload requirements](#myntra-upload-requirements-hard-won)). The web app is
 > **deployed to production** on EC2 with Cognito auth and Gemini-backed error
-> explanation enabled. **171 tests pass.**
+> explanation enabled. **190 tests pass.**
 
 > **Guiding principle:** the pipeline **guesses nothing.** All column mapping, pricing,
 > and validation is plain code. Any value that doesn't match Myntra's allowed dropdown
 > list is **flagged in a report, never silently written.** HSN codes are **learned from
-> the user once and reused**, never invented. The one LLM in the system (Gemini) only
-> **explains** rejection errors in plain English — it never fixes, guesses, or supplies
-> a value.
+> the user once and reused**, never invented. The **12 attributes Myntra builds the public
+> title and description from are left blank with live dropdowns for the seller to choose**
+> — the machine never picks them. The one LLM in the system (Gemini) only **explains**
+> rejection errors in plain English — it never fixes, guesses, or supplies a value.
 
 ---
 
@@ -38,6 +39,7 @@ The project ships in two layers, both live:
 - [The web app (Marigold Ops)](#the-web-app-marigold-ops)
   - [Flow A — Generate](#flow-a--generate)
   - [Flow B — Fix Myntra errors](#flow-b--fix-myntra-errors)
+  - [Flow C — Preview the Myntra listing](#flow-c--preview-the-myntra-listing)
 - [The pipeline — what one run does](#the-pipeline--what-one-run-does-end-to-end)
 - [Major pipeline modules](#major-pipeline-modules)
 - [Myntra upload requirements (hard-won)](#myntra-upload-requirements-hard-won)
@@ -56,8 +58,10 @@ The project ships in two layers, both live:
 
 ### Inputs
 - `input/products_export.csv` — Shopify product export
-- `templates/myntra/Myntra-Sku-Template-2026-06-16.xlsx` — the blank Myntra DIY saree
-  template (headers + dropdown vocabulary)
+- `templates/myntra/Myntra-Sku-Template-2026-07-24.xlsx` — the blank Myntra DIY saree
+  template the pipeline uses (headers + dropdown vocabulary). Its data-validations are
+  **plain**, so openpyxl carries the dropdowns into the generated file; the older
+  `Myntra-Sku-Template-2026-06-16.xlsx` is kept only for the x14-parsing tests.
 
 ### Install
 ```
@@ -160,6 +164,14 @@ Upload a Shopify CSV → get a Myntra-ready sheet. The flow has guardrails that 
    the **last used styleGroupId**; the app records `next = value + 1` (with an audit-trail
    **[Undo]**), snapping the counter to the truth so the next batch won't collide.
 
+7. **Fill the seller-decided attributes** — the generated sheet leaves **12 columns blank
+   on purpose**, each carrying its live Myntra dropdown: Prominent / Second / Third
+   Prominent Colour, Saree Fabric, Blouse Fabric, Type, Ornamentation, Border, Pattern,
+   Print or Pattern Type, Wash Care, Usage. Myntra **builds the public title and the
+   "Design Details" text from these attributes**, so a guessed value publishes a wrong
+   title — the machine never picks them. Open the file in Excel, choose from the
+   dropdowns, save, and continue to Flow C.
+
 ### Flow B — Fix Myntra errors
 
 Upload a rejection file → get a plain-English explanation of every error and, where the
@@ -219,6 +231,27 @@ Do not change).
    signature, before/after changes) to an append-only log. Nothing reads it yet; it
    accumulates so a future phase can learn which fixes actually worked.
 
+### Flow C — Preview the Myntra listing
+
+Upload the **filled** sheet back (`POST /preview`) and see, per SKU, what the listing will
+look like **before** it goes to Myntra. Read-only — the app never modifies the file you
+upload; you send that same file to Myntra.
+
+Each card has two zones with deliberately different reliability:
+
+- **Specifications — exact.** The attribute values you entered, as Myntra will show them.
+- **Title & Design Details — approximate, and badged as such.** Myntra *generates* these
+  from the attributes (it ignores the product name and description we submit), so the app
+  reconstructs them from rules reverse-engineered off live Ijor listings:
+  title ≈ `[Print/Pattern] [Ornamentation] [Saree Fabric] [Type] "Saree" [+ "With
+  Unstitched Blouse Piece"]` — **colour is not in a saree title** — and Design Details as
+  `"{Colour} {Type} sarees"` / `"{Pattern} saree with {Border} Border"` / `"Has
+  {Ornamentation} detail"`. We do not try to match Myntra word-for-word, and we say so on
+  the screen rather than pretending to a precision we don't have.
+
+Any of the 12 attributes still blank is flagged on the card, so a missed dropdown is
+caught here rather than by Myntra.
+
 ---
 
 ## The pipeline — what one run does, end to end
@@ -245,10 +278,17 @@ the ledger), `hsn_by_signature` (from the HSN KB review), and per-SKU
 
 ### 1. Read the Myntra template + extract dropdown vocab — `src/myntra/template_reader.py`
 - Detects the Sarees header row (`styleId` marker, row 3) and the first data row (row 4).
-- The template's dropdowns are **37 Excel "x14" extension data-validations** that openpyxl
-  can't see. They're parsed straight from the raw sheet XML and resolved to their
-  allowed-value lists in the `masterdata` sheet, producing an exact `{column → allowed
-  values}` map — the controlled vocabularies every written value is checked against.
+- Resolves each dropdown to its allowed-value list on the `masterdata` sheet, producing an
+  exact `{column → allowed values}` map — the controlled vocabularies every written value is
+  checked against, and the only source of options offered to the seller.
+- Two validation dialects: the current template stores **plain `dataValidation` entries**
+  (openpyxl reads *and* preserves them, which is why the generated file keeps live
+  dropdowns); the older 2026-06-16 template stored **37 "x14" extension validations** that
+  openpyxl silently drops, so those are parsed straight from the raw sheet XML. Plain is
+  tried first, x14 is the fallback.
+- `src/myntra/template_guard.py` then asserts the active template actually has every header
+  the config and pipeline write. A template swap fails **loudly** instead of quietly
+  dropping a column.
 
 ### 2. Read + group the Shopify export — `src/core/shopify_reader.py`
 - Loads the CSV, groups variant/image rows under each parent product (`Handle`).
@@ -262,9 +302,10 @@ the ledger), `hsn_by_signature` (from the HSN KB review), and per-SKU
   address **with 6-digit pincode**), size fields, AgeGroup, FashionType, Year, Season, etc.
   Numbered constant columns (e.g. `Country Of Origin2…5`) are auto-replicated from the base
   value via `replicate_constant_across_numbered` in `rules.yaml`.
-- **Per-row rules** (`rules.yaml`): Prominent Colour derived by scanning the product
-  name/description against the colour dropdown (longest/earliest match wins; small synonym
-  map, e.g. golden→Gold).
+- **The 12 seller-decided attributes are popped, not filled** (`user_filled_attributes` in
+  `rules.yaml`). Myntra generates the public title and description from them, so they are
+  a human judgment: the mapper leaves the cells blank with their dropdowns intact. No
+  colour scanning, no fabric guessing, no synonym map, no pre-fill.
 - **HSN** set from the injected `signature → hsn` map (from the HSN KB); an unresolved
   signature is **flagged**, never guessed.
 - **Vocab validation:** every value targeting a dropdown column is matched
@@ -295,10 +336,19 @@ the ledger), `hsn_by_signature` (from the HSN KB review), and per-SKU
   Net Quantity} written as numeric cells (Myntra rejects text "1" as "non numeric").
 - **Clears the whole data region first** so no stray template example rows reach Myntra
   (sets `cell.value=None` *and* `cell.hyperlink=None` — both required).
-- **Converts the Sarees sheet's shared strings to inline strings** post-save.
-- **Does NOT re-inject dropdown validations** by default (`preserve_dropdowns=False`): the
-  re-injected x14 XML breaks Myntra's Apache POI parser. A `preserve_dropdowns=True` copy
-  is available only for manual editing, never for upload.
+- **Converts the Sarees sheet's shared strings to inline strings** post-save — Myntra's
+  parser doesn't resolve shared strings, and openpyxl re-creates them on *every* save, so
+  any code that re-saves a built workbook must re-apply this step.
+- **Does NOT re-inject x14 dropdown validations** by default (`preserve_dropdowns=False`):
+  the re-injected x14 XML breaks Myntra's Apache POI parser. It isn't needed either — the
+  current template's plain validations survive the save on their own, so the downloaded
+  file has working dropdowns *and* uploads cleanly.
+
+### 6b. Reconstruct the Myntra listing — `src/myntra/preview.py`
+- `read_filled_rows()` reads a filled workbook back by header (no hard-coded row numbers).
+- `reconstruct_title()` / `reconstruct_design_details()` rebuild what Myntra will generate
+  from the attributes; `missing_attributes()` flags any of the 12 still blank. Treats a
+  literal `NA` as "not set". Powers Flow C — read-only, and honest about being approximate.
 
 ### 7. Report — `src/myntra/report.py`
 - Emits `report.txt`: per-SKU filled-field count, blanks left for a manual pass, vocab
@@ -427,7 +477,7 @@ only if this goes multi-tenant/SaaS" are deliberate — see the design specs.
 |---|---|
 | `config/myntra/column_map.yaml` | Shopify field → Myntra Sarees column (direct copies) |
 | `config/myntra/constants.yaml` | Fixed values written to every row (brand + manufacturer/packer address with pincode, sizes, etc.) |
-| `config/myntra/rules.yaml` | Per-row rules: Prominent-Colour-from-name, colour synonyms, numbered-constant replication, `style_group_id_start` (CLI) |
+| `config/myntra/rules.yaml` | `user_filled_attributes` (the 12 seller-decided columns left blank), fabric keywords for the HSN signature, numbered-constant replication, `style_group_id_start` (CLI) |
 | `config/myntra/image_specs.yaml` | Image min dimensions, max file size, JPEG quality, max images; S3 host + upload settings |
 | `config/myntra/error_rules.yaml` | Fix flow: error-message substring → plain-English explanation **+ action** (`auto_fix` / `manual_choice` / `explain_only`); the **only** source of auto-fixes |
 
@@ -450,15 +500,16 @@ No Node, no Tailwind, no Celery/Redis, no database.
 ```
 python -m pytest -v
 ```
-**171 tests** cover x14 vocab parsing, variant grouping, vocab validation, pricing,
-colour rules, transparency flatten, dropdown handling, numeric cell storage, inline
-strings, S3 upload (stubbed, incl. per-SKU key mirroring), an end-to-end run, the
+**190 tests** cover vocab parsing (both plain and x14 validations), the template-compatibility
+guard, variant grouping, vocab validation, pricing, the blanked seller-decided attributes, the
+listing-preview reconstruction, transparency flatten, dropdown handling, numeric cell storage,
+inline strings, S3 upload (stubbed, incl. per-SKU key mirroring), an end-to-end run, the
 styleGroupId ledger (reserve/confirm/undo/set_next), the HSN knowledge base, the per-SKU
 dedup guard + pipeline overrides, error-file classification across all 3 formats, error
 signature normalization, the self-learning explanation store, the Gemini client
 (mocked — asserts no product data leaks), the corrector, and the full web app (Generate,
-HSN review, dedup, Fix two-action flow incl. a real non-mocked manual-rebuild e2e, auth,
-oauth, settings loader, jobs store, pages).
+HSN review, dedup, Fix two-action flow incl. a real non-mocked manual-rebuild e2e, the
+listing Preview, auth, oauth, settings loader, jobs store, pages).
 
 ---
 

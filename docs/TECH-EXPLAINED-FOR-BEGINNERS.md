@@ -168,10 +168,11 @@ when it opens for the day; they're never left taped to the code where anyone cou
 
 ---
 
-## 10. Automated tests: why "171 tests pass" matters
+## 10. Automated tests: why "190 tests pass" matters
 
-The project has 170+ **automated tests** — tiny programs that check the real app still behaves
-correctly (right colour picked, right sheet produced, rejected errors classified properly). They
+The project has 190 **automated tests** — tiny programs that check the real app still behaves
+correctly (right sheet produced, dropdowns still working in the downloaded file, rejected errors
+classified properly, the attribute columns left blank on purpose actually left blank). They
 run automatically before any change ships. This is the safety net that lets changes go out
 confidently without manually re-checking everything by hand each time.
 
