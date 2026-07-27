@@ -78,9 +78,40 @@ Prominent Colour · Second Prominent Colour · Third Prominent Colour · Saree F
 Blouse Fabric · Type · Ornamentation · Border · Pattern · Print or Pattern Type · Wash Care ·
 Usage
 
-You fill them in Excel by picking from the dropdowns. Only Myntra's own words are offered —
-nothing invented, and no "NA" option where Myntra doesn't actually allow one. Anything you leave
-blank just stays blank; nothing breaks.
+You fill them **either inside the app** (the "Fill attributes" screen below — usually easier,
+because you can see the photo and the resulting listing while you choose) **or in Excel** by
+picking from the dropdowns. Either way, only Myntra's own words are offered — nothing invented,
+and no "NA" option where Myntra doesn't actually allow one. Anything you leave blank just stays
+blank; nothing breaks.
+
+### Screen 1b — "Fill attributes" (choosing them inside the app)
+
+When a sheet finishes building, a **✎ Fill attributes** button appears next to the download
+button. It opens a page with **one expandable row per product**. Open one and you get three
+things side by side:
+
+1. **The product photo**, pulled from the Shopify file you uploaded, so you're looking at the
+   actual saree while you decide.
+2. **The 12 dropdowns.** The choices are read straight out of Myntra's own template, so you can
+   only pick something Myntra accepts. If a value somehow isn't on Myntra's list, the app refuses
+   the whole save and writes nothing rather than risk a rejected sheet.
+3. **A live preview of the listing** — the title and "Design Details" Myntra will most likely
+   generate, plus the exact specifications — which **updates as you change a dropdown**. That's
+   the point: you can see the public wording change and check it against the photo.
+
+Then press **Save attributes** once, at the bottom, and every product you filled is written into
+the sheet the app already built for you.
+
+A few things worth knowing:
+
+- **It's optional.** Fill all of them, some of them, or none. Whatever you skip stays blank.
+- **You can come back.** Reopen the screen and everything you saved is already selected, with an
+  "n/12 filled" count on each row so you can see what's left.
+- **The Excel dropdowns still work afterwards.** Saving in the app does not kill them — download
+  the file and you can still finish the rest in Excel if you'd rather.
+- **The preview here is the same one as Screen 3**, so the two can never tell you different
+  things. Specifications are exact; title and Design Details are our best reconstruction and are
+  labelled as approximate.
 
 ### Supporting features on the Generate screen
 
@@ -167,6 +198,9 @@ business data.)
 same file on the Preview screen. You get one card per product. Then upload that same file to
 Myntra — the app never changes your file, it only reads it.
 
+(If you filled the attributes on Screen 1b instead, you have already seen this preview live while
+choosing. This screen is still useful as a final look at a file you've since edited in Excel.)
+
 **What's on a card, and how much to trust it:**
 
 - **Specifications — exact.** These are the values you entered, shown the way Myntra will list
@@ -211,8 +245,9 @@ straight with you about the 10% that needs your eyes.
 
 ## The typical end-to-end day
 
-1. Export products from Shopify → **Generate** → download sheet → **fill the 12 attribute
-   dropdowns in Excel** → **Preview** to check the listing → upload to Myntra → **Confirm**.
+1. Export products from Shopify → **Generate** → **fill the 12 attributes** (in the app on
+   **Fill attributes**, or in Excel after downloading) → **Preview** to check the listing →
+   upload to Myntra → **Confirm**.
 2. Myntra rejects a few → **Fix** → read the plain-English explanations.
 3. Auto-fixable ones → **Download now to fix** → re-upload.
 4. Image/quality ones → fix in Shopify → re-export those SKUs → **Download listing file** →

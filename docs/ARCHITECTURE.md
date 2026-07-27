@@ -32,9 +32,9 @@ for *why* decisions were made see [decisions/](decisions/).
 
 ```
                          ┌─────────────────────────── Layer 3: Web app (src/web, FastAPI) ──┐
-                         │  Flow A Generate          Flow B Fix         Flow C Preview       │
-  browser ──────────────►  upload CSV → job → xlsx   upload rejection   upload filled xlsx  │
-   (Cognito/AUTH_DISABLED)│        │                  → corrected xlsx   → listing cards     │
+                         │  Flow A Generate    Flow B Fix      Flow C Preview   Flow D Fill │
+  browser ──────────────►  upload CSV → xlsx  upload rejection upload filled xlsx  attributes│
+   (Cognito/AUTH_DISABLED)│        │           → corrected xlsx → listing cards   in-app     │
                          └────────┼──────────────────────────┼──────────────────────────────┘
                                   │ calls                     │ calls
         ┌─────────────────────────▼───────────┐   ┌──────────▼──────────────────────────────┐
@@ -67,12 +67,12 @@ src/
     models.py shopify_reader.py images.py s3_upload.py
   myntra/                      # Myntra-specific
     pipeline.py template_reader.py mapper.py fill.py report.py     # Layer 1
-    template_guard.py preview.py                                   # Layer 1
+    template_guard.py preview.py attribute_entry.py                # Layer 1
     groupid_ledger.py hsn_kb.py sku_registry.py                    # Layer 2
     error_reader.py corrector.py                                   # Layer 2
   web/                         # Layer 3 (FastAPI app)
     main.py settings.py auth.py jobs.py
-    routers/ pages.py generate.py fix.py preview.py
+    routers/ pages.py generate.py fix.py preview.py attributes.py
     templates/ *.html          # Jinja (base + home + generate + fix + htmx partials)
     static/ app.css htmx.min.js fonts/*.woff2   # vendored, no CDN
     runtime/                   # per-job working dirs (git-ignored except .gitkeep)
@@ -91,7 +91,7 @@ S3/                            # IAM + bucket policies for image hosting (app→
 docs/
   ARCHITECTURE.md (this file)  decisions/ (ADRs / why)  runbooks/ (ops)
   superpowers/specs/ + plans/  journal/ (history)
-tests/                         # 190 tests; tests/web/ covers Layer 3
+tests/                         # 215 tests; tests/web/ covers Layer 3
 ```
 
 ---
@@ -134,7 +134,8 @@ tests/                         # 190 tests; tests/web/ covers Layer 3
 | `src/myntra/template_guard.py` | Fail loud on a template swap | `assert_template_compatible(template, column_map, constants)` raises `TemplateIncompatibleError` if the active template lacks any header the config or pipeline writes (union includes `_PIPELINE_WRITTEN_HEADERS`). Called by `pipeline.main`. |
 | `src/myntra/mapper.py` | Map + validate + rules | Constants, pricing, HSN-by-signature, **`validate_value`** (canonicalize to template spelling or flag). **Pops every `user_filled_attributes` header** so the 12 seller-decided attributes are never guessed. Returns `MappedRow`. |
 | `src/myntra/fill.py` | Write the Sarees sheet | Numeric cells (`NUMERIC_HEADERS`), S3 image URLs, **clears stray template rows**, **shared→inline strings** (Myntra's parser cannot resolve shared strings), x14 re-injection off by default (`preserve_dropdowns=False`; it breaks Myntra's parser — the V13 template's *plain* validations survive without it). |
-| `src/myntra/preview.py` | Reconstruct the Myntra listing | `reconstruct_title` / `reconstruct_design_details` (approximate — Myntra generates these from attributes), `missing_attributes`, `read_filled_rows`. Read-only; drives Flow C. |
+| `src/myntra/preview.py` | Reconstruct the Myntra listing | `reconstruct_title` / `reconstruct_design_details` (approximate — Myntra generates these from attributes), `missing_attributes`, `read_filled_rows`, **`build_card`** (the one place a listing card is assembled, so Flow C and Flow D can never drift apart). Read-only. |
+| `src/myntra/attribute_entry.py` | The seller-decided attributes | `user_filled_attributes()` (reads `rules.yaml` — the single loader), `attribute_vocab(template, columns)` (options **straight from** `vocab_by_header`; nothing added), `validate_submitted` (blank → `None`; non-blank must be an exact vocab member else `AttributeValueError`), `write_attributes(xlsx, template, entries)` (writes into an **already-built** workbook: verifies every row's SKU first, blanks on `None`, then re-applies `fill.shared_to_inline`). Drives Flow D. |
 | `src/myntra/report.py` | Audit report | `output/report.txt`: per-SKU filled count, blanks, vocab flags, image pass/fail. |
 
 ### The seller-decided attributes (why 12 columns come out blank)
@@ -195,7 +196,7 @@ htmx. **No business logic here** — routers call `src/myntra` / `src/core`.
 
 | File | Responsibility |
 |---|---|
-| `src/web/main.py` | `create_app()`: settings on `app.state` **before** routers; mounts `/static`; includes routers (`pages`, `generate`, `fix`, `auth_routes`, `preview`); maps `AuthError → redirect to /login (HX-Redirect for HTMX)`. Module-level `app` + shared `Jinja2Templates` with an `asset_v()` cache-buster. |
+| `src/web/main.py` | `create_app()`: settings on `app.state` **before** routers; mounts `/static`; includes routers (`pages`, `generate`, `fix`, `auth_routes`, `preview`, `attributes`); maps `AuthError → redirect to /login (HX-Redirect for HTMX)`. Module-level `app` + shared `Jinja2Templates` with an `asset_v()` cache-buster. |
 | `src/web/settings.py` | `Settings` dataclass + `load_settings(env, ssm)`: each field resolves **env-first, then per-field fallback** to SSM (the client secret is a SecureString, decrypted via `WithDecryption=True` — no Secrets Manager). `SSM_PREFIX="/marketplace-listing/"`. AWS getter is **lazy + fail-soft** (import never crashes offline) and **logs** failures; values are `.strip()`ed. `ledger_store()` → `LocalJsonStore` if `LEDGER_LOCAL_PATH` else `S3JsonStore`; `hsn_store()` likewise on `HSN_LOCAL_PATH`; `sku_registry_store()` likewise on `SKU_REGISTRY_LOCAL_PATH` (**each a separate path** — `LocalJsonStore` is one-file-per-path). |
 | `src/web/auth.py` | `current_user(settings, token)`: returns `dev@local` when `AUTH_DISABLED`, else `verify_jwt` (RS256 pinned; audience = client id; issuer from pool id + region; JWKS looked up by `kid`, cached; jose errors → `AuthError`). **Gotcha:** the Cognito region is taken from `settings.s3_region` (both are `ap-south-1`). |
 | `src/web/jobs.py` | Thread-safe in-memory `JobStore` + `Job` dataclass + `STEPS`. Backs the Generate background job + htmx polling. **In-memory only → all jobs are lost on app restart.** |
@@ -203,6 +204,7 @@ htmx. **No business logic here** — routers call `src/myntra` / `src/core`.
 | `src/web/routers/generate.py` | Flow A (below); `_safe_job_id` guards path traversal. |
 | `src/web/routers/fix.py` | Flow B (below); `_safe_fix_id` guards path traversal. |
 | `src/web/routers/preview.py` | Flow C (below): read-only round-trip preview of a filled workbook. Reads `user_filled_attributes` from `rules.yaml`; never modifies the uploaded file. |
+| `src/web/routers/attributes.py` | Flow D (below): the in-app **Fill attributes** screen. `job_files(job_id)` locates the job's built workbook + Shopify export (404 `session expired, please re-upload`); `_panels(...)` joins sheet row ↔ SKU ↔ product photo; `_submitted(...)` parses the `attr__{ordinal}__{column_index}` / `sku__{ordinal}` form fields. Writes **only** the 12 attribute cells. |
 | `src/web/oauth.py` | Hosted-UI OAuth helpers (`authorize_url`/`exchange_code`/`logout_url`); stdlib urllib, injectable `http` so unit tests never hit the network. |
 | `src/web/routers/auth_routes.py` | `GET /login` (state CSRF cookie → hosted UI), `GET /auth/callback` (verify state, exchange code, set `id_token` cookie), `GET /logout`. Sessions are **re-login-on-stale** (no refresh tokens). |
 
@@ -221,6 +223,9 @@ htmx. **No business logic here** — routers call `src/myntra` / `src/core`.
 | `POST /generate/confirm/{job_id}` | `confirm()` the batch → **advances the ledger**. |
 | `POST /generate/unconfirm/{job_id}` | Undo a mark-as-uploaded (refuses if a later batch was confirmed). |
 | `POST /generate/style-start` + `/undo` | Seed the ledger from the last styleGroupId already used on Myntra. |
+| `GET /generate/attributes/{job_id}` | Flow D form: one accordion panel per SKU — product photo, the 12 vocabulary-only dropdowns (pre-selected from the workbook), an `n/12 filled` counter, and the current listing card. |
+| `POST /generate/attributes/{job_id}/preview` | htmx fragment: re-renders **one** listing card from the posted dropdown values via the same `build_card`. Touches no file. |
+| `POST /generate/attributes/{job_id}` | Save: validate every value against the template vocabulary, then write all SKUs' attributes into the built workbook. Returns a 200 panel on success **and** on validation failure (htmx-swappable, never a 500); an off-vocab value writes nothing at all. |
 | `GET /preview` | Preview form (Flow C). |
 | `POST /preview` | Upload the **filled** `.xlsx` → one listing card per row: exact specifications + labelled-approximate title/Design Details + "not filled" flags. Read-only. |
 | `GET /fix` | Fix form. |
@@ -251,6 +256,33 @@ POST /preview (filled .xlsx) ─► temp file ─► read_template(V13) ─► p
 seller ─► uploads the SAME file to Myntra   (the app never modifies it)
 ```
 
+### Flow D — Fill attributes in-app (request lifecycle)
+
+Additive: Flow C's Excel round-trip still works untouched. Filling here is **optional**.
+
+```
+_result.html "✎ Fill attributes" ─► GET /generate/attributes/<job>
+    job_files() → runtime/<job>/{myntra_filled.xlsx, products_export.csv}
+    read_filled_rows(xlsx) ─┬─ row ordinal ↔ vendorSkuCode ↔ Product.images[0]  (photo)
+                            └─ attributes already in the sheet → pre-selected options
+    attributes.html: one <details> panel per SKU (12 selects, options = vocab_by_header only)
+
+on every dropdown change ─► POST /generate/attributes/<job>/preview  (hx-include closest panel)
+                         └► preview.build_card(posted values) ─► _preview_card.html fragment
+                            (the SAME reconstruction /preview uses — no JS logic duplicate)
+
+"Save attributes" ─► POST /generate/attributes/<job>
+    validate_submitted(values, vocab)   → off-vocab ⇒ 200 error panel, NOTHING written
+    write_attributes(xlsx, ...)         → row SKUs verified, cells written, blanks cleared
+                                        → fill.shared_to_inline() RE-APPLIED  (see below)
+GET /generate/download/<job> ─► the same file, now with the chosen attributes AND live dropdowns
+```
+
+**The invariant that bites:** openpyxl re-creates shared strings on every save, and Myntra's
+upload parser cannot resolve them. Any code path that re-saves a built workbook **must** call
+`fill.shared_to_inline(path, fill.sheet_xml_name(path, "Sarees"))` afterwards, or Myntra rejects
+the file. Locked by `test_write_attributes_keeps_strings_inline` (asserts no `t="s"` remains).
+
 ### Flow B — Fix (request lifecycle)
 
 ```
@@ -267,10 +299,11 @@ GET /fix/download/<id>
 
 ### Templates & static
 
-`templates/`: `base.html` (shell), `home.html`, `generate.html`, `fix.html`, `preview.html`, and
-htmx partials `_stepper.html`, `_result.html`, `_confirmed.html`, `_mark_upload.html`,
-`_dedup_warn.html`, `_hsn_review.html`, `_style_start.html`, `_fix_review.html`,
-`_fix_result.html`, `_preview.html`. `static/`: `app.css`
+`templates/`: `base.html` (shell), `home.html`, `generate.html`, `fix.html`, `preview.html`,
+`attributes.html`, and htmx partials `_stepper.html`, `_result.html`, `_confirmed.html`,
+`_mark_upload.html`, `_dedup_warn.html`, `_hsn_review.html`, `_style_start.html`,
+`_fix_review.html`, `_fix_result.html`, `_preview.html`, `_preview_card.html` (the one card
+markup, shared by Flows C and D), `_attr_panel.html`, `_attr_saved.html`. `static/`: `app.css`
 (Marigold Ops theme: warm near-black bg, marigold `#E8A33D` accent), vendored `htmx.min.js`,
 and vendored fonts (Space Grotesk / IBM Plex Mono / Inter) — **no runtime CDN**.
 
@@ -343,7 +376,7 @@ This is the section to read when something *outside* the code changes.
 | **Shopify export (CSV)** | `src/core/shopify_reader.py` | One product = rows sharing a `Handle`; gallery ordered by `Image Position`. A format change here breaks ingestion. |
 | **Myntra template (.xlsx)** | `src/myntra/template_reader.py`, `template_guard.py`, `fill.py` | Active template = V13 (`DEFAULT_TEMPLATE_NAME`), whose dropdowns are **plain data-validations openpyxl preserves**; the older template's **x14 extension** validations are dropped on save and are read from raw `xl/worksheets/*.xml` instead. Headers row 3 / data row 4. A new template version can shift columns/vocab — `template_guard` fails the run loudly rather than silently dropping a column. |
 | **Myntra vocabulary** | `mapper.validate_value`, `template_reader.vocab_by_header` | Dropdown values must match template spelling exactly — flagged, never guessed. The seller-facing dropdowns offer **only** these values; nothing (not even `NA`) is ever added to a list. |
-| **Myntra's generated title/description** | `src/myntra/preview.py` | Myntra derives them from the attributes and ignores what we submit. The reconstruction is deliberately labelled approximate — do not try to pixel-match it. |
+| **Myntra's generated title/description** | `src/myntra/preview.py` | Myntra derives them from the attributes and ignores what we submit. The reconstruction is deliberately labelled approximate — do not try to pixel-match it. Both preview surfaces go through `build_card`, so change it in one place. |
 | **S3 (images + ledger)** | `src/core/s3_upload.py`, `groupid_ledger.S3JsonStore` | Bucket `ijorethnicpartners`, region `ap-south-1`, image prefix `myntra/`, ledger key `state/myntra_groupid.json`. Images must be `.jpg` and public-read. |
 | **Cognito (auth)** | `src/web/auth.py`, `settings.py`, `oauth.py`, `auth_routes.py` | Pool/client/domain + client secret (SecureString) in SSM; JWT validated by JWKS with `verify_at_hash: False` (Cognito id_tokens carry `at_hash`). Hosted-UI login round-trip (/login → /auth/callback → /logout) is **live**. |
 | **ECR (image registry)** | `ci-cd.yml`, deploy systemd | Repo `marketplace-bulklisting`, `:latest` pulled on boot; CI `deploy` job restarts via SSM. |
@@ -357,19 +390,27 @@ This is the section to read when something *outside* the code changes.
 |---|---|
 | `column_map.yaml` | Direct Shopify field → Myntra column copies. |
 | `constants.yaml` | Fixed per-row values: brand, **manufacturer/packer/importer address with 6-digit pincode**, sizes, AgeGroup, FashionType, Year, Season, mandatory-attribute defaults. |
-| `rules.yaml` | **`user_filled_attributes`** (the 12 seller-decided columns the mapper blanks — source of truth for the preview too), fabric keyword detection (feeds the HSN signature only), `replicate_constant_across_numbered`, **`style_group_id_start`**, Product Details marker. |
+| `rules.yaml` | **`user_filled_attributes`** (the 12 seller-decided columns the mapper blanks — the single source of truth, read by `/preview` and the Fill-attributes screen too), fabric keyword detection (feeds the HSN signature only), `replicate_constant_across_numbered`, **`style_group_id_start`**, Product Details marker. |
 | `image_specs.yaml` | Image min dims, max bytes, JPEG quality, max images; **S3 host** (`public_base_url`, `s3_upload`, `s3_bucket`, `s3_region`, `s3_prefix`). |
 | `error_rules.yaml` | Maps Myntra error-message substrings → `{category, action, explanation, field}` for the Fix flow. |
 
 ---
 
-## 9. Tests — `tests/` (190)
+## 9. Tests — `tests/` (215)
 
 Layers 1–2 in `tests/*.py` (template reader, shopify reader, mapper, images, s3 upload, fill /
 inline strings / dropdowns, report, models, config load, end-to-end, **groupid_ledger**,
 **hsn_kb**, **sku_registry**, **error_reader**, **corrector**, **pipeline_override**,
-**template_guard**, **preview**). Layer 3 in `tests/web/` (settings, auth, jobs, pages, generate,
-fix, preview, and a real-pipeline fix e2e). `python -m pytest -q` is the CI gate.
+**template_guard**, **preview**, **attribute_entry**). Layer 3 in `tests/web/` (settings, auth,
+jobs, pages, generate, fix, preview, **attributes**, and a real-pipeline fix e2e).
+`python -m pytest -q` is the CI gate.
+
+Two of them guard invariants that fail *silently* if broken — do not delete them to make a
+refactor pass: `test_write_attributes_keeps_strings_inline` (no `t="s"` cell survives an in-app
+save) and `test_save_keeps_dropdowns_alive_in_the_downloaded_file` (the owner's Excel check).
+
+Note: `tests/web/test_attributes.py` is slow (~4½ min) because every request re-reads the V13
+template (~5 s), the same cost `/preview` already pays. Correct, just unhurried.
 
 ---
 

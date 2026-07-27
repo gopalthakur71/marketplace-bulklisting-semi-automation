@@ -21,7 +21,7 @@ The project ships in two layers, both live:
 > encountered has been diagnosed and fixed (see
 > [Myntra upload requirements](#myntra-upload-requirements-hard-won)). The web app is
 > **deployed to production** on EC2 with Cognito auth and Gemini-backed error
-> explanation enabled. **190 tests pass.**
+> explanation enabled. **215 tests pass.**
 
 > **Guiding principle:** the pipeline **guesses nothing.** All column mapping, pricing,
 > and validation is plain code. Any value that doesn't match Myntra's allowed dropdown
@@ -40,6 +40,7 @@ The project ships in two layers, both live:
   - [Flow A — Generate](#flow-a--generate)
   - [Flow B — Fix Myntra errors](#flow-b--fix-myntra-errors)
   - [Flow C — Preview the Myntra listing](#flow-c--preview-the-myntra-listing)
+  - [Flow D — Fill attributes in the app](#flow-d--fill-attributes-in-the-app)
 - [The pipeline — what one run does](#the-pipeline--what-one-run-does-end-to-end)
 - [Major pipeline modules](#major-pipeline-modules)
 - [Myntra upload requirements (hard-won)](#myntra-upload-requirements-hard-won)
@@ -169,8 +170,10 @@ Upload a Shopify CSV → get a Myntra-ready sheet. The flow has guardrails that 
    Prominent Colour, Saree Fabric, Blouse Fabric, Type, Ornamentation, Border, Pattern,
    Print or Pattern Type, Wash Care, Usage. Myntra **builds the public title and the
    "Design Details" text from these attributes**, so a guessed value publishes a wrong
-   title — the machine never picks them. Open the file in Excel, choose from the
-   dropdowns, save, and continue to Flow C.
+   title — the machine never picks them. Fill them **either in the app** (Flow D, with the
+   product photo and a live listing preview beside each dropdown) **or in Excel** (open the
+   file, choose from the dropdowns, save, continue to Flow C). Both paths work; neither is
+   mandatory.
 
 ### Flow B — Fix Myntra errors
 
@@ -251,6 +254,25 @@ Each card has two zones with deliberately different reliability:
 
 Any of the 12 attributes still blank is flagged on the card, so a missed dropdown is
 caught here rather than by Myntra.
+
+### Flow D — Fill attributes in the app
+
+Press **✎ Fill attributes** on the finished Generate result to skip the Excel round-trip.
+One collapsible panel per SKU: the **product photo** from the Shopify export, the **12
+dropdowns**, and the **listing preview** that re-renders as you choose — so you can check
+the words against the picture. **Save** writes every SKU's choices back into the sheet the
+app already built.
+
+- **The dropdown options are Myntra's own words**, read live from the template — nothing is
+  invented and `NA` is offered only where Myntra's sheet actually lists it. A value that
+  isn't in the list is refused and **nothing is written**.
+- **The preview uses the same reconstruction as Flow C**, so the two can't disagree:
+  specifications exact, title/Design Details approximate and badged.
+- **Optional and resumable.** Fill all, some, or none; reopen the screen and your saved
+  choices are pre-selected. Anything left on "— choose —" stays blank in the file.
+- **The downloaded file still has its live Excel dropdowns**, so you can finish in Excel if
+  you prefer — and it stays acceptable to Myntra (the save re-applies the inline-string
+  conversion Myntra's parser needs).
 
 ---
 
@@ -500,7 +522,7 @@ No Node, no Tailwind, no Celery/Redis, no database.
 ```
 python -m pytest -v
 ```
-**190 tests** cover vocab parsing (both plain and x14 validations), the template-compatibility
+**215 tests** cover vocab parsing (both plain and x14 validations), the template-compatibility
 guard, variant grouping, vocab validation, pricing, the blanked seller-decided attributes, the
 listing-preview reconstruction, transparency flatten, dropdown handling, numeric cell storage,
 inline strings, S3 upload (stubbed, incl. per-SKU key mirroring), an end-to-end run, the
