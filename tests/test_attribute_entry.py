@@ -2,9 +2,10 @@ import pytest
 
 from src.myntra.attribute_entry import (user_filled_attributes, attribute_vocab,
                                         validate_submitted, AttributeValueError)
+from src.myntra.pipeline import DEFAULT_TEMPLATE_NAME, _resolve
 from src.myntra.template_reader import read_template
 
-V13 = "templates/myntra/Myntra-Sku-Template-2026-07-24.xlsx"
+V13 = _resolve(DEFAULT_TEMPLATE_NAME, "templates/myntra")
 
 
 def test_user_filled_attributes_reads_the_twelve_from_rules():
