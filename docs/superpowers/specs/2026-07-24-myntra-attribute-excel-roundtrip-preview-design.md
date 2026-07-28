@@ -133,6 +133,24 @@ reconstruction, not guaranteed word-for-word."** We deliberately do **not** try 
 > dropdown values are clean single words. The reconstruction appends " Border" once; we neither reproduce
 > nor try to predict Myntra's doubling.
 
+> **AMENDED 2026-07-28 — superseded by ground truth.** The first listing published through Flow D
+> (SKU `164SDE226RPPG`) let us compare the submitted row against the live page. Three corrections
+> to the formulas above, all now implemented and test-locked:
+>
+> 1. **The doubling is deterministic, so we now mirror it.** L2 = `"{Pattern} saree with {Border}
+>    Border border"`. The decision not to reproduce it (note above) made the preview differ from
+>    every real page. Still Myntra's bug — we just stopped hiding it. With Border blank the clause
+>    is dropped entirely rather than rendering a dangling "with Border".
+> 2. **L1 carries both colours:** `"{Prominent} [and {Second Prominent}] [{Type}] sarees"`, with
+>    metallics displayed `-Toned`. Green + Gold published as "Green and Gold-Toned Khadi sarees".
+> 3. **`[+ " With Unstitched Blouse Piece"]` is wrong** and remains **unfixed** pending the owner's
+>    call. The live title omitted it although Blouse Fabric was set; the trigger is the separate
+>    `Blouse` column (pinned to `NA` by `constants.yaml`), not Blouse Fabric.
+>
+> Also learned: **Myntra can overwrite a submitted attribute** (a `Solid` border published as
+> `Woven Design`) because it extracts attributes from the product images. Zone ① "EXACT" is exact
+> as to what we *send*, not as to what Myntra finally displays.
+
 ### 4.3 Missing-attribute check (bonus)
 
 While rendering, if any of the nine user-filled columns is blank for a row, the card flags it

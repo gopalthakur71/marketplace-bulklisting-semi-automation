@@ -209,13 +209,18 @@ choosing. This screen is still useful as a final look at a file you've since edi
 **What's on a card, and how much to trust it:**
 
 - **Specifications — exact.** These are the values you entered, shown the way Myntra will list
-  them. What you see is what Myntra gets.
+  them. One honest caveat, learned from a real listing in July 2026: Myntra also **looks at your
+  photographs**. It runs its own AI over the images and its catalogue team checks the result, so
+  it can quietly correct an attribute after you upload — one saree went up with its border sent
+  as "Solid" and published as "Woven Design". What you enter is what Myntra *starts* from.
 - **Title and "Design Details" — our best reconstruction, not a promise.** Myntra writes these
   itself from the attributes. We worked out its pattern from real Ijor listings and rebuild it
-  here, and the screen says plainly that it's approximate. Two useful things we learned doing
-  that: the **colour never appears in a saree title** (it shows in Design Details and the colour
-  filter instead), and the "Zari Border Border" doubling you sometimes see on Myntra is **Myntra's
-  own display quirk** — the dropdown words are clean, and it isn't something we can fix.
+  here, and the screen says plainly that it's approximate. Three things we learned doing that:
+  the **colour never appears in a saree title** (it shows in Design Details and the colour
+  filter instead); Design Details names **both** your colours, so a green-and-gold saree reads
+  "Green and Gold-Toned Khadi sarees"; and the "Woven Design Border border" doubling you see on
+  Myntra is **Myntra's own quirk** — our dropdown words are clean single terms, so it isn't
+  something we can fix. The preview now copies both quirks so it matches the real page.
 - **"Not filled" warnings.** Any of the 12 attributes you missed is called out on the card, so you
   catch it here instead of after a rejection.
 

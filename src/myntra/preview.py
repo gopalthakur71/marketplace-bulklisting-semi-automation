@@ -16,6 +16,15 @@ SHEET_SAREES_NAME = "Sarees"
 _TITLE_ORDER = ["Print or Pattern Type", "Ornamentation", "Saree Fabric", "Type"]
 
 
+# Myntra displays metallic colours with a "-Toned" suffix ("Gold" -> "Gold-Toned").
+# Confirmed on SKU 164SDE226RPPG, whose Green + Gold published as "Green and
+# Gold-Toned Khadi sarees". Members are the metallics in the Prominent Colour
+# vocabulary; extend as more live listings confirm others.
+_TONED_COLOURS = frozenset({
+    "Gold", "Silver", "Bronze", "Copper", "Rose Gold", "Metallic", "Champagne",
+})
+
+
 def is_set(value):
     """True unless the value is None, blank, or the literal 'NA' (case-insensitive)."""
     if value is None:
@@ -33,11 +42,30 @@ def reconstruct_title(attrs):
     return title
 
 
+def _colour_display(value):
+    """Myntra's display name for one colour, e.g. "Gold" -> "Gold-Toned"."""
+    c = str(value).strip()
+    return c + "-Toned" if c in _TONED_COLOURS else c
+
+
+def _colour_phrase(attrs):
+    """The colour half of Design Details line 1. Myntra joins the prominent and
+    second prominent colours with "and"; a third colour has never been observed
+    in the prose, so it is left out."""
+    first, second = attrs.get("Prominent Colour"), attrs.get("Second Prominent Colour")
+    if not is_set(first):
+        return ""
+    phrase = _colour_display(first)
+    if is_set(second):
+        phrase += " and " + _colour_display(second)
+    return phrase
+
+
 def reconstruct_design_details(attrs):
     lines = []
-    colour, typ = attrs.get("Prominent Colour"), attrs.get("Type")
-    if is_set(colour):
-        l1 = str(colour).strip()
+    typ = attrs.get("Type")
+    l1 = _colour_phrase(attrs)
+    if l1:
         if is_set(typ):
             l1 += " " + str(typ).strip()
         lines.append(l1 + " sarees")

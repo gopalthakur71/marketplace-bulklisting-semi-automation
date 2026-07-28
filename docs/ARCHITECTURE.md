@@ -135,7 +135,7 @@ tests/                         # 222 tests; tests/web/ covers Layer 3
 | `src/myntra/template_guard.py` | Fail loud on a template swap | `assert_template_compatible(template, column_map, constants)` raises `TemplateIncompatibleError` if the active template lacks any header the config or pipeline writes (union includes `_PIPELINE_WRITTEN_HEADERS`). Called by `pipeline.main`. |
 | `src/myntra/mapper.py` | Map + validate + rules | Constants, pricing, HSN-by-signature, **`validate_value`** (canonicalize to template spelling or flag). **Pops every `user_filled_attributes` header** so the 12 seller-decided attributes are never guessed. Returns `MappedRow`. |
 | `src/myntra/fill.py` | Write the Sarees sheet | Numeric cells (`NUMERIC_HEADERS`), S3 image URLs, **clears stray template rows**, **shared→inline strings** (Myntra's parser cannot resolve shared strings), x14 re-injection off by default (`preserve_dropdowns=False`; it breaks Myntra's parser — the V13 template's *plain* validations survive without it). |
-| `src/myntra/preview.py` | Reconstruct the Myntra listing | `reconstruct_title` / `reconstruct_design_details` (approximate — Myntra generates these from attributes), `missing_attributes`, `read_filled_rows`, **`build_card`** (the one place a listing card is assembled, so Flow C and Flow D can never drift apart). Read-only. |
+| `src/myntra/preview.py` | Reconstruct the Myntra listing | `reconstruct_title` / `reconstruct_design_details` (approximate — Myntra generates these from attributes), `_colour_phrase` / `_colour_display` (Design-Details L1 joins Prominent + Second Prominent Colour; metallics render `-Toned`, per `_TONED_COLOURS`), `missing_attributes`, `read_filled_rows`, **`build_card`** (the one place a listing card is assembled, so Flow C and Flow D can never drift apart). Read-only. |
 | `src/myntra/attribute_entry.py` | The seller-decided attributes | `user_filled_attributes()` (reads `rules.yaml` — the single loader), `attribute_vocab(template, columns)` (options **straight from** `vocab_by_header`; nothing added), `validate_submitted` (blank → `None`; non-blank must be an exact vocab member else `AttributeValueError`), `write_attributes(xlsx, template, entries)` (writes into an **already-built** workbook: verifies every row's SKU first, blanks on `None`, then re-applies `fill.shared_to_inline`), **`derive_brand_colour`** (`Brand Colour (Remarks)` = the chosen Prominent Colour, lowercased; `NA`/blank → nothing). Drives Flow D. |
 | `src/myntra/report.py` | Audit report | `output/report.txt`: per-SKU filled count, blanks, vocab flags, image pass/fail. |
 
@@ -145,6 +145,16 @@ Myntra **ignores the product name and description we submit** and auto-generates
 title and the "Design Details" prose **from the attribute columns**. So the attributes *are* the
 listing. Getting one wrong publishes a wrong title, and fabric/ornament semantics are a human
 judgment ("silk" that is really a blend; solid border vs no border).
+
+**Ground truth from the first Flow-D listing (SKU `164SDE226RPPG`, 2026-07-28)** — the rules the
+preview encodes, each verified against the published page:
+
+| Sent | Published | Rule |
+|---|---|---|
+| `Print or Pattern Type=Striped`, `Saree Fabric=Pure Cotton`, `Type=Khadi` | `Striped Pure Cotton Khadi Saree` | Title word order confirmed; **no colour**, and **no** "With Unstitched Blouse Piece" despite Blouse Fabric being set (`Blouse=NA`). |
+| `Prominent=Green`, `Second Prominent=Gold` | `Green and Gold-Toned Khadi sarees` | L1 joins both colours; metallics take `-Toned`. |
+| `Border=Solid` | `Striped saree with Woven Design Border border` | Myntra appends **both** "Border" and "border"; the doubling is entirely Myntra's — our vocab words are clean. |
+| `Border=Solid` | Specifications showed `Woven Design` | ⚠️ **Myntra can overwrite a submitted attribute.** It runs AI attribute extraction over the product images with catalogue-team review, so specifications are exact only up to Myntra's own correction. |
 
 Decision (2026-07-24, owner): **the machine must not guess them.** `config/myntra/rules.yaml`
 lists them under `user_filled_attributes` — the single source of truth, read by the mapper (which

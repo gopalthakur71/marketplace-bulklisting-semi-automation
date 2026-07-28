@@ -33,6 +33,29 @@ def test_reconstruct_design_details_three_lines():
                   "Has Zari detail"]
 
 
+def test_design_details_l1_joins_the_second_colour():
+    # Ground truth, SKU 164SDE226RPPG (2026-07-28): Green + Gold was published as
+    # "Green and Gold-Toned Khadi sarees" — Myntra names metallics "<colour>-Toned".
+    attrs = {"Prominent Colour": "Green", "Second Prominent Colour": "Gold",
+             "Type": "Khadi"}
+    assert reconstruct_design_details(attrs)[0] == "Green and Gold-Toned Khadi sarees"
+
+
+def test_design_details_l1_second_colour_non_metallic_is_plain():
+    attrs = {"Prominent Colour": "Black", "Second Prominent Colour": "Yellow"}
+    assert reconstruct_design_details(attrs)[0] == "Black and Yellow sarees"
+
+
+def test_design_details_l1_metallic_first_colour_is_toned():
+    assert reconstruct_design_details({"Prominent Colour": "Gold"})[0] == \
+        "Gold-Toned sarees"
+
+
+def test_design_details_l1_ignores_unset_second_colour():
+    attrs = {"Prominent Colour": "Blue", "Second Prominent Colour": "NA"}
+    assert reconstruct_design_details(attrs)[0] == "Blue sarees"
+
+
 def test_reconstruct_design_details_minimal():
     attrs = {"Prominent Colour": "Red"}
     assert reconstruct_design_details(attrs) == ["Red sarees"]

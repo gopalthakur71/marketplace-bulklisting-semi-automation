@@ -243,14 +243,22 @@ upload; you send that same file to Myntra.
 Each card has two zones with deliberately different reliability:
 
 - **Specifications — exact.** The attribute values you entered, as Myntra will show them.
+  With one caveat learned from a live listing (2026-07-28): Myntra runs its own AI attribute
+  extraction over the **product images** and its catalogue team reviews the result, so an
+  attribute can be *corrected after upload* — a border sent as `Solid` was published as
+  `Woven Design`. What we send is an input, not the last word.
 - **Title & Design Details — approximate, and badged as such.** Myntra *generates* these
   from the attributes (it ignores the product name and description we submit), so the app
   reconstructs them from rules reverse-engineered off live Ijor listings:
-  title ≈ `[Print/Pattern] [Ornamentation] [Saree Fabric] [Type] "Saree" [+ "With
-  Unstitched Blouse Piece"]` — **colour is not in a saree title** — and Design Details as
-  `"{Colour} {Type} sarees"` / `"{Pattern} saree with {Border} Border"` / `"Has
-  {Ornamentation} detail"`. We do not try to match Myntra word-for-word, and we say so on
-  the screen rather than pretending to a precision we don't have.
+  title ≈ `[Print/Pattern] [Ornamentation] [Saree Fabric] [Type] "Saree"` — **colour is not
+  in a saree title** — and Design Details as
+  `"{Colour} [and {Second Colour}] {Type} sarees"` / `"{Pattern} saree with {Border} Border
+  border"` / `"Has {Ornamentation} detail"`. Two quirks are Myntra's, and we mirror them
+  rather than tidy them up: metallic colours display as `Gold-Toned`, and the word "border"
+  is appended to a Border value that already reads "… Border" (our dropdown words are clean
+  single terms — the doubling is entirely Myntra's). We do not try to match Myntra
+  word-for-word, and we say so on the screen rather than pretending to a precision we don't
+  have.
 
 Any of the 12 attributes still blank is flagged on the card, so a missed dropdown is
 caught here rather than by Myntra.
@@ -527,7 +535,7 @@ No Node, no Tailwind, no Celery/Redis, no database.
 ```
 python -m pytest -v
 ```
-**222 tests** cover vocab parsing (both plain and x14 validations), the template-compatibility
+**226 tests** cover vocab parsing (both plain and x14 validations), the template-compatibility
 guard, variant grouping, vocab validation, pricing, the blanked seller-decided attributes, the
 listing-preview reconstruction, transparency flatten, dropdown handling, numeric cell storage,
 inline strings, S3 upload (stubbed, incl. per-SKU key mirroring), an end-to-end run, the
