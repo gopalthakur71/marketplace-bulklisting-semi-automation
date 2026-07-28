@@ -44,8 +44,13 @@ def reconstruct_design_details(attrs):
     pattern, border = attrs.get("Pattern"), attrs.get("Border")
     if is_set(pattern) or is_set(border):
         p = str(pattern).strip() if is_set(pattern) else ""
-        b = str(border).strip() if is_set(border) else ""
-        lines.append(f"{p} saree with {b} Border".replace("  ", " ").strip())
+        # Myntra renders this as "<Border> Border border" — it appends both the
+        # capitalised and the lowercase word to a Border value that is already a
+        # clean single term ("Woven Design" -> "Woven Design Border border").
+        # That doubling is Myntra's, not ours; we mirror it so the preview matches
+        # the live page instead of quietly showing a tidier string.
+        b = f"with {str(border).strip()} Border border" if is_set(border) else ""
+        lines.append(f"{p} saree {b}".replace("  ", " ").strip())
     orn = attrs.get("Ornamentation")
     if is_set(orn):
         lines.append(f"Has {str(orn).strip()} detail")

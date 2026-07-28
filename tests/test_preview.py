@@ -29,7 +29,7 @@ def test_reconstruct_design_details_three_lines():
     attrs = {"Prominent Colour": "Blue", "Type": "Banarasi", "Pattern": "Solid",
              "Border": "Solid", "Ornamentation": "Zari"}
     dd = reconstruct_design_details(attrs)
-    assert dd == ["Blue Banarasi sarees", "Solid saree with Solid Border",
+    assert dd == ["Blue Banarasi sarees", "Solid saree with Solid Border border",
                   "Has Zari detail"]
 
 
@@ -40,12 +40,13 @@ def test_reconstruct_design_details_minimal():
 
 def test_design_details_l2_only_border_single_space():
     # Pattern unset, Border set -> leading space stripped, no double space
-    assert reconstruct_design_details({"Border": "Zari"}) == ["saree with Zari Border"]
+    assert reconstruct_design_details({"Border": "Zari"}) == \
+        ["saree with Zari Border border"]
 
 
-def test_design_details_l2_only_pattern_collapses_double_space():
-    # Border unset, Pattern set -> the "  Border" double space is collapsed
-    assert reconstruct_design_details({"Pattern": "Solid"}) == ["Solid saree with Border"]
+def test_design_details_l2_without_border_drops_the_border_clause():
+    # Border unset -> no border words at all, rather than a dangling "with Border"
+    assert reconstruct_design_details({"Pattern": "Solid"}) == ["Solid saree"]
 
 
 def test_missing_attributes_flags_blank_and_na():
