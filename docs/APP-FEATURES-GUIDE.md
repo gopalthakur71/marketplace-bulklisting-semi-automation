@@ -136,6 +136,17 @@ A few things worth knowing:
   duplicates. It can then rebuild a sheet for just those SKUs, reusing their original style number
   and HSN so nothing conflicts.
 
+- **Stop a run you didn't mean to start.** While a sheet is being built, a **Stop** button
+  appears next to Generate. Press it and the build halts — it finishes whichever product it was
+  in the middle of (a second or two), then stops. Nothing is left behind: the half-made sheet is
+  thrown away, the style numbers it had reserved are released, and none of the products are
+  recorded as "already generated". You can simply upload again as if it never happened. The
+  button disappears by itself when the run ends.
+
+- **Clear the screen.** A **Clear** button next to Generate forgets the CSV you picked and wipes
+  everything shown below the form. Note that this includes a finished result and its download
+  link — the file itself is not deleted, but you'd need to re-generate to get the link back.
+
 - **Small quality-of-life fixes** that came from real usage:
   - **Country-of-origin auto-fill** so you don't type "India" on every row.
   - **Undo "mark as uploaded"** in case you clicked confirm by mistake.

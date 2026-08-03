@@ -229,7 +229,8 @@ htmx. **No business logic here** — routers call `src/myntra` / `src/core`.
 | `POST /generate/hsn/{job_id}` | Submit the one-HSN-per-signature review (8 digits each) → `learn()` into the KB → start the build. |
 | `POST /generate/new-only/{job_id}` | Duplicate guard: build only the NEW + EDITED SKUs. |
 | `GET /generate/rebuild/{job_id}` | Duplicate guard: rebuild the REPEAT SKUs, pinning their stored styleGroupId + HSN (no ledger change). |
-| `GET /jobs/{job_id}` | htmx poll: returns the stepper while running, the result partial when done/failed. |
+| `GET /jobs/{job_id}` | htmx poll: returns the stepper while running, `_cancelled.html` when stopped, the result partial when done/failed. Every one of those carries the `#run-controls` OOB fragment, so Stop appears and disappears with the run. |
+| `POST /generate/cancel/{job_id}` | Stop a running build: sets the job's `cancel_requested` flag and returns the stepper immediately ("Stopping…"). The worker lands it at its next checkpoint — see the cancellation note below. |
 | `GET /generate/download/{job_id}` | Download `myntra_filled.xlsx`. |
 | `POST /generate/confirm/{job_id}` | `confirm()` the batch → **advances the ledger**. |
 | `POST /generate/unconfirm/{job_id}` | Undo a mark-as-uploaded (refuses if a later batch was confirmed). |
@@ -253,6 +254,21 @@ POST /generate (CSV) ─► save to runtime/<job>/ ─► dedup guard ─► HSN
 browser htmx-polls GET /jobs/<job> ─► stepper → _result.html
 user ─► GET /generate/download/<job>   then   POST /generate/confirm/<job> ─► confirm() advances ledger
 ```
+
+**Stopping a run.** `POST /generate/cancel/<job>` sets `Job.cancel_requested`; the worker
+passes `should_cancel` into `pipeline.main`, which checks it **between whole products**,
+before `fill_template`, and before the S3 upload, then raises `BuildCancelled`.
+Cancellation is deliberately cooperative and bounded by one product — killing the thread
+mid-write would risk a corrupt workbook and a half-uploaded image set.
+
+`_land_cancelled` then leaves no trace: the part-written `myntra_filled.xlsx` is deleted
+and `groupid_ledger.cancel()` marks the reserved batch `cancelled`. **No ids are burned**
+— `reserve()` never advanced the counter (invariant 3) — and no SKUs are registered,
+because `record()` only runs after `pipeline.main` returns. A stopped run is therefore
+safe to simply repeat.
+
+`should_cancel` defaults to `None`, which keeps the CLI path and every other caller of
+`pipeline.main` unchanged.
 
 ### Flow C — Preview (request lifecycle)
 
@@ -314,10 +330,18 @@ GET /fix/download/<id>
 `templates/`: `base.html` (shell), `home.html`, `generate.html`, `fix.html`, `preview.html`,
 `attributes.html`, and htmx partials `_stepper.html`, `_result.html`, `_confirmed.html`,
 `_mark_upload.html`, `_dedup_warn.html`, `_hsn_review.html`, `_style_start.html`,
-`_fix_review.html`, `_fix_result.html`, `_preview.html`, `_preview_card.html` (the one card
+`_cancelled.html`, `_run_controls.html`, `_fix_review.html`, `_fix_result.html`,
+`_preview.html`, `_preview_card.html` (the one card
 markup, shared by Flows C and D), `_attr_panel.html`, `_attr_saved.html`. `static/`: `app.css`
 (Marigold Ops theme: warm near-black bg, marigold `#E8A33D` accent), vendored `htmx.min.js`,
 and vendored fonts (Space Grotesk / IBM Plex Mono / Inter) — **no runtime CDN**.
+
+`_run_controls.html` is the only **out-of-band** partial: every Generate-flow response
+swaps it into the `#run-controls` slot beside the Generate button, filled with Stop while
+a build runs and empty once it ends. Riding the stepper's existing 1-second poll makes it
+self-healing — a missed swap corrects itself on the next tick. Note the button carries
+`hx-params="none"`: it sits inside the upload form, and htmx would otherwise post the
+form's values (including the CSV, under the inherited multipart encoding) on every click.
 
 ### Runtime working dirs — `src/web/runtime/`
 

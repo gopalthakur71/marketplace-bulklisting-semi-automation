@@ -67,7 +67,9 @@ CSS + vendored htmx + vendored fonts (no runtime CDN).
 2. **In Phase 1 the code decides everything — no LLM in the data path.** All mapping, pricing,
    and validation is deterministic. Invalid values are surfaced for a human.
 3. **`reserve()` never advances the styleGroupId counter; only `confirm()` does.** A generated-
-   but-not-uploaded batch must not burn ids. (`src/myntra/groupid_ledger.py`.)
+   but-not-uploaded batch must not burn ids. (`src/myntra/groupid_ledger.py`.) `cancel()` —
+   used when a build is stopped — marks the batch `cancelled` and likewise leaves the counter
+   alone, so a stopped run costs nothing and is safe to simply repeat.
 4. **Images must be served as `.jpg` from S3.** Myntra rejects Shopify `.webp` URLs by
    extension; the pipeline converts to JPG and writes the public S3 `.jpg` URL into the sheet.
 5. **No runtime CDN.** All CSS/JS/fonts are vendored under `src/web/static/`. Don't reintroduce
