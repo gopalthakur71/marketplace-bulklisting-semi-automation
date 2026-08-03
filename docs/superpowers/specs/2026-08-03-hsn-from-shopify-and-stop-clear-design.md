@@ -1,15 +1,23 @@
 # HSN from the Shopify export, plus Stop and Clear on Generate
 
 **Date:** 2026-08-03
-**Status:** Approved for planning
+**Branch:** `feat/generate-stop-clear`
 
-Two independent changes to the Generate flow, requested together.
+Two independent changes to the Generate flow were designed together. Their status now
+differs:
 
-1. **HSN comes from Shopify.** The app stops asking for HSN codes on screen and reads
-   them from a `custom.hsn` product metafield that now appears as a column in the
-   Shopify product export.
-2. **Stop and Clear buttons.** A Stop button halts a build that is already running; a
-   Clear button empties the chosen CSV and the panel below the form.
+1. **HSN comes from Shopify** — ⏸ **DEFERRED 2026-08-03, not being built.** The existing
+   HSN knowledge-base flow stays exactly as it is, untouched. The owner has a separate
+   plan for the `custom.hsn` metafield and will revive this later. Part 1 below is
+   retained as a worked-out design to pick up from, not as work in progress.
+2. **Stop and Clear buttons** — ✅ **Approved for planning.** A Stop button halts a build
+   that is already running; a Clear button empties the chosen CSV and the panel below the
+   form. This is the whole of the current scope.
+
+**Standing constraint on Part 2:** nothing in it may disturb the HSN flow or any other
+part of the pipeline. The existing HSN pre-scan, review screen, and
+`hsn_by_signature` threading must keep working unchanged, and the full suite must stay
+green.
 
 ---
 
@@ -34,7 +42,13 @@ the export. That closes the gap, so the on-screen asking can go.
 
 ---
 
-## Part 1 — HSN from the export
+## Part 1 — HSN from the export ⏸ DEFERRED
+
+> **Not being built.** Deferred on 2026-08-03 by the owner, who has a separate plan for
+> the metafield. Everything below is a finished design held for later; no code in this
+> section is to be written now, and the current HSN knowledge-base flow stays live and
+> untouched. The one item that was still open when it was parked: the exact export
+> header string must be confirmed against a real export before any of this is built.
 
 ### 1.1 Reading the column
 
@@ -192,9 +206,19 @@ file itself is untouched on disk; only the on-screen panel is emptied.
 
 ### 2.2 Stop
 
-A `Stop` button rendered inside `_stepper.html`, so by construction it exists only while
-a build is running — the stepper is what the page shows during a run, and the poll
-replaces it with the result or error panel when the run ends.
+A `Stop` button sitting **directly beside Generate** in the form's button row, as
+requested, present only while a build is actually running.
+
+**Placement.** The form gains an empty `<span id="run-controls">` next to the Generate
+button. The stepper response carries an out-of-band fragment
+(`hx-swap-oob="innerHTML:#run-controls"`) that fills it with the Stop button; the result,
+error, and cancelled panels carry the same fragment empty, which removes it.
+
+This rides the polling the stepper already does — `hx-get="/jobs/{id}"` every second —
+so the control is re-asserted once a second while running and cleared within a second of
+the run ending. That makes it self-healing rather than fragile: a single missed swap
+corrects itself on the next poll. It is the reason for choosing OOB over toggling
+visibility with client-side state, which would have no such recovery.
 
 **Signal.** `JobStore` gains a `cancel_requested` flag per job and a
 `request_cancel(job_id)` method, guarded by the existing lock. `POST
@@ -246,21 +270,20 @@ trace, so they can simply upload again.
 
 ## Testing
 
+Part 2 only. Part 1's tests are deferred with its design.
+
 | Area | Test |
 |---|---|
-| Reader | HSN column present → value on `Product`; column absent → `None` |
-| Gate | blank, 4-digit, punctuated, and non-numeric values are each reported; a clean batch returns `[]` |
-| Route | bad HSN → `_hsn_missing.html`, no job spawned, ledger untouched; clean HSN → build starts |
-| Route | the `new-only` path applies the gate to only its own SKUs |
-| Mapper | export HSN lands in the cell; `hsn_override` beats it; neither → blank, no flag |
-| Dedup | `scan_content_hashes` output is identical with and without a populated HSN (1.5) |
 | Cancel | `request_cancel` flips the flag; pipeline raises `BuildCancelled` at a product boundary via a stub `should_cancel`; `should_cancel=None` changes nothing |
 | Cancel | job ends `cancelled` not `error`; partial xlsx deleted; ledger batch `cancelled`; `next_style_group_id` unchanged; zero registry records |
 | Ledger | `cancel` on a pending batch works; on a confirmed batch raises |
-| Templates | Stop renders only within the stepper; Clear resets input and empties `#progress` |
+| Templates | the stepper response carries the Stop OOB fragment; result/error/cancelled responses carry it empty; Clear resets the input and empties `#progress` |
 
-The existing `tests/test_hsn_kb.py` and `tests/test_signature.py` must still pass —
-the module is retained, not orphaned.
+**Regression bar.** The whole existing suite must stay green, with particular attention
+to the HSN path this work deliberately leaves alone: `tests/test_hsn_kb.py`,
+`tests/test_signature.py`, `tests/test_pipeline_override.py`, `tests/test_mapper.py`,
+and `tests/web/test_generate.py`. `should_cancel` defaulting to `None` is what makes
+that cheap — every existing caller of `pipeline.main` keeps its exact behaviour.
 
 ---
 
