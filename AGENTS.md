@@ -36,7 +36,10 @@ the app is reached through an **SSH tunnel to localhost**:
 **CI/CD is full CD:** push to `main` → tests → build/push `:latest` → the `deploy` job restarts
 the box via **SSM Run Command** (targets the `Name=listing-app` tag). Every AWS/GitHub resource
 is catalogued in [`docs/infra-resources.md`](docs/infra-resources.md). Operate/rebuild via
-[`docs/runbooks/web-ec2-deploy-console.md`](docs/runbooks/web-ec2-deploy-console.md). TLS + a
+[`docs/runbooks/web-ec2-deploy-console.md`](docs/runbooks/web-ec2-deploy-console.md). The
+instance-only config a deploy does **not** reproduce — the systemd unit, Docker log rotation,
+the journald cap, and the 8 GB disk budget — is captured in
+[`docs/runbooks/ec2-box-configuration.md`](docs/runbooks/ec2-box-configuration.md). TLS + a
 public URL (e.g. CloudFront) is intentionally **deferred** — do not open the SG to `0.0.0.0/0`.
 
 ## How to run / test
