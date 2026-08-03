@@ -1,0 +1,10 @@
+{# Swapped out-of-band into the form's #run-controls slot beside Generate.
+   The stepper poll re-asserts this once a second while a build runs, and the
+   result / error / cancelled panels render it empty, which withdraws Stop. #}
+<span id="run-controls" hx-swap-oob="outerHTML">
+  {% if stop_job_id %}
+  <button class="btn secondary" type="button"
+          hx-post="/generate/cancel/{{ stop_job_id }}" hx-params="none"
+          hx-target="#progress" hx-swap="innerHTML">■ Stop</button>
+  {% endif %}
+</span>

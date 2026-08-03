@@ -54,6 +54,28 @@ def test_confirm_unknown_batch_raises():
         confirm(s, "does-not-exist")
 
 
+def test_cancel_marks_batch_cancelled_and_frees_its_ids():
+    from src.myntra.groupid_ledger import cancel
+    s = FakeStore()
+    _, batch_id = reserve(s, count=3, filename="a.xlsx")   # range 1..3
+    cancel(s, batch_id)
+    led = read_ledger(s)
+    assert led["batches"][0]["status"] == "cancelled"
+    assert led["next_style_group_id"] == 1        # counter never moved
+    start2, _ = reserve(s, count=1, filename="b.xlsx")
+    assert start2 == 1                            # the ids are reusable
+
+
+def test_cancel_confirmed_batch_raises():
+    import pytest
+    from src.myntra.groupid_ledger import cancel
+    s = FakeStore()
+    _, batch_id = reserve(s, count=2, filename="a.xlsx")
+    confirm(s, batch_id)
+    with pytest.raises(KeyError):
+        cancel(s, batch_id)
+
+
 def test_unconfirm_reverts_most_recent_batch():
     from src.myntra.groupid_ledger import unconfirm
     s = FakeStore()

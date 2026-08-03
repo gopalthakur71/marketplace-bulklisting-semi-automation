@@ -44,6 +44,20 @@ def confirm(store, batch_id, key=LEDGER_KEY):
     raise KeyError(f"no pending batch {batch_id!r}")
 
 
+def cancel(store, batch_id, key=LEDGER_KEY):
+    """Mark a pending batch cancelled (its build was stopped part-way).
+
+    Deliberately does NOT touch next_style_group_id: reserve() never advanced it,
+    so the range is already free for the next batch to reuse."""
+    led = read_ledger(store, key)
+    for b in led["batches"]:
+        if b["id"] == batch_id and b["status"] == "pending":
+            b["status"] = "cancelled"
+            store.put_json(key, led)
+            return
+    raise KeyError(f"no pending batch {batch_id!r}")
+
+
 def unconfirm(store, batch_id, key=LEDGER_KEY):
     """Revert the MOST-RECENTLY-confirmed batch back to pending and roll
     next_style_group_id back to the start of its range. Guard: only safe when no

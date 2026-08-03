@@ -7,6 +7,19 @@
     <input type="file" name="file" accept=".csv" required></div>
   {% include "_style_start.html" %}
   <button class="btn" type="submit">Generate →</button>
+  <span id="run-controls"></span>
+  <button class="btn secondary" type="button" onclick="clearGenerate(this)"
+          title="Clears the chosen CSV and everything shown below, including a finished result and its download link.">Clear</button>
 </form>
 <div id="progress"></div>
+<script>
+// Clear = forget the chosen CSV and wipe the panel below, per the owner's choice.
+// A finished result goes too; the generated file itself is untouched on disk.
+function clearGenerate(btn) {
+  const form = btn.closest("form");
+  form.querySelector('input[type=file]').value = "";
+  document.getElementById("progress").innerHTML = "";
+  document.getElementById("run-controls").innerHTML = "";
+}
+</script>
 {% endblock %}

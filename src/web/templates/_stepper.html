@@ -8,4 +8,6 @@
     </li>
     {% endfor %}
   </ul>
+  {% if job.cancel_requested %}<p class="hint mono">Stopping — finishing the current product…</p>{% endif %}
 </div>
+{% with stop_job_id = job.id %}{% include "_run_controls.html" %}{% endwith %}

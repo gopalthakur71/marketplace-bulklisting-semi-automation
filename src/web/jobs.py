@@ -15,6 +15,7 @@ class Job:
     error: str | None = None
     batch_id: str | None = None
     range: list | None = None
+    cancel_requested: bool = False
 
 
 class JobStore:
@@ -45,6 +46,21 @@ class JobStore:
             job = self._jobs[job_id]
             job.result = result
             job.status = "done"
+
+    def request_cancel(self, job_id):
+        """Ask a running build to stop. The worker notices at its next checkpoint,
+        so the job stays 'running' until it actually winds down. Unknown ids are
+        ignored — a Stop click can arrive after the job has already finished."""
+        with self._lock:
+            job = self._jobs.get(job_id)
+            if job is not None:
+                job.cancel_requested = True
+
+    def cancel(self, job_id):
+        """The worker has stopped. Distinct from fail(): nothing went wrong."""
+        with self._lock:
+            job = self._jobs[job_id]
+            job.status = "cancelled"
 
     def fail(self, job_id, error):
         with self._lock:

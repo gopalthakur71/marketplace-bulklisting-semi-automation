@@ -46,6 +46,9 @@ h1,h2,h3{font-family:'Space Grotesk',sans-serif}
 .btn{background:var(--marigold);color:var(--bg);border:none;border-radius:8px;
   padding:10px 16px;font-weight:600;cursor:pointer;font-size:14px}
 .btn.green{background:var(--green)}
+/* Stop / Clear sit next to Generate but must not compete with it for attention. */
+.btn.secondary{background:transparent;color:var(--mut);border:1px solid var(--line);margin-left:8px}
+.btn.secondary:hover{color:var(--ink);border-color:var(--mut)}
 .drop{border:2px dashed var(--line);border-radius:10px;padding:30px;text-align:center;color:var(--mut)}
 .mono{font-family:'IBM Plex Mono',monospace}
 pre{font-family:'IBM Plex Mono',monospace;white-space:pre-wrap;overflow-wrap:anywhere;

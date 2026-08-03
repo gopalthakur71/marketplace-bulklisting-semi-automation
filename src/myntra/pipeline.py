@@ -14,6 +14,13 @@ from src.myntra.sku_registry import content_hash
 DEFAULT_TEMPLATE_NAME = "Myntra-Sku-Template-2026-07-24.xlsx"
 
 
+class BuildCancelled(Exception):
+    """Raised when the caller's should_cancel() asks the build to stop.
+
+    Not an error: the run was deliberately stopped, so callers should report it
+    as cancelled rather than failed."""
+
+
 def _resolve(name, subdir="input"):
     """Prefer <subdir>/<name>, else repo-root <name>."""
     cand = os.path.join(subdir, name)
@@ -22,7 +29,8 @@ def _resolve(name, subdir="input"):
 
 def main(template_path=None, csv_path=None, out_dir="output", config_dir="config/myntra",
          fetch=None, upload=None, style_group_id_start=None, hsn_by_signature=None,
-         only_skus=None, style_group_id_by_sku=None, hsn_by_sku=None):
+         only_skus=None, style_group_id_by_sku=None, hsn_by_sku=None,
+         should_cancel=None):
     template_path = template_path or _resolve(DEFAULT_TEMPLATE_NAME, "templates/myntra")
     csv_path = csv_path or _resolve("products_export.csv")
 
@@ -53,8 +61,15 @@ def main(template_path=None, csv_path=None, out_dir="output", config_dir="config
     if not use_s3:
         specs = {**specs, "public_base_url": None}
 
+    # Cancellation is cooperative and checked between whole products, so a stopped
+    # run never leaves a half-written workbook or a half-uploaded image set.
+    def _check_cancel():
+        if should_cancel is not None and should_cancel():
+            raise BuildCancelled()
+
     rows, records = [], []
     for i, p in enumerate(products, start=1):
+        _check_cancel()
         mapped = map_product(p, template, column_map, constants, rules,
                              hsn_by_signature=hsn_by_signature,
                              hsn_override=hsn_by_sku.get(p.sku))
@@ -79,6 +94,7 @@ def main(template_path=None, csv_path=None, out_dir="output", config_dir="config
                         "hsn": mapped.cells.get("HSN"),
                         "content_hash": content_hash(mapped.cells)})
 
+    _check_cancel()
     filled_path = os.path.join(out_dir, "myntra_filled.xlsx")
     fill_template(template_path, template, rows, filled_path)
 
@@ -88,6 +104,7 @@ def main(template_path=None, csv_path=None, out_dir="output", config_dir="config
     # Upload exactly this run's validated JPGs (not the whole images dir, which may
     # still hold images from earlier batches) so the sheet's S3 URLs resolve.
     uploaded = 0
+    _check_cancel()
     if use_s3:
         from src.core.s3_upload import upload_images
         run_jpgs = [path for _, img in rows for path in img.passed]

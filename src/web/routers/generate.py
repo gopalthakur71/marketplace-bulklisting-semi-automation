@@ -10,8 +10,10 @@ from fastapi import APIRouter, Request, UploadFile, File, HTTPException, Form
 from fastapi.responses import FileResponse, HTMLResponse
 
 from src.core.shopify_reader import read_products
-from src.myntra.groupid_ledger import reserve, confirm, unconfirm, read_ledger
+from src.myntra.groupid_ledger import (
+    reserve, confirm, unconfirm, read_ledger, cancel as ledger_cancel)
 from src.myntra.hsn_kb import signature, read_kb, suggest, learn
+from src.myntra.pipeline import BuildCancelled
 from src.myntra.pipeline import main as pipeline_main, scan_content_hashes  # noqa: F401 (patched in tests)
 from src.myntra.sku_registry import read_registry, partition, record
 from src.web.jobs import store
@@ -233,9 +235,11 @@ def _run_generate(job_id, csv_path, job_dir, start, settings,
                   hsn_by_signature=None, only_skus=None):
     try:
         store.set_step(job_id, "Ingest CSV", "active")
+        job = store.get(job_id)
         res = pipeline_main(csv_path=csv_path, out_dir=job_dir,
                             style_group_id_start=start,
-                            hsn_by_signature=hsn_by_signature, only_skus=only_skus)
+                            hsn_by_signature=hsn_by_signature, only_skus=only_skus,
+                            should_cancel=lambda: bool(job and job.cancel_requested))
         reg = sku_registry_store(settings)
         for r in res.get("records", []):
             record(reg, r["sku"], r["content_hash"], r["style_group_id"], r["hsn"])
@@ -243,8 +247,25 @@ def _run_generate(job_id, csv_path, job_dir, start, settings,
             store.set_step(job_id, name, "done")
         store.set_step(job_id, "Images → S3", "done", count=res.get("uploaded"))
         store.finish(job_id, res)
+    except BuildCancelled:
+        _land_cancelled(job_id, job_dir, settings)
     except Exception as exc:  # surface failure to the UI
         store.fail(job_id, f"{type(exc).__name__}: {exc}")
+
+
+def _land_cancelled(job_id, job_dir, settings):
+    """Leave no trace of a stopped build: drop the part-written sheet and release the
+    reserved styleGroupId range. No SKUs need clearing — record() only runs on success."""
+    partial = os.path.join(job_dir, "myntra_filled.xlsx")
+    if os.path.exists(partial):
+        os.remove(partial)
+    job = store.get(job_id)
+    if job and job.batch_id:
+        try:
+            ledger_cancel(ledger_store(settings), job.batch_id)
+        except KeyError:                     # already confirmed elsewhere — leave it alone
+            _log.warning("cancel: batch %s was not pending", job.batch_id)
+    store.cancel(job_id)
 
 
 @router.get("/jobs/{job_id}", response_class=HTMLResponse)
@@ -257,12 +278,28 @@ def job_status(request: Request, job_id: str):
         count = sum(1 for _ in [s for s in job.steps if s["state"] == "done"]) or ""
         return _templates().TemplateResponse(
             request, "_stepper.html", {"job": job, "count": count})
+    if job.status == "cancelled":
+        return _templates().TemplateResponse(request, "_cancelled.html", {"job": job})
     report = ""
     if job.result and os.path.exists(job.result.get("report", "")):
         with open(job.result["report"], encoding="utf-8") as fh:
             report = fh.read()
     return _templates().TemplateResponse(
         request, "_result.html", {"job": job, "report": report})
+
+
+@router.post("/generate/cancel/{job_id}", response_class=HTMLResponse)
+def cancel_run(request: Request, job_id: str):
+    """Ask a running build to stop. Returns the stepper straight away so the panel
+    shows 'Stopping…' — the worker lands the cancellation at its next checkpoint."""
+    get_user(request)
+    job_id = _safe_job_id(job_id)
+    job = store.get(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="unknown job")
+    store.request_cancel(job_id)
+    return _templates().TemplateResponse(
+        request, "_stepper.html", {"job": store.get(job_id), "count": ""})
 
 
 @router.get("/generate/download/{job_id}")

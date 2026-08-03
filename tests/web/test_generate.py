@@ -325,6 +325,107 @@ def test_generate_new_only_builds_and_records_only_new(tmp_path, monkeypatch):
     assert new_sku in reg                      # new SKU recorded
 
 
+def _start_blocking_build(client, monkeypatch, tmp_path):
+    """Kick off a build whose pipeline parks at its cancel checkpoint, like the real
+    one does between products. Returns the job id, with the build still running."""
+    import time
+    from src.myntra.pipeline import BuildCancelled
+
+    def fake_main(csv_path=None, out_dir=None, should_cancel=None, **kw):
+        # a part-written workbook exists when the stop lands, as in a real run
+        with open(f"{out_dir}/myntra_filled.xlsx", "wb") as fh:
+            fh.write(b"half-written")
+        for _ in range(400):
+            if should_cancel is not None and should_cancel():
+                raise BuildCancelled()
+            time.sleep(0.01)
+        raise AssertionError("cancel was never signalled to the pipeline")
+
+    monkeypatch.setattr(gen, "pipeline_main", fake_main)
+    monkeypatch.setattr(gen, "count_products", lambda path: 3)
+
+    csv = b"Handle,Title\na,A\nb,B\nc,C\n"
+    r = client.post("/generate", files={"file": ("products_export.csv", csv, "text/csv")})
+    job_id = r.headers["x-job-id"]
+    client.post(f"/generate/hsn/{job_id}", data={"hsn__0": "12345678"})   # starts the build
+    return job_id
+
+
+def _poll_until(client, job_id, needle, tries=60):
+    import time
+    poll = client.get(f"/jobs/{job_id}")
+    for _ in range(tries):
+        if needle in poll.text.lower():
+            return poll
+        time.sleep(0.05)
+        poll = client.get(f"/jobs/{job_id}")
+    return poll
+
+
+def test_stop_ends_the_run_without_consuming_ids_or_recording_skus(tmp_path, monkeypatch):
+    import os
+    client, settings = _client(tmp_path)
+    job_id = _start_blocking_build(client, monkeypatch, tmp_path)
+
+    rc = client.post(f"/generate/cancel/{job_id}")
+    assert rc.status_code == 200
+
+    poll = _poll_until(client, job_id, "stopped")
+    assert "stopped" in poll.text.lower()
+    assert gen.store.get(job_id).status == "cancelled"
+    assert gen.store.get(job_id).error is None          # cancelled is not a failure
+
+    # the half-written workbook is gone, so nothing broken can be downloaded
+    assert not os.path.exists(os.path.join(gen.RUNTIME, job_id, "myntra_filled.xlsx"))
+
+    from src.myntra.groupid_ledger import read_ledger
+    from src.web.settings import ledger_store, sku_registry_store
+    from src.myntra.sku_registry import read_registry
+    led = read_ledger(ledger_store(settings))
+    assert [b["status"] for b in led["batches"]] == ["cancelled"]
+    assert led["next_style_group_id"] == 1              # no ids burned
+    assert read_registry(sku_registry_store(settings)) == {}   # no SKUs recorded
+
+
+def test_cancel_unknown_job_is_404(tmp_path):
+    client, _ = _client(tmp_path)
+    assert client.post(f"/generate/cancel/{'a' * 32}").status_code == 404
+
+
+def test_stop_appears_beside_generate_while_running_and_goes_when_done(tmp_path, monkeypatch):
+    client, _ = _client(tmp_path)
+    job_id = _start_blocking_build(client, monkeypatch, tmp_path)
+
+    running = client.get(f"/jobs/{job_id}")
+    assert 'hx-swap-oob' in running.text and "run-controls" in running.text
+    assert f"/generate/cancel/{job_id}" in running.text     # Stop is offered
+
+    client.post(f"/generate/cancel/{job_id}")
+    done = _poll_until(client, job_id, "stopped")
+    assert "run-controls" in done.text                      # slot is still swapped…
+    assert "/generate/cancel/" not in done.text             # …but Stop is withdrawn
+
+
+def test_stop_does_not_re_upload_the_csv(tmp_path, monkeypatch):
+    # Stop lives inside the upload form, and htmx posts an enclosing form's values by
+    # default — including the chosen file, under the form's multipart encoding. Without
+    # hx-params="none" every Stop click would re-upload the whole CSV.
+    client, _ = _client(tmp_path)
+    job_id = _start_blocking_build(client, monkeypatch, tmp_path)
+    running = client.get(f"/jobs/{job_id}")
+    stop_tag = running.text[running.text.index("/generate/cancel/"):]
+    stop_tag = stop_tag[:stop_tag.index(">")]
+    assert 'hx-params="none"' in stop_tag
+    client.post(f"/generate/cancel/{job_id}")      # let the worker finish
+
+
+def test_generate_form_has_clear_button_and_a_slot_for_stop(tmp_path):
+    client, _ = _client(tmp_path)
+    html = client.get("/generate").text
+    assert 'id="run-controls"' in html      # where Stop is swapped in during a run
+    assert "Clear" in html
+
+
 def test_generate_form_has_no_hidden_required_field(tmp_path):
     # A `required` input inside the hidden style-edit div blocks the whole Generate
     # form: the browser can't focus a display:none required field, so the submit is

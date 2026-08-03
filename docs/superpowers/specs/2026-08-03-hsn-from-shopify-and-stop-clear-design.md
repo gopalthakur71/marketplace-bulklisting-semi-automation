@@ -214,6 +214,11 @@ button. The stepper response carries an out-of-band fragment
 (`hx-swap-oob="innerHTML:#run-controls"`) that fills it with the Stop button; the result,
 error, and cancelled panels carry the same fragment empty, which removes it.
 
+Because Stop sits *inside* the upload form, it must carry `hx-params="none"`. htmx posts
+an enclosing form's values by default, and `hx-encoding="multipart/form-data"` is
+inherited — without it, every Stop click would re-upload the whole CSV just to say
+"stop". A test pins this.
+
 This rides the polling the stepper already does — `hx-get="/jobs/{id}"` every second —
 so the control is re-asserted once a second while running and cleared within a second of
 the run ending. That makes it self-healing rather than fragile: a single missed swap
