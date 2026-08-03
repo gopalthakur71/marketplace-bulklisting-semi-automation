@@ -264,5 +264,104 @@ aws ec2 revoke-security-group-ingress --group-id sg-06ceeb9a898378bb0 --protocol
 3. If your IP changed, update the SSH rule (step 10.1).
 4. Open the tunnel and browse `http://localhost:8000` (step 11).
 5. Do your work.
-6. Close the public ports if you opened any (step 10e).
+6. Close the public ports if you opened any (step 10.4).
 7. **Stop the instance (step 9)** to reduce cost.
+
+---
+
+## 12. Windows / PowerShell gotchas
+
+Four things that have actually bitten, with the exact error each produces.
+
+**`CIDR block /32 is malformed`** — `$myip` was never set. You skipped the lookup line, or
+you are in a *new* PowerShell window (variables do not survive one). Re-run step 10.1's
+block from the top. This is not an AWS problem.
+
+**`CIDR block OLD.IP.HERE/32 is malformed`** — you pasted a placeholder. AWS takes the
+text literally. Get the real value from step 10.2 and type that.
+
+**`'charmap' codec can't encode characters in position …`** — the command *succeeded*; only
+printing it failed. Linux log output (especially `journalctl -x`, which draws `░░`) contains
+characters your console's cp1252 codepage cannot render. Fix the console, not the command:
+
+```powershell
+chcp 65001 > $null
+$env:PYTHONIOENCODING = "utf-8"
+```
+
+Or strip non-ASCII on the box before it reaches you: `… | tr -cd "\11\12\15\40-\176"`.
+
+**A `--query` that contains backticks silently breaks in double quotes.** In PowerShell a
+backtick is the escape character, so `"…FromPort==`22`…"` loses its backticks and the
+JMESPath filter no longer parses. Always single-quote a query containing backticks — see
+step 10.2.
+
+---
+
+## 13. Deploy failed — reading the real reason
+
+The GitHub Actions `deploy` job restarts the service over SSM. When it fails, read the error
+in this order; each one narrows it down.
+
+**`Process completed with exit code 1`** with `No running instance tagged Name=listing-app`
+— the box is stopped. Start it (step 7) and re-run the failed job.
+
+**`Process completed with exit code 255`** — an `aws` call itself errored. Exit 255 is the
+AWS CLI's own error code, which *rules out* the "no instance" case above (that exits 1).
+Look at which echo lines appear before it:
+
+| Last line in the log | Where it failed |
+|---|---|
+| no `Deploying …` | `describe-instances` — role/OIDC/region |
+| `Deploying <sha> to i-…`, no `SSM command:` | `send-command` — usually the SSM agent has not registered yet on a freshly-started box; wait ~2 min |
+| `SSM command: <id>` present | the command ran **on the box** and failed — see below |
+
+**`Waiter CommandExecuted failed: … matched expected path: "Failed"`** — the restart itself
+failed on the instance. GitHub, OIDC, ECR and SSM are all fine. Get the command's own output
+(the command id is printed in the job log):
+
+```powershell
+aws ssm get-command-invocation --command-id <CMD_ID> --instance-id i-0add667d4cec224c6 --query "{Status:Status,Out:StandardOutputContent,Err:StandardErrorContent}" --output json
+```
+
+If that only says *"See systemctl status … / journalctl -xeu …"*, systemd is pointing at the
+journal. Fetch it — and check the disk in the same round trip, because that is the usual
+culprit:
+
+```powershell
+$id = aws ssm send-command --instance-ids i-0add667d4cec224c6 --document-name AWS-RunShellScript --parameters 'commands=["journalctl -u listing-app.service --no-pager -n 80","echo ===DISK===","df -h /","echo ===DOCKER===","docker images"]' --query "Command.CommandId" --output text
+Start-Sleep -Seconds 10
+aws ssm get-command-invocation --command-id $id --instance-id i-0add667d4cec224c6 --query "StandardOutputContent" --output text
+```
+
+### 13.1 `no space left on device` — the disk fills up (happened 2026-08-03)
+
+The service unit re-pulls `:latest` on every start, and **each deploy leaves the previous
+image behind untagged**. On the 8 GB root volume that accumulates until a pull cannot finish:
+
+```
+failed to register layer: … no space left on device
+/dev/nvme0n1p1  8.0G  7.5G  494M  94% /
+```
+
+Note `Restart=on-failure` means systemd retries forever — the journal will show a restart
+counter in the dozens, re-pulling ~540 MB each time. **Stop the service first**, or the loop
+fights your cleanup:
+
+```powershell
+$id = aws ssm send-command --instance-ids i-0add667d4cec224c6 --document-name AWS-RunShellScript --parameters 'commands=["systemctl stop listing-app.service","docker image prune -f","df -h /","systemctl start listing-app.service","sleep 20","systemctl is-active listing-app.service","curl -s -o /dev/null -w \"%{http_code}\" http://localhost:80/"]' --query "Command.CommandId" --output text
+Start-Sleep -Seconds 45
+aws ssm get-command-invocation --command-id $id --instance-id i-0add667d4cec224c6 --query "{Status:Status,Out:StandardOutputContent}" --output json
+```
+
+`docker image prune -f` removes only **dangling** (untagged) images, so the tagged `:latest`
+the app needs is never touched. On 2026-08-03 this reclaimed **4.59 GB**, taking the disk from
+94% to 33%.
+
+A healthy result is `active` and HTTP **302** — that is the Cognito login redirect, which is
+what an unauthenticated request to `/` should return. To prove the *new* code is really live,
+look inside the running container rather than trusting the tag:
+
+```powershell
+docker exec listing-app ls src/web/templates/
+```

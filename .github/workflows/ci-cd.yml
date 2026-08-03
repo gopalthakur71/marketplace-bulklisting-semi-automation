@@ -68,6 +68,13 @@ jobs:
     # static IP needed). The instance is targeted by its Name tag, so a
     # stop/start that changes its public IP does not break this. The systemd
     # unit re-pulls :latest on restart, so "restart" == "deploy".
+    #
+    # `docker image prune -f` first: every deploy leaves the PREVIOUS image
+    # behind untagged, and on the 8 GB root volume those accumulated until a
+    # pull hit "no space left on device" and the service would not start
+    # (2026-08-03 — 15 images, 94% full). Pruning here clears the last deploy's
+    # leftover while the current image is still tagged, so `-f` (dangling only)
+    # can never remove the image the app is running.
     needs: build-and-push
     if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
@@ -96,7 +103,7 @@ jobs:
             --instance-ids "$INSTANCE_ID" \
             --document-name AWS-RunShellScript \
             --comment "Deploy ${{ github.sha }}" \
-            --parameters 'commands=["systemctl restart listing-app"]' \
+            --parameters 'commands=["docker image prune -f","systemctl restart listing-app"]' \
             --query "Command.CommandId" --output text)
           echo "SSM command: $CMD_ID"
           sleep 5   # let the invocation register before we poll it
