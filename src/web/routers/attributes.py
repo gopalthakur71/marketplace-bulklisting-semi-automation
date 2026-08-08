@@ -175,3 +175,25 @@ async def attributes_save(request: Request, job_id: str):
             request, "_attr_saved.html", {"job_id": job.id, "error": error})
     return _templates().TemplateResponse(
         request, "_attr_saved.html", {"job_id": job.id, "saved": len(payload)})
+
+
+@router.post("/generate/attributes/{job_id}/one", response_class=HTMLResponse)
+async def attributes_save_one(request: Request, job_id: str):
+    """Save a single panel. Same validation and writing as the bulk route; only the
+    rendered response differs — a compact inline result plus an out-of-band refresh
+    of that panel's filled count."""
+    get_user(request)
+    job, ordinals, payload, error = await _save_entries(request, job_id)
+    ordinal = ordinals[0] if ordinals else 0
+    if error:
+        return _templates().TemplateResponse(
+            request, "_attr_panel_saved.html",
+            {"ordinal": ordinal, "error": error})
+    columns, free_columns = user_filled_attributes(), user_filled_freetext()
+    values = payload[0]["values"] if payload else {}
+    filled = sum(1 for c in list(columns) + list(free_columns)
+                 if is_set(values.get(c)))
+    return _templates().TemplateResponse(
+        request, "_attr_panel_saved.html",
+        {"ordinal": ordinal, "filled": filled,
+         "total": len(columns) + len(free_columns)})

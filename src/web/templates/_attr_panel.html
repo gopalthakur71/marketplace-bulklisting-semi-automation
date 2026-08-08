@@ -45,5 +45,12 @@
       <span class="hint">free text — pre-filled from Shopify, edit if needed</span>
     </label>
     {% endfor %}
+    <button class="btn" type="button"
+            hx-post="/generate/attributes/{{ job_id }}/one"
+            hx-include="closest .attr-panel"
+            hx-target="#attr-save-{{ p.ordinal }}"
+            hx-swap="innerHTML"
+            hx-disabled-elt="this">Save this SKU</button>
+    <span class="attr-save-out" id="attr-save-{{ p.ordinal }}"></span>
   </div>
 </details>

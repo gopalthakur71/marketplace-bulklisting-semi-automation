@@ -1,0 +1,6 @@
+{% if error %}
+  <span class="flag">⚠ Not saved — {{ error }}</span>
+{% else %}
+  <span class="ok">✅ Saved · {{ filled }}/{{ total }} filled</span>
+  <span class="hint" id="attr-count-{{ ordinal }}" hx-swap-oob="true">{{ filled }}/{{ total }} filled</span>
+{% endif %}

@@ -306,3 +306,90 @@ def test_count_span_is_addressable_for_out_of_band_updates(tmp_path, monkeypatch
     job = _job(tmp_path, monkeypatch, skus=("S1",))
     r = _client(tmp_path).get(f"/generate/attributes/{job.id}")
     assert 'id="attr-count-0"' in r.text
+
+
+def test_saving_one_panel_writes_only_that_row(tmp_path, monkeypatch):
+    job = _job(tmp_path, monkeypatch, skus=("S1", "S2"))
+    client = _client(tmp_path)
+    client.post(f"/generate/attributes/{job.id}",
+                data={"sku__0": "S1", "attr__0__5": "Banarasi",
+                      "sku__1": "S2", "attr__1__5": "Chanderi"})
+    # Now save ONLY panel 0, changing it. Panel 1 must survive untouched.
+    r = client.post(f"/generate/attributes/{job.id}/one",
+                    data={"sku__0": "S1", "attr__0__5": "Chanderi"})
+    assert r.status_code == 200
+    t = read_template(V13)
+    assert _cell(job.result["filled"], t, 0, "Type") == "Chanderi"
+    assert _cell(job.result["filled"], t, 1, "Type") == "Chanderi"  # unchanged
+
+
+def test_one_panel_save_returns_the_refreshed_count_out_of_band(tmp_path, monkeypatch):
+    job = _job(tmp_path, monkeypatch, skus=("S1",))
+    r = _client(tmp_path).post(f"/generate/attributes/{job.id}/one", data={
+        "sku__0": "S1", "attr__0__5": "Banarasi", "free__0__0": "festive"})
+    assert 'id="attr-count-0"' in r.text
+    assert 'hx-swap-oob="true"' in r.text
+    assert "2/13 filled" in r.text
+    assert "Saved" in r.text
+
+
+def test_one_panel_save_rejects_off_vocab_inline_without_writing(tmp_path, monkeypatch):
+    job = _job(tmp_path, monkeypatch, skus=("S1",))
+    r = _client(tmp_path).post(f"/generate/attributes/{job.id}/one",
+                               data={"sku__0": "S1", "attr__0__0": "Salmon Pink"})
+    assert r.status_code == 200                 # inline error, not a 500
+    assert "not one of Myntra" in r.text
+    assert 'hx-swap-oob' not in r.text          # count must NOT be updated
+    assert _cell(job.result["filled"], read_template(V13), 0,
+                 "Prominent Colour") is None
+
+
+def test_one_panel_save_keeps_dropdowns_alive(tmp_path, monkeypatch):
+    import openpyxl
+    job = _job(tmp_path, monkeypatch, skus=("S1",))
+    wb = openpyxl.load_workbook(job.result["filled"])
+    before = len(wb["Sarees"].data_validations.dataValidation)
+    wb.close()
+    _client(tmp_path).post(f"/generate/attributes/{job.id}/one",
+                           data={"sku__0": "S1", "attr__0__7": "Zari"})
+    wb = openpyxl.load_workbook(job.result["filled"])
+    assert len(wb["Sarees"].data_validations.dataValidation) == before
+    wb.close()
+
+
+def test_one_panel_save_holds_the_write_lock(tmp_path, monkeypatch):
+    """The lock must be held across the read-modify-write, not merely to exist."""
+    import src.web.routers.attributes as attrs
+    job = _job(tmp_path, monkeypatch, skus=("S1",))
+    seen = {}
+    real = attrs.write_attributes
+
+    def spy(*a, **k):
+        seen["locked"] = attrs._WRITE_LOCK.locked()
+        return real(*a, **k)
+
+    monkeypatch.setattr(attrs, "write_attributes", spy)
+    _client(tmp_path).post(f"/generate/attributes/{job.id}/one",
+                           data={"sku__0": "S1", "attr__0__7": "Zari"})
+    assert seen["locked"] is True
+
+
+def test_one_panel_save_on_expired_job_says_session_expired(tmp_path, monkeypatch):
+    monkeypatch.setattr(gen, "RUNTIME", str(tmp_path / "runtime"))
+    r = _client(tmp_path).post("/generate/attributes/" + "0" * 32 + "/one",
+                               data={"sku__0": "S1"})
+    assert r.status_code == 404
+
+
+def test_panel_has_a_save_button_that_posts_only_its_own_fields(tmp_path, monkeypatch):
+    import re
+    job = _job(tmp_path, monkeypatch, skus=("S1", "S2"))
+    r = _client(tmp_path).get(f"/generate/attributes/{job.id}")
+    buttons = re.findall(r"<button[^>]*hx-post=\"/generate/attributes/[^\"]+/one\"[^>]*>",
+                         r.text)
+    assert len(buttons) == 2
+    # Load-bearing: a default submit button would post every panel at once. Counting
+    # type="button" across the whole page would also match unrelated chrome.
+    assert all('type="button"' in b for b in buttons)
+    assert all('hx-include="closest .attr-panel"' in b for b in buttons)
+    assert 'id="attr-save-0"' in r.text and 'id="attr-save-1"' in r.text
