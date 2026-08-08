@@ -16,3 +16,4 @@ _tpl/
 .superpowers/
 src/web/runtime/*
 !src/web/runtime/.gitkeep
+.state/
