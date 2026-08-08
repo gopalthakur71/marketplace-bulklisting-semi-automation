@@ -184,7 +184,16 @@ async def attributes_save_one(request: Request, job_id: str):
     of that panel's filled count."""
     get_user(request)
     job, ordinals, payload, error = await _save_entries(request, job_id)
-    ordinal = ordinals[0] if ordinals else 0
+    if not ordinals:
+        # No sku__N / attr__N__* keys parsed at all — we have no panel to report
+        # against. Falling back to ordinal 0 would silently stamp a wrong "0/13
+        # filled" onto an untouched panel. Report the error instead; the error
+        # branch emits no out-of-band span, so no count is disturbed.
+        return _templates().TemplateResponse(
+            request, "_attr_panel_saved.html",
+            {"ordinal": 0,
+             "error": "Nothing to save — please reload the screen and try again."})
+    ordinal = ordinals[0]
     if error:
         return _templates().TemplateResponse(
             request, "_attr_panel_saved.html",

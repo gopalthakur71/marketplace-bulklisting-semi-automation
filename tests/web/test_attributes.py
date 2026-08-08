@@ -393,3 +393,15 @@ def test_panel_has_a_save_button_that_posts_only_its_own_fields(tmp_path, monkey
     assert all('type="button"' in b for b in buttons)
     assert all('hx-include="closest .attr-panel"' in b for b in buttons)
     assert 'id="attr-save-0"' in r.text and 'id="attr-save-1"' in r.text
+
+
+def test_one_panel_save_with_no_parseable_entries_touches_no_panel(tmp_path, monkeypatch):
+    """A post with no sku__N / attr__N__* keys must not fall back to ordinal 0 —
+    that would silently stamp a wrong out-of-band count onto panel 0, an untouched
+    panel, while whichever panel the user actually clicked does nothing."""
+    job = _job(tmp_path, monkeypatch, skus=("S1", "S2"))
+    r = _client(tmp_path).post(f"/generate/attributes/{job.id}/one",
+                               data={"unrelated_field": "x"})
+    assert r.status_code == 200
+    assert 'hx-swap-oob' not in r.text
+    assert "Saved" not in r.text
