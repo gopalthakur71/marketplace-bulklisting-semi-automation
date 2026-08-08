@@ -93,14 +93,16 @@ def generate_submit(request: Request, file: UploadFile = File(...)):
         resp = _templates().TemplateResponse(
             request, "_dedup_warn.html",
             {"job_id": job.id, "repeat": parts["repeat"],
-             "has_new": bool(new_skus), "new_count": len(new_skus)})
+             "has_new": bool(new_skus), "new_count": len(new_skus),
+             "total_count": len(pairs)})
         resp.headers["x-job-id"] = job.id
         return resp
 
     return _hsn_prescan_or_build(request, job, csv_path, job_dir, count, settings)
 
 
-def _hsn_prescan_or_build(request, job, csv_path, job_dir, count, settings, only_skus=None):
+def _hsn_prescan_or_build(request, job, csv_path, job_dir, count, settings, only_skus=None,
+                          style_group_id_by_sku=None):
     # Pre-scan: which category|fabric signatures does this batch contain, and what
     # does the KB already know? HSN is absent from the export, so we always ask.
     constants = _load_yaml("constants.yaml")
@@ -116,13 +118,15 @@ def _hsn_prescan_or_build(request, job, csv_path, job_dir, count, settings, only
 
     if not grouped:                      # empty CSV / no products → nothing to ask
         return _start_build(request, job, csv_path, job_dir, count, settings,
-                            only_skus=only_skus)
+                            only_skus=only_skus,
+                            style_group_id_by_sku=style_group_id_by_sku)
 
     signatures = [{"signature": sig, "examples": names[:5], "suggestions": suggest(kb, sig)}
                   for sig, names in grouped.items()]
     with open(os.path.join(job_dir, "hsn.json"), "w", encoding="utf-8") as fh:
         json.dump({"csv_path": csv_path, "count": count, "signatures": signatures,
-                   "only_skus": (list(only_skus) if only_skus is not None else None)}, fh)
+                   "only_skus": (list(only_skus) if only_skus is not None else None),
+                   "style_group_id_by_sku": style_group_id_by_sku}, fh)
     job.status = "awaiting_hsn"
 
     resp = _templates().TemplateResponse(
@@ -132,12 +136,13 @@ def _hsn_prescan_or_build(request, job, csv_path, job_dir, count, settings, only
 
 
 def _start_build(request, job, csv_path, job_dir, count, settings,
-                 hsn_by_signature=None, only_skus=None):
+                 hsn_by_signature=None, only_skus=None, style_group_id_by_sku=None):
     start, batch_id = reserve(ledger_store(settings), count, "myntra_filled.xlsx")
     job.batch_id = batch_id
     job.range = [start, start + count - 1]
     job.status = "running"
-    _spawn(job.id, csv_path, job_dir, start, settings, hsn_by_signature, only_skus)
+    _spawn(job.id, csv_path, job_dir, start, settings, hsn_by_signature, only_skus,
+           style_group_id_by_sku)
     resp = _templates().TemplateResponse(
         request, "_stepper.html", {"job": job, "count": count})
     resp.headers["x-job-id"] = job.id
@@ -178,7 +183,8 @@ async def hsn_submit(request: Request, job_id: str):
     only_set = set(only) if only is not None else None
     build_count = len(only_set) if only_set is not None else data["count"]
     return _start_build(request, job, data["csv_path"], job_dir,
-                        build_count, settings, hsn_by_signature, only_skus=only_set)
+                        build_count, settings, hsn_by_signature, only_skus=only_set,
+                        style_group_id_by_sku=data.get("style_group_id_by_sku"))
 
 
 @router.post("/generate/new-only/{job_id}", response_class=HTMLResponse)
@@ -198,6 +204,36 @@ def generate_new_only(request: Request, job_id: str):
     only = set(data["new"]) | set(data["edited"])
     return _hsn_prescan_or_build(request, job, data["csv_path"], job_dir,
                                  len(only), settings, only_skus=only)
+
+
+@router.post("/generate/continue/{job_id}", response_class=HTMLResponse)
+def generate_continue_anyway(request: Request, job_id: str):
+    """Override the duplicate guard and rebuild the WHOLE file, repeats included.
+
+    Reworking an already-generated SKU must not move it to a fresh style group —
+    Myntra keys the style off styleGroupId — so every SKU the registry already knows
+    (repeat AND edited) is pinned back to the id it was given the first time; only
+    genuinely new SKUs draw from the ledger. HSN is re-asked as usual, so a wrong
+    HSN can be corrected on the way through."""
+    get_user(request)
+    settings = get_settings(request)
+    job_id = _safe_job_id(job_id)
+    job = store.get(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="unknown job")
+    job_dir = os.path.join(RUNTIME, job_id)
+    dedup_path = os.path.join(job_dir, "dedup.json")
+    if not os.path.exists(dedup_path):
+        raise HTTPException(status_code=404, detail="session expired, please re-upload")
+    with open(dedup_path, encoding="utf-8") as fh:
+        data = json.load(fh)
+    reg = read_registry(sku_registry_store(settings))
+    known = list(data["repeat"]) + list(data.get("edited") or [])
+    pinned = {s: reg[s]["style_group_id"] for s in known if s in reg}
+    _log.info("continue anyway: job=%s rebuilding all %d SKUs, %d pinned ids",
+              job_id, data["count"], len(pinned))
+    return _hsn_prescan_or_build(request, job, data["csv_path"], job_dir,
+                                 data["count"], settings, style_group_id_by_sku=pinned)
 
 
 @router.get("/generate/rebuild/{job_id}")
@@ -223,22 +259,25 @@ def rebuild_download(request: Request, job_id: str):
     return FileResponse(res["filled"], filename="myntra_filled.xlsx")
 
 
-def _spawn(job_id, csv_path, job_dir, start, settings, hsn_by_signature=None, only_skus=None):
+def _spawn(job_id, csv_path, job_dir, start, settings, hsn_by_signature=None, only_skus=None,
+           style_group_id_by_sku=None):
     import threading
     threading.Thread(
         target=_run_generate,
-        args=(job_id, csv_path, job_dir, start, settings, hsn_by_signature, only_skus),
+        args=(job_id, csv_path, job_dir, start, settings, hsn_by_signature, only_skus,
+              style_group_id_by_sku),
         daemon=True).start()
 
 
 def _run_generate(job_id, csv_path, job_dir, start, settings,
-                  hsn_by_signature=None, only_skus=None):
+                  hsn_by_signature=None, only_skus=None, style_group_id_by_sku=None):
     try:
         store.set_step(job_id, "Ingest CSV", "active")
         job = store.get(job_id)
         res = pipeline_main(csv_path=csv_path, out_dir=job_dir,
                             style_group_id_start=start,
                             hsn_by_signature=hsn_by_signature, only_skus=only_skus,
+                            style_group_id_by_sku=style_group_id_by_sku,
                             should_cancel=lambda: bool(job and job.cancel_requested))
         reg = sku_registry_store(settings)
         for r in res.get("records", []):

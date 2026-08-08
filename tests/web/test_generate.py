@@ -325,6 +325,94 @@ def test_generate_new_only_builds_and_records_only_new(tmp_path, monkeypatch):
     assert new_sku in reg                      # new SKU recorded
 
 
+def test_generate_continue_anyway_rebuilds_all_pinning_repeat_ids(tmp_path, monkeypatch):
+    import time
+    client, settings = _client(tmp_path)
+    from src.myntra.pipeline import scan_content_hashes
+    from src.myntra.sku_registry import record, read_registry
+    from src.web.settings import sku_registry_store
+
+    pairs = scan_content_hashes("tests/fixtures/products_export.csv")
+    store = sku_registry_store(settings)
+    repeat_sku, repeat_hash = pairs[0]
+    other_sku = pairs[1][0]
+    record(store, repeat_sku, repeat_hash, 55, "50072010")
+
+    built = {}
+
+    def fake_main(csv_path=None, out_dir=None, style_group_id_start=None,
+                  hsn_by_signature=None, only_skus=None,
+                  style_group_id_by_sku=None, **kw):
+        built["only_skus"] = only_skus
+        built["ids"] = style_group_id_by_sku
+        with open(f"{out_dir}/myntra_filled.xlsx", "wb") as fh:
+            fh.write(b"x")
+        with open(f"{out_dir}/report.txt", "w") as fh:
+            fh.write("r\n")
+        return {"filled": f"{out_dir}/myntra_filled.xlsx", "report": f"{out_dir}/report.txt",
+                "products": 2, "uploaded": 0,
+                "records": [{"sku": s, "style_group_id": 55 + i, "hsn": "63079090",
+                             "content_hash": h} for i, (s, h) in enumerate(pairs)]}
+
+    monkeypatch.setattr(gen, "pipeline_main", fake_main)
+
+    with open("tests/fixtures/products_export.csv", "rb") as fh:
+        csv = fh.read()
+    r = client.post("/generate", files={"file": ("products_export.csv", csv, "text/csv")})
+    job_id = r.headers["x-job-id"]
+    assert "continue anyway" in r.text.lower()
+
+    r2 = client.post(f"/generate/continue/{job_id}")
+    assert "One-time HSN" in r2.text
+    # the whole file is in play again, so both fabric signatures are asked for
+    poll = client.post(f"/generate/hsn/{job_id}",
+                       data={"hsn__0": "63079090", "hsn__1": "63079090"})
+    for _ in range(20):
+        if "Download" in poll.text:
+            break
+        time.sleep(0.05)
+        poll = client.get(f"/jobs/{job_id}")
+    assert "Download" in poll.text
+
+    assert built["only_skus"] is None              # every SKU in the file is rebuilt
+    assert built["ids"] == {repeat_sku: 55}        # the repeat keeps its original id
+    reg = read_registry(sku_registry_store(settings))
+    assert repeat_sku in reg and other_sku in reg
+
+
+def test_continue_anyway_also_pins_edited_skus(tmp_path):
+    """An 'edited' SKU (content changed since it was generated) is still live on
+    Myntra under its original style number, so a rework must keep that number too."""
+    import json
+    import os
+    client, settings = _client(tmp_path)
+    from src.myntra.pipeline import scan_content_hashes
+    from src.myntra.sku_registry import record
+    from src.web.settings import sku_registry_store
+
+    pairs = scan_content_hashes("tests/fixtures/products_export.csv")
+    store = sku_registry_store(settings)
+    record(store, pairs[0][0], pairs[0][1], 55, "50072010")        # unchanged -> repeat
+    record(store, pairs[1][0], "stalehash", 56, "50072010")        # changed   -> edited
+
+    with open("tests/fixtures/products_export.csv", "rb") as fh:
+        csv = fh.read()
+    r = client.post("/generate", files={"file": ("products_export.csv", csv, "text/csv")})
+    job_id = r.headers["x-job-id"]
+    client.post(f"/generate/continue/{job_id}")
+
+    with open(os.path.join(gen.RUNTIME, job_id, "hsn.json"), encoding="utf-8") as fh:
+        data = json.load(fh)
+    assert data["style_group_id_by_sku"] == {pairs[0][0]: 55, pairs[1][0]: 56}
+    assert data["only_skus"] is None
+
+
+def test_continue_anyway_without_dedup_session_is_404(tmp_path):
+    client, _ = _client(tmp_path)
+    r = client.post("/generate/continue/" + "0" * 32)
+    assert r.status_code == 404
+
+
 def _start_blocking_build(client, monkeypatch, tmp_path):
     """Kick off a build whose pipeline parks at its cancel checkpoint, like the real
     one does between products. Returns the job id, with the build still running."""

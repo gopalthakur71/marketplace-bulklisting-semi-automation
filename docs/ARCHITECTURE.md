@@ -228,6 +228,7 @@ htmx. **No business logic here** — routers call `src/myntra` / `src/core`.
 | `POST /generate` | Upload CSV → duplicate-SKU guard → HSN pre-scan → `reserve()` a batch → spawn background thread → return htmx stepper (header `x-job-id`). |
 | `POST /generate/hsn/{job_id}` | Submit the one-HSN-per-signature review (8 digits each) → `learn()` into the KB → start the build. |
 | `POST /generate/new-only/{job_id}` | Duplicate guard: build only the NEW + EDITED SKUs. |
+| `POST /generate/continue/{job_id}` | Duplicate guard override ("Continue anyway"): rebuild EVERY SKU in the file. SKUs the registry already knows (repeat + edited) are pinned back to their stored styleGroupId so a rework stays in the same Myntra style group; new SKUs draw from the ledger. HSN is re-asked via the normal pre-scan. |
 | `GET /generate/rebuild/{job_id}` | Duplicate guard: rebuild the REPEAT SKUs, pinning their stored styleGroupId + HSN (no ledger change). |
 | `GET /jobs/{job_id}` | htmx poll: returns the stepper while running, `_cancelled.html` when stopped, the result partial when done/failed. Every one of those carries the `#run-controls` OOB fragment, so Stop appears and disappears with the run. |
 | `POST /generate/cancel/{job_id}` | Stop a running build: sets the job's `cancel_requested` flag and returns the stepper immediately ("Stopping…"). The worker lands it at its next checkpoint — see the cancellation note below. |

@@ -146,7 +146,15 @@ A few things worth knowing:
 - **Duplicate-upload guard.** If you accidentally re-upload products you've already generated, the
   app **notices and warns you** ("these were already generated") instead of creating clashing
   duplicates. It can then rebuild a sheet for just those SKUs, reusing their original style number
-  and HSN so nothing conflicts.
+  and HSN so nothing conflicts. The warning is a **speed bump, not a wall** — it offers three ways
+  forward:
+  - **Download the already-generated sheet** — get the same sheet back without rebuilding anything.
+  - **Generate the N new SKUs only** — skip the repeats, build just what's genuinely new.
+  - **Continue anyway — regenerate all** — the one to use when you deliberately want to *rework*
+    SKUs you've already done (you changed photos, attributes or price). It rebuilds the whole file,
+    repeats included. Each repeat **keeps the style number it was given the first time**, so Myntra
+    still sees the same style rather than a duplicate; only brand-new SKUs draw a fresh number. HSN
+    is asked again on the way through, so you can correct a wrong code.
 
 - **Stop a run you didn't mean to start.** While a sheet is being built, a **Stop** button
   appears next to Generate. Press it and the build halts — it finishes whichever product it was

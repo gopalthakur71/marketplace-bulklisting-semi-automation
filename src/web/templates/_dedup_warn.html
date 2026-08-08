@@ -8,4 +8,10 @@
     <button class="btn" hx-post="/generate/new-only/{{ job_id }}"
             hx-target="#progress" hx-swap="innerHTML" style="margin-left:8px">Generate the {{ new_count }} new SKUs only →</button>
   {% endif %}
+  <button class="btn secondary" hx-post="/generate/continue/{{ job_id }}"
+          hx-target="#progress" hx-swap="innerHTML"
+          title="Builds the sheet again for every SKU in this file. Repeats keep the styleGroupId they were given the first time, so Myntra still sees the same style.">Continue anyway — regenerate all {{ total_count }} →</button>
+  <p class="hint">Use <strong>Continue anyway</strong> to rework SKUs you have already
+    generated (changed photos, attributes or price). They keep their original
+    <span class="mono">styleGroupId</span>; only brand-new SKUs take a fresh one.</p>
 </div>
