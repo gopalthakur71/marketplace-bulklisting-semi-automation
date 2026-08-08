@@ -22,7 +22,7 @@ def _client(tmp_path):
     return TestClient(create_app(s))
 
 
-def _job(tmp_path, monkeypatch, skus=("S1", "S2"), with_images=True):
+def _job(tmp_path, monkeypatch, skus=("S1", "S2"), with_images=True, tags=None):
     """A finished job on disk: built workbook + the Shopify export it came from."""
     warnings.filterwarnings("ignore")
     monkeypatch.setattr(gen, "RUNTIME", str(tmp_path / "runtime"))
@@ -31,8 +31,12 @@ def _job(tmp_path, monkeypatch, skus=("S1", "S2"), with_images=True):
     os.makedirs(job_dir, exist_ok=True)
 
     t = read_template(V13)
-    rows = [(MappedRow(sku=s, cells={"vendorSkuCode": s, "brand": "Ijor"}),
-             ImageResult(sku=s)) for s in skus]
+    rows = []
+    for s in skus:
+        cells = {"vendorSkuCode": s, "brand": "Ijor"}
+        if tags is not None:
+            cells["tags"] = tags
+        rows.append((MappedRow(sku=s, cells=cells), ImageResult(sku=s)))
     xlsx = os.path.join(job_dir, "myntra_filled.xlsx")
     fill_template(V13, t, rows, xlsx)
 
@@ -76,7 +80,7 @@ def test_existing_values_are_preselected(tmp_path, monkeypatch):
                      [{"ordinal": 0, "sku": "S1", "values": {"Border": "Zari"}}])
     r = _client(tmp_path).get(f"/generate/attributes/{job.id}")
     assert '<option value="Zari" selected>Zari</option>' in r.text
-    assert "1/12 filled" in r.text
+    assert "1/13 filled" in r.text
 
 
 def test_missing_image_falls_back_to_placeholder(tmp_path, monkeypatch):
@@ -269,3 +273,36 @@ def test_bulk_save_still_writes_dropdowns_unchanged(tmp_path, monkeypatch):
     t = read_template(V13)
     assert _cell(job.result["filled"], t, 0, "Type") == "Banarasi"
     assert _cell(job.result["filled"], t, 1, "Type") == "Chanderi"
+
+
+def _free_input_value(html, ordinal=0, index=0):
+    """The value= of one free-text input. A bare `'value=""' in html` check would
+    pass on any empty <option>, so match the field itself."""
+    import re
+    m = re.search(r'name="free__%d__%d"\s+value="([^"]*)"' % (ordinal, index), html)
+    assert m, "no free-text input rendered for that ordinal"
+    return m.group(1)
+
+
+def test_panel_renders_a_tags_input_prefilled_from_the_sheet(tmp_path, monkeypatch):
+    job = _job(tmp_path, monkeypatch, skus=("S1",), tags="saree, cotton")
+    r = _client(tmp_path).get(f"/generate/attributes/{job.id}")
+    assert _free_input_value(r.text) == "saree, cotton"
+
+
+def test_tags_input_is_empty_when_the_sheet_has_none(tmp_path, monkeypatch):
+    job = _job(tmp_path, monkeypatch, skus=("S1",))
+    r = _client(tmp_path).get(f"/generate/attributes/{job.id}")
+    assert _free_input_value(r.text) == ""
+
+
+def test_filled_count_is_out_of_thirteen_and_counts_tags(tmp_path, monkeypatch):
+    job = _job(tmp_path, monkeypatch, skus=("S1",), tags="festive")
+    r = _client(tmp_path).get(f"/generate/attributes/{job.id}")
+    assert "1/13 filled" in r.text
+
+
+def test_count_span_is_addressable_for_out_of_band_updates(tmp_path, monkeypatch):
+    job = _job(tmp_path, monkeypatch, skus=("S1",))
+    r = _client(tmp_path).get(f"/generate/attributes/{job.id}")
+    assert 'id="attr-count-0"' in r.text

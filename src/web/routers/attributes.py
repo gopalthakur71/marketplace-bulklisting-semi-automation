@@ -48,7 +48,7 @@ def job_files(job_id):
     return job, job_dir, xlsx, os.path.join(job_dir, "products_export.csv")
 
 
-def _panels(xlsx, csv_path, template, columns):
+def _panels(xlsx, csv_path, template, columns, free_columns):
     products = {}
     if os.path.exists(csv_path):
         products = {p.sku: p for p in read_products(csv_path)}
@@ -64,7 +64,9 @@ def _panels(xlsx, csv_path, template, columns):
             # NOT "values": in Jinja `p.values` would resolve to dict.values (the
             # method), silently breaking the pre-selection comparison.
             "chosen": {c: attrs.get(c) for c in columns},
-            "filled": sum(1 for c in columns if is_set(attrs.get(c))),
+            "free": {c: attrs.get(c) for c in free_columns},
+            "filled": sum(1 for c in list(columns) + list(free_columns)
+                          if is_set(attrs.get(c))),
             # Shown read-only: what is in the sheet now, not a guess at what a
             # pending selection would produce.
             "brand_colour": attrs.get(BRAND_COLOUR_HEADER),
@@ -78,12 +80,13 @@ def attributes_form(request: Request, job_id: str):
     user = get_user(request)
     job, _job_dir, xlsx, csv_path = job_files(job_id)
     template = read_template(TEMPLATE)
-    columns = user_filled_attributes()
+    columns, free_columns = user_filled_attributes(), user_filled_freetext()
     return _templates().TemplateResponse(request, "attributes.html", {
         "user": user, "job_id": job.id, "columns": columns,
+        "free_columns": free_columns,
         "vocab": attribute_vocab(template, columns),
-        "panels": _panels(xlsx, csv_path, template, columns),
-        "total": len(columns)})
+        "panels": _panels(xlsx, csv_path, template, columns, free_columns),
+        "total": len(columns) + len(free_columns)})
 
 
 def _submitted(form, columns):

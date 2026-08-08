@@ -2,7 +2,7 @@
   <summary>
     <strong class="mono">{{ p.sku }}</strong>
     <span class="hint">{{ p.product_title }}</span>
-    <span class="hint">{{ p.filled }}/{{ total }} filled</span>
+    <span class="hint" id="attr-count-{{ p.ordinal }}">{{ p.filled }}/{{ total }} filled</span>
   </summary>
   <input type="hidden" name="sku__{{ p.ordinal }}" value="{{ p.sku }}">
   <div class="attr-body">
@@ -36,5 +36,14 @@
     <div class="attr-preview" id="attr-preview-{{ p.ordinal }}">
       {% with c = p.card %}{% include "_preview_card.html" %}{% endwith %}
     </div>
+  </div>
+  <div class="attr-footer">
+    {% for column in free_columns %}
+    <label class="hint attr-free">{{ column }}
+      <input type="text" name="free__{{ p.ordinal }}__{{ loop.index0 }}"
+             value="{{ p.free[column] or '' }}" autocomplete="off">
+      <span class="hint">free text — pre-filled from Shopify, edit if needed</span>
+    </label>
+    {% endfor %}
   </div>
 </details>

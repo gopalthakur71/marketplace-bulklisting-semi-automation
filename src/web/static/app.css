@@ -71,3 +71,8 @@ input[type=text]{background:var(--bg);border:1px solid var(--marigold);color:var
   border:1px solid var(--line);border-radius:6px;padding:6px}
 .attr-preview{flex:1;min-width:260px}
 .attr-derived{grid-column:1/-1;margin:2px 0 0}
+.attr-footer{margin-top:12px;padding-top:10px;border-top:1px solid var(--line);
+  display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap}
+.attr-free{display:flex;flex-direction:column;gap:4px;flex:1;min-width:260px}
+.attr-free input{background:var(--panel);color:var(--ink);border:1px solid var(--line);
+  border-radius:6px;padding:6px 8px;width:100%}
