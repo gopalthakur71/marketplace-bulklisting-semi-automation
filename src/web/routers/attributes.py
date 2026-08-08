@@ -1,4 +1,5 @@
 import os
+import threading
 
 from fastapi import APIRouter, Request, HTTPException
 from fastapi.responses import HTMLResponse
@@ -7,6 +8,7 @@ from src.core.shopify_reader import read_products
 from src.myntra.attribute_entry import (BRAND_COLOUR_HEADER, AttributeValueError,
                                         SkuMismatchError, attribute_vocab,
                                         derive_brand_colour, user_filled_attributes,
+                                        user_filled_freetext, validate_freetext,
                                         validate_submitted, write_attributes)
 from src.myntra.pipeline import DEFAULT_TEMPLATE_NAME
 from src.myntra.preview import build_card, is_set, read_filled_rows
@@ -17,6 +19,12 @@ from src.web.routers.pages import get_user
 router = APIRouter()
 TEMPLATE = os.path.join("templates", "myntra", DEFAULT_TEMPLATE_NAME)
 EXPIRED = "session expired, please re-upload"
+
+# Every save is a read-modify-write of the whole workbook (openpyxl load -> save ->
+# shared_to_inline). Two panels saved at the same moment would interleave and the
+# second write would silently drop the first one's values, with no error shown.
+# Serialising all saves costs a single owner nothing.
+_WRITE_LOCK = threading.Lock()
 
 
 def _templates():
@@ -95,6 +103,53 @@ def _submitted(form, columns):
     return dict(sorted(entries.items()))
 
 
+def _submitted_free(form, columns):
+    """Parse free__{ordinal}__{column_index} into {ordinal: {column: raw_value}}."""
+    entries = {}
+    for key, value in form.items():
+        if not key.startswith("free__"):
+            continue
+        _, ordinal, col_index = key.split("__")
+        ordinal, col_index = int(ordinal), int(col_index)
+        if 0 <= col_index < len(columns):
+            entries.setdefault(ordinal, {})[columns[col_index]] = str(value)
+    return entries
+
+
+def _build_payload(entries, free, template, columns, free_columns):
+    """Validate every entry and merge dropdown + derived + free-text values.
+    Raises AttributeValueError before anything is written."""
+    vocab = attribute_vocab(template, columns)      # built once, not per entry
+    has_brand_colour = BRAND_COLOUR_HEADER in template.col_index_by_header
+    payload = []
+    for ordinal, e in entries.items():
+        values = validate_submitted(e["values"], vocab)
+        # Derived, never typed — Myntra rejects a null Brand Colour (Remarks).
+        if has_brand_colour:
+            values[BRAND_COLOUR_HEADER] = derive_brand_colour(values)
+        values.update(validate_freetext(free.get(ordinal, {}), free_columns))
+        payload.append({"ordinal": ordinal, "sku": e["sku"], "values": values})
+    return payload
+
+
+async def _save_entries(request, job_id):
+    """Shared by both save routes. Returns (job, ordinals, payload, error)."""
+    job, _job_dir, xlsx, _csv = job_files(job_id)
+    template = read_template(TEMPLATE)
+    columns, free_columns = user_filled_attributes(), user_filled_freetext()
+    form = await request.form()
+    entries = _submitted(form, columns)
+    free = _submitted_free(form, free_columns)
+    ordinals = list(entries)
+    try:
+        payload = _build_payload(entries, free, template, columns, free_columns)
+        with _WRITE_LOCK:
+            write_attributes(xlsx, template, payload)
+    except (AttributeValueError, SkuMismatchError) as exc:
+        return job, ordinals, [], str(exc)
+    return job, ordinals, payload, None
+
+
 @router.post("/generate/attributes/{job_id}/preview", response_class=HTMLResponse)
 async def attributes_live_preview(request: Request, job_id: str):
     get_user(request)
@@ -111,24 +166,9 @@ async def attributes_live_preview(request: Request, job_id: str):
 @router.post("/generate/attributes/{job_id}", response_class=HTMLResponse)
 async def attributes_save(request: Request, job_id: str):
     get_user(request)
-    job, _job_dir, xlsx, _csv = job_files(job_id)
-    template = read_template(TEMPLATE)
-    columns = user_filled_attributes()
-    vocab = attribute_vocab(template, columns)
-    entries = _submitted(await request.form(), columns)
-
-    has_brand_colour = BRAND_COLOUR_HEADER in template.col_index_by_header
-    try:
-        payload = []
-        for ordinal, e in entries.items():
-            values = validate_submitted(e["values"], vocab)
-            # Derived, never typed — Myntra rejects a null Brand Colour (Remarks).
-            if has_brand_colour:
-                values[BRAND_COLOUR_HEADER] = derive_brand_colour(values)
-            payload.append({"ordinal": ordinal, "sku": e["sku"], "values": values})
-        saved = write_attributes(xlsx, template, payload)
-    except (AttributeValueError, SkuMismatchError) as exc:
+    job, _ordinals, payload, error = await _save_entries(request, job_id)
+    if error:
         return _templates().TemplateResponse(
-            request, "_attr_saved.html", {"job_id": job.id, "error": str(exc)})
+            request, "_attr_saved.html", {"job_id": job.id, "error": error})
     return _templates().TemplateResponse(
-        request, "_attr_saved.html", {"job_id": job.id, "saved": saved})
+        request, "_attr_saved.html", {"job_id": job.id, "saved": len(payload)})

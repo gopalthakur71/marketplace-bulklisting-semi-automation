@@ -222,3 +222,50 @@ def test_save_on_expired_job_says_session_expired(tmp_path, monkeypatch):
     r = _client(tmp_path).post("/generate/attributes/" + "0" * 32,
                                data={"sku__0": "S1"})
     assert r.status_code == 404
+
+
+def _cell(xlsx, template, ordinal, header):
+    import openpyxl
+    wb = openpyxl.load_workbook(xlsx, data_only=True)
+    v = wb["Sarees"].cell(row=template.first_data_row + ordinal,
+                          column=template.col_index_by_header[header]).value
+    wb.close()
+    return v
+
+
+def test_bulk_save_writes_tags_free_text(tmp_path, monkeypatch):
+    job = _job(tmp_path, monkeypatch, skus=("S1",))
+    _client(tmp_path).post(f"/generate/attributes/{job.id}", data={
+        "sku__0": "S1", "free__0__0": "saree, cotton, handloom"})
+    assert _cell(job.result["filled"], read_template(V13), 0,
+                 "tags") == "saree, cotton, handloom"
+
+
+def test_bulk_save_accepts_tags_that_no_vocabulary_would_allow(tmp_path, monkeypatch):
+    job = _job(tmp_path, monkeypatch, skus=("S1",))
+    r = _client(tmp_path).post(f"/generate/attributes/{job.id}", data={
+        "sku__0": "S1", "free__0__0": "Salmon Pink"})
+    assert "Saved" in r.text
+    assert _cell(job.result["filled"], read_template(V13), 0, "tags") == "Salmon Pink"
+
+
+def test_bulk_save_blank_tags_clears_the_cell(tmp_path, monkeypatch):
+    job = _job(tmp_path, monkeypatch, skus=("S1",))
+    client = _client(tmp_path)
+    client.post(f"/generate/attributes/{job.id}",
+                data={"sku__0": "S1", "free__0__0": "keepme"})
+    client.post(f"/generate/attributes/{job.id}",
+                data={"sku__0": "S1", "free__0__0": "   "})
+    assert _cell(job.result["filled"], read_template(V13), 0, "tags") is None
+
+
+def test_bulk_save_still_writes_dropdowns_unchanged(tmp_path, monkeypatch):
+    """Regression: the extracted helper must not change existing behaviour."""
+    job = _job(tmp_path, monkeypatch, skus=("S1", "S2"))
+    r = _client(tmp_path).post(f"/generate/attributes/{job.id}", data={
+        "sku__0": "S1", "attr__0__5": "Banarasi",
+        "sku__1": "S2", "attr__1__5": "Chanderi"})
+    assert "Saved" in r.text
+    t = read_template(V13)
+    assert _cell(job.result["filled"], t, 0, "Type") == "Banarasi"
+    assert _cell(job.result["filled"], t, 1, "Type") == "Chanderi"
