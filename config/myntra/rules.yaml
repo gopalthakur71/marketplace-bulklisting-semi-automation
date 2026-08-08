@@ -40,6 +40,15 @@ user_filled_attributes:
   - Wash Care
   - Usage
 
+# Free-text columns the seller fills by hand. These have NO dropdown vocabulary in
+# the Myntra template, so they are deliberately kept OUT of user_filled_attributes:
+# everything in that list is validated by exact membership in the template's own
+# vocabulary, and that rule must never be relaxed. `tags` is pre-filled by the
+# pipeline from the Shopify export (column_map.yaml: tags -> tags); the seller may
+# overwrite it in the app.
+user_filled_freetext:
+  - tags
+
 # Assign a sequential styleGroupId to each product row, continuing from the
 # seller's existing Myntra catalog. styleGroupId of row i = style_group_id_start + (i-1).
 # 8 products already listed -> next group starts at 9. Bump this before each new batch.

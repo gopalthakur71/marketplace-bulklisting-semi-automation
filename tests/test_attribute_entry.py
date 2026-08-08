@@ -163,3 +163,38 @@ def test_write_attributes_rejects_sku_mismatch_without_writing(tmp_path):
             {"ordinal": 0, "sku": "S1", "values": {"Border": "Zari"}},
             {"ordinal": 1, "sku": "WRONG", "values": {"Border": "Solid"}}])
     assert _cell(path, t, 0, "Border") is None   # nothing written at all
+
+
+def test_user_filled_freetext_reads_the_yaml_list():
+    from src.myntra.attribute_entry import user_filled_freetext
+    assert user_filled_freetext() == ["tags"]
+
+
+def test_validate_freetext_accepts_any_value():
+    from src.myntra.attribute_entry import validate_freetext
+    out = validate_freetext({"tags": "saree, cotton, handloom"}, ["tags"])
+    assert out == {"tags": "saree, cotton, handloom"}
+
+
+def test_validate_freetext_strips_whitespace():
+    from src.myntra.attribute_entry import validate_freetext
+    assert validate_freetext({"tags": "  festive  "}, ["tags"]) == {"tags": "festive"}
+
+
+def test_validate_freetext_turns_blank_into_none():
+    from src.myntra.attribute_entry import validate_freetext
+    assert validate_freetext({"tags": "   "}, ["tags"]) == {"tags": None}
+    assert validate_freetext({"tags": ""}, ["tags"]) == {"tags": None}
+    assert validate_freetext({"tags": None}, ["tags"]) == {"tags": None}
+
+
+def test_validate_freetext_rejects_an_unknown_column():
+    from src.myntra.attribute_entry import AttributeValueError, validate_freetext
+    with pytest.raises(AttributeValueError):
+        validate_freetext({"styleGroupId": "9999"}, ["tags"])
+
+
+def test_validate_freetext_does_not_check_any_vocabulary():
+    """The whole point: a value that would be rejected as a dropdown is fine here."""
+    from src.myntra.attribute_entry import validate_freetext
+    assert validate_freetext({"tags": "Salmon Pink"}, ["tags"]) == {"tags": "Salmon Pink"}

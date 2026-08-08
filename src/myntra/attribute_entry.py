@@ -24,6 +24,11 @@ FALLBACK_USER_FILLED = [
     "Saree Fabric", "Blouse Fabric", "Type", "Ornamentation", "Border",
     "Pattern", "Print or Pattern Type", "Wash Care", "Usage"]
 
+# Free-text columns: no template vocabulary, so no membership check is possible.
+# Kept separate from FALLBACK_USER_FILLED so the exact-vocabulary rule that guards
+# the dropdown columns can never accidentally be relaxed.
+FALLBACK_USER_FREETEXT = ["tags"]
+
 
 class AttributeValueError(Exception):
     """A submitted value is not an exact member of that column's Myntra vocabulary."""
@@ -33,6 +38,12 @@ def user_filled_attributes(config_dir=CONFIG_DIR):
     with open(os.path.join(config_dir, "rules.yaml"), encoding="utf-8") as fh:
         rules = yaml.safe_load(fh) or {}
     return rules.get("user_filled_attributes") or list(FALLBACK_USER_FILLED)
+
+
+def user_filled_freetext(config_dir=CONFIG_DIR):
+    with open(os.path.join(config_dir, "rules.yaml"), encoding="utf-8") as fh:
+        rules = yaml.safe_load(fh) or {}
+    return rules.get("user_filled_freetext") or list(FALLBACK_USER_FREETEXT)
 
 
 def attribute_vocab(template, columns):
@@ -54,6 +65,23 @@ def validate_submitted(values, vocab):
             raise AttributeValueError(
                 f"{column}: '{v}' is not one of Myntra's accepted values")
         out[column] = v
+    return out
+
+
+def validate_freetext(values, columns):
+    """Accept any text for a known free-text column. Blank -> None (clears the cell).
+
+    Deliberately does NOT consult a vocabulary — these columns have none. The column
+    name is still checked so a tampered form cannot write into an arbitrary template
+    cell."""
+    out = {}
+    for column, value in values.items():
+        if column not in columns:
+            raise AttributeValueError(f"Unknown free-text column: {column}")
+        if value is None or str(value).strip() == "":
+            out[column] = None
+            continue
+        out[column] = str(value).strip()
     return out
 
 
