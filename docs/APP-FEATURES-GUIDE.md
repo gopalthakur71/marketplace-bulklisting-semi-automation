@@ -117,6 +117,18 @@ A few things worth knowing:
 - **The preview here is the same one as Screen 3**, so the two can never tell you different
   things. Specifications are exact; title and Design Details are our best reconstruction and are
   labelled as approximate.
+- **Saving one product at a time.** Each product box has its own **Save this SKU** button. It
+  saves just that product, so you can fill two or three, save them, and come back to the rest
+  later without losing anything. The counter at the top of the box ("5/13 filled") updates as
+  soon as the save succeeds. The **Save attributes** button at the bottom still saves every
+  product at once — use whichever suits you.
+- **One caveat worth knowing:** saved work lives with that batch while the app is running. If
+  the app is restarted or updated, the batch is cleared and you will be asked to upload the
+  file again. Finish a batch in one day where you can.
+- **The tags box.** Every product has a **tags** box, filled in automatically from the Tags
+  field on the product in Shopify. Unlike the dropdowns, you can type anything you like here
+  — Myntra does not restrict it. Leave it alone and your Shopify tags are used as-is; clear
+  it and the product goes up with no tags.
 
 ### Supporting features on the Generate screen
 
