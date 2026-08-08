@@ -100,11 +100,25 @@ def test_live_preview_reconstructs_from_posted_values(tmp_path, monkeypatch):
     job = _job(tmp_path, monkeypatch, skus=("S1",))
     # column indexes: 0 Prominent Colour .. 5 Type .. 9 Print or Pattern Type
     r = _client(tmp_path).post(f"/generate/attributes/{job.id}/preview", data={
+        "ordinal": "0",
         "sku__0": "S1", "attr__0__0": "Blue", "attr__0__3": "Pure Silk",
         "attr__0__5": "Banarasi", "attr__0__9": "Floral"})
     assert r.status_code == 200
     assert "Floral Pure Silk Banarasi Saree" in r.text
     assert "Blue Banarasi sarees" in r.text
+
+
+def test_live_preview_renders_the_panel_that_asked_not_the_first(tmp_path, monkeypatch):
+    """The post carries every included panel's fields; the ordinal decides. Taking
+    the first entry rendered panel 0's card into panel 1's slot."""
+    job = _job(tmp_path, monkeypatch, skus=("S1", "S2"))
+    r = _client(tmp_path).post(f"/generate/attributes/{job.id}/preview", data={
+        "ordinal": "1",
+        "sku__0": "S1", "attr__0__5": "Banarasi",
+        "sku__1": "S2", "attr__1__5": "Chanderi"})
+    assert r.status_code == 200
+    assert "Chanderi" in r.text
+    assert "Banarasi" not in r.text
 
 
 def test_save_writes_all_skus_and_download_serves_the_updated_file(tmp_path, monkeypatch):
@@ -314,18 +328,52 @@ def test_saving_one_panel_writes_only_that_row(tmp_path, monkeypatch):
     client.post(f"/generate/attributes/{job.id}",
                 data={"sku__0": "S1", "attr__0__5": "Banarasi",
                       "sku__1": "S2", "attr__1__5": "Chanderi"})
-    # Now save ONLY panel 0, changing it. Panel 1 must survive untouched.
+    # Now save ONLY panel 0, changing it to a THIRD value. Distinct values per row
+    # matter: if row 0's value leaked into row 1 the assertions below must fail.
     r = client.post(f"/generate/attributes/{job.id}/one",
-                    data={"sku__0": "S1", "attr__0__5": "Chanderi"})
+                    data={"ordinal": "0", "sku__0": "S1", "attr__0__5": "Kanjeevaram"})
     assert r.status_code == 200
     t = read_template(V13)
-    assert _cell(job.result["filled"], t, 0, "Type") == "Chanderi"
+    assert _cell(job.result["filled"], t, 0, "Type") == "Kanjeevaram"
     assert _cell(job.result["filled"], t, 1, "Type") == "Chanderi"  # unchanged
+
+
+def test_one_panel_save_writes_only_the_requested_ordinal(tmp_path, monkeypatch):
+    """The real browser post. Scoping cannot happen in htmx (hx-include only ever
+    ADDS fields), so the server must honour the explicit ordinal: a body carrying
+    every panel writes one row, and the oob count names THAT panel."""
+    job = _job(tmp_path, monkeypatch, skus=("S1", "S2"))
+    r = _client(tmp_path).post(f"/generate/attributes/{job.id}/one", data={
+        "ordinal": "1",
+        "sku__0": "S1", "attr__0__5": "Banarasi", "free__0__0": "row-zero-tags",
+        "sku__1": "S2", "attr__1__5": "Chanderi", "free__1__0": "row-one-tags"})
+    assert r.status_code == 200
+    t = read_template(V13)
+    assert _cell(job.result["filled"], t, 1, "Type") == "Chanderi"
+    assert _cell(job.result["filled"], t, 1, "tags") == "row-one-tags"
+    assert _cell(job.result["filled"], t, 0, "Type") is None       # not written
+    assert _cell(job.result["filled"], t, 0, "tags") is None
+    assert 'id="attr-count-1"' in r.text
+    assert 'id="attr-count-0"' not in r.text
+    assert 'hx-swap-oob="true"' in r.text
+    assert "2/13 filled" in r.text
+
+
+def test_one_panel_save_off_vocab_elsewhere_does_not_block_this_panel(tmp_path, monkeypatch):
+    """Panel 1's Save must not fail because panel 0 holds a bad value."""
+    job = _job(tmp_path, monkeypatch, skus=("S1", "S2"))
+    r = _client(tmp_path).post(f"/generate/attributes/{job.id}/one", data={
+        "ordinal": "1",
+        "sku__0": "S1", "attr__0__0": "Salmon Pink",
+        "sku__1": "S2", "attr__1__5": "Chanderi"})
+    assert "Saved" in r.text
+    assert _cell(job.result["filled"], read_template(V13), 1, "Type") == "Chanderi"
 
 
 def test_one_panel_save_returns_the_refreshed_count_out_of_band(tmp_path, monkeypatch):
     job = _job(tmp_path, monkeypatch, skus=("S1",))
     r = _client(tmp_path).post(f"/generate/attributes/{job.id}/one", data={
+        "ordinal": "0",
         "sku__0": "S1", "attr__0__5": "Banarasi", "free__0__0": "festive"})
     assert 'id="attr-count-0"' in r.text
     assert 'hx-swap-oob="true"' in r.text
@@ -335,8 +383,9 @@ def test_one_panel_save_returns_the_refreshed_count_out_of_band(tmp_path, monkey
 
 def test_one_panel_save_rejects_off_vocab_inline_without_writing(tmp_path, monkeypatch):
     job = _job(tmp_path, monkeypatch, skus=("S1",))
-    r = _client(tmp_path).post(f"/generate/attributes/{job.id}/one",
-                               data={"sku__0": "S1", "attr__0__0": "Salmon Pink"})
+    r = _client(tmp_path).post(
+        f"/generate/attributes/{job.id}/one",
+        data={"ordinal": "0", "sku__0": "S1", "attr__0__0": "Salmon Pink"})
     assert r.status_code == 200                 # inline error, not a 500
     assert "not one of Myntra" in r.text
     assert 'hx-swap-oob' not in r.text          # count must NOT be updated
@@ -351,7 +400,8 @@ def test_one_panel_save_keeps_dropdowns_alive(tmp_path, monkeypatch):
     before = len(wb["Sarees"].data_validations.dataValidation)
     wb.close()
     _client(tmp_path).post(f"/generate/attributes/{job.id}/one",
-                           data={"sku__0": "S1", "attr__0__7": "Zari"})
+                           data={"ordinal": "0", "sku__0": "S1",
+                                 "attr__0__7": "Zari"})
     wb = openpyxl.load_workbook(job.result["filled"])
     assert len(wb["Sarees"].data_validations.dataValidation) == before
     wb.close()
@@ -370,7 +420,8 @@ def test_one_panel_save_holds_the_write_lock(tmp_path, monkeypatch):
 
     monkeypatch.setattr(attrs, "write_attributes", spy)
     _client(tmp_path).post(f"/generate/attributes/{job.id}/one",
-                           data={"sku__0": "S1", "attr__0__7": "Zari"})
+                           data={"ordinal": "0", "sku__0": "S1",
+                                 "attr__0__7": "Zari"})
     assert seen["locked"] is True
 
 
@@ -381,18 +432,36 @@ def test_one_panel_save_on_expired_job_says_session_expired(tmp_path, monkeypatc
     assert r.status_code == 404
 
 
-def test_panel_has_a_save_button_that_posts_only_its_own_fields(tmp_path, monkeypatch):
+def test_panel_save_button_declares_its_own_ordinal(tmp_path, monkeypatch):
+    """Markup half of the guarantee — the behavioural half is
+    test_one_panel_save_writes_only_the_requested_ordinal. Each button must state
+    WHICH panel it is; the server cannot infer it from the posted keys."""
     import re
     job = _job(tmp_path, monkeypatch, skus=("S1", "S2"))
     r = _client(tmp_path).get(f"/generate/attributes/{job.id}")
     buttons = re.findall(r"<button[^>]*hx-post=\"/generate/attributes/[^\"]+/one\"[^>]*>",
                          r.text)
     assert len(buttons) == 2
-    # Load-bearing: a default submit button would post every panel at once. Counting
-    # type="button" across the whole page would also match unrelated chrome.
+    # Load-bearing: a submit button would post the page rather than fire htmx.
     assert all('type="button"' in b for b in buttons)
-    assert all('hx-include="closest .attr-panel"' in b for b in buttons)
+    assert '"ordinal": 0' in buttons[0] and '"ordinal": 1' in buttons[1]
     assert 'id="attr-save-0"' in r.text and 'id="attr-save-1"' in r.text
+
+
+def test_panels_are_not_wrapped_in_a_form(tmp_path, monkeypatch):
+    """htmx posts an enclosing form's EVERY field on any non-GET and hx-include can
+    only add to that set. A <form> here would silently un-scope every panel."""
+    job = _job(tmp_path, monkeypatch, skus=("S1", "S2"))
+    r = _client(tmp_path).get(f"/generate/attributes/{job.id}")
+    assert "<form" not in r.text
+    assert 'id="attr-form"' in r.text
+    assert 'hx-include="#attr-form"' in r.text     # bulk save still posts them all
+
+
+def test_live_preview_element_declares_its_own_ordinal(tmp_path, monkeypatch):
+    job = _job(tmp_path, monkeypatch, skus=("S1", "S2"))
+    r = _client(tmp_path).get(f"/generate/attributes/{job.id}")
+    assert r.text.count("""hx-vals='{"ordinal": 1}'""") == 2   # grid + save button
 
 
 def test_one_panel_save_with_no_parseable_entries_touches_no_panel(tmp_path, monkeypatch):
@@ -405,3 +474,34 @@ def test_one_panel_save_with_no_parseable_entries_touches_no_panel(tmp_path, mon
     assert r.status_code == 200
     assert 'hx-swap-oob' not in r.text
     assert "Saved" not in r.text
+
+
+def test_one_panel_save_for_an_absent_ordinal_touches_no_panel(tmp_path, monkeypatch):
+    """The ordinal is explicit, but that panel posted no fields of its own."""
+    job = _job(tmp_path, monkeypatch, skus=("S1", "S2"))
+    r = _client(tmp_path).post(f"/generate/attributes/{job.id}/one",
+                               data={"ordinal": "1", "sku__0": "S1",
+                                     "attr__0__5": "Banarasi"})
+    assert r.status_code == 200
+    assert 'hx-swap-oob' not in r.text
+    assert "Saved" not in r.text
+    assert _cell(job.result["filled"], read_template(V13), 0, "Type") is None
+
+
+def test_untouched_tags_field_round_trips_unchanged(tmp_path, monkeypatch):
+    """Spec test 6. The box is pre-filled from the sheet; a user who never touches
+    it still posts it back, and that must not blank or alter the cell."""
+    job = _job(tmp_path, monkeypatch, skus=("S1",), tags="saree, cotton, handloom")
+    client = _client(tmp_path)
+    rendered = _free_input_value(client.get(f"/generate/attributes/{job.id}").text)
+    assert rendered == "saree, cotton, handloom"
+    # Post back exactly what the browser holds, changing only a dropdown.
+    client.post(f"/generate/attributes/{job.id}/one",
+                data={"ordinal": "0", "sku__0": "S1", "attr__0__5": "Banarasi",
+                      "free__0__0": rendered})
+    t = read_template(V13)
+    assert _cell(job.result["filled"], t, 0, "tags") == "saree, cotton, handloom"
+    assert _cell(job.result["filled"], t, 0, "Type") == "Banarasi"
+    # and it comes back pre-filled again on reload
+    assert _free_input_value(
+        client.get(f"/generate/attributes/{job.id}").text) == "saree, cotton, handloom"

@@ -12,11 +12,18 @@
     <p class="hint">Nothing to fill in this batch.</p>
     <a class="btn" href="/generate/download/{{ job_id }}">⬇ Download xlsx</a>
   {% else %}
-  <form hx-post="/generate/attributes/{{ job_id }}" hx-target="#attr-save-out"
-        hx-swap="innerHTML">
+  {# NOT a <form>: htmx posts an enclosing form's every field on any non-GET, so a
+     form here would make each panel's "Save this SKU" post all the other panels
+     too. A plain div lets hx-include decide — all panels for the bulk button,
+     one panel for a per-panel button. #}
+  <div id="attr-form">
     {% for p in panels %}{% include "_attr_panel.html" %}{% endfor %}
-    <button class="btn" type="submit">Save attributes</button>
-  </form>
+    <button class="btn" type="button"
+            hx-post="/generate/attributes/{{ job_id }}"
+            hx-include="#attr-form"
+            hx-target="#attr-save-out"
+            hx-swap="innerHTML">Save attributes</button>
+  </div>
   <div id="attr-save-out"></div>
   {% endif %}
 </div>

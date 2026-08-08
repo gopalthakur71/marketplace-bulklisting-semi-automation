@@ -17,6 +17,7 @@
          hx-post="/generate/attributes/{{ job_id }}/preview"
          hx-trigger="change"
          hx-include="closest .attr-panel"
+         hx-vals='{"ordinal": {{ p.ordinal }}}'
          hx-target="#attr-preview-{{ p.ordinal }}"
          hx-swap="innerHTML">
       {% for column in columns %}
@@ -48,6 +49,7 @@
     <button class="btn" type="button"
             hx-post="/generate/attributes/{{ job_id }}/one"
             hx-include="closest .attr-panel"
+            hx-vals='{"ordinal": {{ p.ordinal }}}'
             hx-target="#attr-save-{{ p.ordinal }}"
             hx-swap="innerHTML"
             hx-disabled-elt="this">Save this SKU</button>

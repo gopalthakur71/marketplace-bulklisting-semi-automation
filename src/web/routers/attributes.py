@@ -48,6 +48,25 @@ def job_files(job_id):
     return job, job_dir, xlsx, os.path.join(job_dir, "products_export.csv")
 
 
+def _filled_count(values, columns, free_columns):
+    """The one definition of "N filled". Shared by the screen and the per-panel
+    save so a future column change cannot make the two disagree."""
+    return sum(1 for c in list(columns) + list(free_columns) if is_set(values.get(c)))
+
+
+def _requested_ordinal(form):
+    """The ordinal of the panel the click came from, sent explicitly as hx-vals.
+
+    It is NOT inferred from the posted keys: the browser posts more than one
+    panel's fields whenever anything wider than the panel is included, and
+    picking the first ordinal then reports (and refreshes) the wrong panel.
+    Returns None when the field is absent or unparseable."""
+    try:
+        return int(str(form.get("ordinal")))
+    except (TypeError, ValueError):
+        return None
+
+
 def _panels(xlsx, csv_path, template, columns, free_columns):
     products = {}
     if os.path.exists(csv_path):
@@ -65,8 +84,7 @@ def _panels(xlsx, csv_path, template, columns, free_columns):
             # method), silently breaking the pre-selection comparison.
             "chosen": {c: attrs.get(c) for c in columns},
             "free": {c: attrs.get(c) for c in free_columns},
-            "filled": sum(1 for c in list(columns) + list(free_columns)
-                          if is_set(attrs.get(c))),
+            "filled": _filled_count(attrs, columns, free_columns),
             # Shown read-only: what is in the sheet now, not a guess at what a
             # pending selection would produce.
             "brand_colour": attrs.get(BRAND_COLOUR_HEADER),
@@ -135,14 +153,22 @@ def _build_payload(entries, free, template, columns, free_columns):
     return payload
 
 
-async def _save_entries(request, job_id):
-    """Shared by both save routes. Returns (job, ordinals, payload, error)."""
+async def _save_entries(request, job_id, only=None):
+    """Shared by both save routes. Returns (job, ordinals, payload, error).
+
+    `only` narrows the write to that single ordinal. The per-panel save relies on
+    it: scoping cannot be done in the browser (htmx `hx-include` only ever ADDS
+    fields), so the server is what guarantees one click writes one row — and that
+    an off-vocabulary value in some other panel cannot fail this one."""
     job, _job_dir, xlsx, _csv = job_files(job_id)
     template = read_template(TEMPLATE)
     columns, free_columns = user_filled_attributes(), user_filled_freetext()
     form = await request.form()
     entries = _submitted(form, columns)
     free = _submitted_free(form, free_columns)
+    if only is not None:
+        entries = {o: e for o, e in entries.items() if o == only}
+        free = {o: v for o, v in free.items() if o == only}
     ordinals = list(entries)
     try:
         payload = _build_payload(entries, free, template, columns, free_columns)
@@ -158,8 +184,10 @@ async def attributes_live_preview(request: Request, job_id: str):
     get_user(request)
     job_files(job_id)                      # 404s an expired job before doing work
     columns = user_filled_attributes()
-    entries = _submitted(await request.form(), columns)
-    _ordinal, entry = next(iter(entries.items()), (0, {"sku": "", "values": {}}))
+    form = await request.form()
+    entries = _submitted(form, columns)
+    # The post carries every included panel's fields; render the panel that asked.
+    entry = entries.get(_requested_ordinal(form)) or {"sku": "", "values": {}}
     attrs = dict(entry["values"])
     attrs["vendorSkuCode"] = entry["sku"]
     return _templates().TemplateResponse(
@@ -181,28 +209,36 @@ async def attributes_save(request: Request, job_id: str):
 async def attributes_save_one(request: Request, job_id: str):
     """Save a single panel. Same validation and writing as the bulk route; only the
     rendered response differs — a compact inline result plus an out-of-band refresh
-    of that panel's filled count."""
+    of that panel's filled count.
+
+    Which panel is decided by the explicit `ordinal` field the button sends, never
+    by the posted keys; see _requested_ordinal."""
     get_user(request)
-    job, ordinals, payload, error = await _save_entries(request, job_id)
+    job_files(job_id)                      # 404s an expired job before doing work
+    ordinal = _requested_ordinal(await request.form())
+    nothing = {"ordinal": 0,
+               "error": "Nothing to save — please reload the screen and try again."}
+    if ordinal is None:
+        # No usable ordinal, so no panel to report against. Falling back to the
+        # first posted one would silently stamp a wrong "0/13 filled" onto an
+        # untouched panel. The error branch emits no out-of-band span, so no
+        # count is disturbed.
+        return _templates().TemplateResponse(request, "_attr_panel_saved.html",
+                                             nothing)
+    job, ordinals, payload, error = await _save_entries(request, job_id,
+                                                        only=ordinal)
     if not ordinals:
-        # No sku__N / attr__N__* keys parsed at all — we have no panel to report
-        # against. Falling back to ordinal 0 would silently stamp a wrong "0/13
-        # filled" onto an untouched panel. Report the error instead; the error
-        # branch emits no out-of-band span, so no count is disturbed.
-        return _templates().TemplateResponse(
-            request, "_attr_panel_saved.html",
-            {"ordinal": 0,
-             "error": "Nothing to save — please reload the screen and try again."})
-    ordinal = ordinals[0]
+        # The requested panel posted no sku__N / attr__N__* keys of its own.
+        return _templates().TemplateResponse(request, "_attr_panel_saved.html",
+                                             nothing)
     if error:
         return _templates().TemplateResponse(
             request, "_attr_panel_saved.html",
             {"ordinal": ordinal, "error": error})
     columns, free_columns = user_filled_attributes(), user_filled_freetext()
     values = payload[0]["values"] if payload else {}
-    filled = sum(1 for c in list(columns) + list(free_columns)
-                 if is_set(values.get(c)))
     return _templates().TemplateResponse(
         request, "_attr_panel_saved.html",
-        {"ordinal": ordinal, "filled": filled,
+        {"ordinal": ordinal,
+         "filled": _filled_count(values, columns, free_columns),
          "total": len(columns) + len(free_columns)})
