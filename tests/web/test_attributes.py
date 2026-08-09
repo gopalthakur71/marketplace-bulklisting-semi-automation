@@ -22,7 +22,8 @@ def _client(tmp_path):
     return TestClient(create_app(s))
 
 
-def _job(tmp_path, monkeypatch, skus=("S1", "S2"), with_images=True, tags=None):
+def _job(tmp_path, monkeypatch, skus=("S1", "S2"), with_images=True, tags=None,
+         hsn=None):
     """A finished job on disk: built workbook + the Shopify export it came from."""
     warnings.filterwarnings("ignore")
     monkeypatch.setattr(gen, "RUNTIME", str(tmp_path / "runtime"))
@@ -36,6 +37,8 @@ def _job(tmp_path, monkeypatch, skus=("S1", "S2"), with_images=True, tags=None):
         cells = {"vendorSkuCode": s, "brand": "Ijor"}
         if tags is not None:
             cells["tags"] = tags
+        if hsn is not None:
+            cells["HSN"] = hsn
         rows.append((MappedRow(sku=s, cells=cells), ImageResult(sku=s)))
     xlsx = os.path.join(job_dir, "myntra_filled.xlsx")
     fill_template(V13, t, rows, xlsx)
@@ -80,7 +83,7 @@ def test_existing_values_are_preselected(tmp_path, monkeypatch):
                      [{"ordinal": 0, "sku": "S1", "values": {"Border": "Zari"}}])
     r = _client(tmp_path).get(f"/generate/attributes/{job.id}")
     assert '<option value="Zari" selected>Zari</option>' in r.text
-    assert "1/13 filled" in r.text
+    assert "1/14 filled" in r.text
 
 
 def test_missing_image_falls_back_to_placeholder(tmp_path, monkeypatch):
@@ -310,10 +313,10 @@ def test_tags_input_is_empty_when_the_sheet_has_none(tmp_path, monkeypatch):
     assert _free_input_value(r.text) == ""
 
 
-def test_filled_count_is_out_of_thirteen_and_counts_tags(tmp_path, monkeypatch):
+def test_filled_count_is_out_of_fourteen_and_counts_tags(tmp_path, monkeypatch):
     job = _job(tmp_path, monkeypatch, skus=("S1",), tags="festive")
     r = _client(tmp_path).get(f"/generate/attributes/{job.id}")
-    assert "1/13 filled" in r.text
+    assert "1/14 filled" in r.text
 
 
 def test_count_span_is_addressable_for_out_of_band_updates(tmp_path, monkeypatch):
@@ -356,7 +359,7 @@ def test_one_panel_save_writes_only_the_requested_ordinal(tmp_path, monkeypatch)
     assert 'id="attr-count-1"' in r.text
     assert 'id="attr-count-0"' not in r.text
     assert 'hx-swap-oob="true"' in r.text
-    assert "2/13 filled" in r.text
+    assert "2/14 filled" in r.text
 
 
 def test_one_panel_save_off_vocab_elsewhere_does_not_block_this_panel(tmp_path, monkeypatch):
@@ -377,7 +380,7 @@ def test_one_panel_save_returns_the_refreshed_count_out_of_band(tmp_path, monkey
         "sku__0": "S1", "attr__0__5": "Banarasi", "free__0__0": "festive"})
     assert 'id="attr-count-0"' in r.text
     assert 'hx-swap-oob="true"' in r.text
-    assert "2/13 filled" in r.text
+    assert "2/14 filled" in r.text
     assert "Saved" in r.text
 
 
@@ -505,3 +508,161 @@ def test_untouched_tags_field_round_trips_unchanged(tmp_path, monkeypatch):
     # and it comes back pre-filled again on reload
     assert _free_input_value(
         client.get(f"/generate/attributes/{job.id}").text) == "saree, cotton, handloom"
+
+
+def test_hsn_renders_prefilled_from_the_sheet(tmp_path, monkeypatch):
+    job = _job(tmp_path, monkeypatch, skus=("S1",), hsn="54075240")
+    r = _client(tmp_path).get(f"/generate/attributes/{job.id}")
+    assert 'name="hsn__0"' in r.text
+    assert 'value="54075240"' in r.text
+
+
+def test_hsn_gap_banner_counts_missing_codes(tmp_path, monkeypatch):
+    job = _job(tmp_path, monkeypatch, skus=("S1", "S2"))     # neither has an HSN
+    r = _client(tmp_path).get(f"/generate/attributes/{job.id}")
+    assert "2 SKUs still need an HSN" in r.text
+
+
+def test_saving_a_valid_hsn_writes_it_and_clears_the_banner(tmp_path, monkeypatch):
+    job = _job(tmp_path, monkeypatch, skus=("S1",))
+    client = _client(tmp_path)
+    r = client.post(f"/generate/attributes/{job.id}/one",
+                    data={"ordinal": 0, "sku__0": "S1", "hsn__0": "54075240"})
+    assert r.status_code == 200
+    assert "Saved" in r.text
+    assert "Every SKU has an HSN" in r.text          # out-of-band banner refresh
+    assert _cell(job.result["filled"], read_template(V13), 0, "HSN") == 54075240
+
+
+def test_hsn_counts_toward_the_filled_total_of_fourteen(tmp_path, monkeypatch):
+    # 12 dropdowns + tags + HSN. _filled_count is the single shared definition,
+    # so the panel header and the save result cannot disagree.
+    job = _job(tmp_path, monkeypatch, skus=("S1",))
+    r = _client(tmp_path).post(f"/generate/attributes/{job.id}/one",
+                               data={"ordinal": 0, "sku__0": "S1",
+                                     "hsn__0": "54075240"})
+    assert "1/14 filled" in r.text
+
+
+def test_saving_a_bad_hsn_is_rejected_and_writes_nothing(tmp_path, monkeypatch):
+    job = _job(tmp_path, monkeypatch, skus=("S1",), hsn="54075240")
+    client = _client(tmp_path)
+    r = client.post(f"/generate/attributes/{job.id}/one",
+                    data={"ordinal": 0, "sku__0": "S1", "hsn__0": "5407"})
+    assert "Not saved" in r.text and "8-digit" in r.text
+    assert 'hx-swap-oob' not in r.text               # no count or banner disturbed
+    assert _cell(job.result["filled"], read_template(V13), 0,
+                 "HSN") == 54075240                  # unchanged
+
+
+def test_a_panel_that_posts_no_hsn_field_leaves_the_cell_alone(tmp_path, monkeypatch):
+    """Only a posted hsn__N clears the cell. A save that never carried the field —
+    e.g. the live-preview path or an older cached page — must not blank it."""
+    job = _job(tmp_path, monkeypatch, skus=("S1",), hsn="54075240")
+    _client(tmp_path).post(f"/generate/attributes/{job.id}/one",
+                           data={"ordinal": 0, "sku__0": "S1",
+                                 "attr__0__5": "Banarasi"})
+    assert _cell(job.result["filled"], read_template(V13), 0, "HSN") == 54075240
+
+
+def test_blank_hsn_clears_the_cell(tmp_path, monkeypatch):
+    job = _job(tmp_path, monkeypatch, skus=("S1",), hsn="54075240")
+    r = _client(tmp_path).post(f"/generate/attributes/{job.id}/one",
+                               data={"ordinal": 0, "sku__0": "S1", "hsn__0": "  "})
+    assert "Saved" in r.text
+    assert "1 SKU still needs an HSN" in r.text      # banner counts it again
+    assert _cell(job.result["filled"], read_template(V13), 0, "HSN") is None
+
+
+def test_screen_reads_the_workbook_only_once(tmp_path, monkeypatch):
+    """The gap count is derived from the rows the panels already read. A second
+    read_filled_rows here reloads the whole workbook — the slowest single thing
+    this screen does — to recount something already in hand."""
+    import src.web.routers.attributes as attrs
+    job = _job(tmp_path, monkeypatch, skus=("S1", "S2"))
+    calls = []
+    real = attrs.read_filled_rows
+
+    def spy(*a, **k):
+        calls.append(1)
+        return real(*a, **k)
+
+    monkeypatch.setattr(attrs, "read_filled_rows", spy)
+    r = _client(tmp_path).get(f"/generate/attributes/{job.id}")
+    assert r.status_code == 200
+    assert "2 SKUs still need an HSN" in r.text      # the count is still right
+    assert len(calls) == 1
+
+
+def test_bulk_save_refreshes_the_banner_at_the_top_level_of_the_fragment(tmp_path,
+                                                                        monkeypatch):
+    """htmx processes hx-swap-oob only on TOP-LEVEL elements of a response
+    fragment — nested inside the result panel it is silently ignored and the
+    banner never refreshes. A plain "the span is present" assertion passes either
+    way, so this pins the position: it must follow the panel div, not sit in it."""
+    job = _job(tmp_path, monkeypatch, skus=("S1",))
+    r = _client(tmp_path).post(f"/generate/attributes/{job.id}",
+                               data={"sku__0": "S1", "hsn__0": "54075240"})
+    assert "Saved" in r.text
+    assert 'id="hsn-gap-banner"' in r.text
+    assert r.text.index('id="hsn-gap-banner"') > r.text.rindex("</div>")
+    assert "Every SKU has an HSN" in r.text
+
+
+def test_bulk_save_rejected_emits_no_banner(tmp_path, monkeypatch):
+    job = _job(tmp_path, monkeypatch, skus=("S1",))
+    r = _client(tmp_path).post(f"/generate/attributes/{job.id}",
+                               data={"sku__0": "S1", "hsn__0": "5407"})
+    assert "Nothing was saved" in r.text
+    assert 'hx-swap-oob' not in r.text
+
+
+def test_per_panel_save_writes_only_the_requested_panels_hsn(tmp_path, monkeypatch):
+    job = _job(tmp_path, monkeypatch, skus=("S1", "S2"))
+    client = _client(tmp_path)
+    client.post(f"/generate/attributes/{job.id}/one",
+                data={"ordinal": 1, "sku__0": "S1", "hsn__0": "11111111",
+                      "sku__1": "S2", "hsn__1": "22222222"})
+    t = read_template(V13)
+    assert _cell(job.result["filled"], t, 0, "HSN") is None      # panel 0 untouched
+    assert _cell(job.result["filled"], t, 1, "HSN") == 22222222
+
+
+def test_saving_an_hsn_corrects_the_sku_registry(tmp_path, monkeypatch):
+    """The fix-flow rebuild pins HSN from the registry, so a correction made here
+    has to reach it or a later rebuild restores the stale build-time code."""
+    from src.myntra.sku_registry import read_registry, record
+    from src.web.settings import sku_registry_store
+    job = _job(tmp_path, monkeypatch, skus=("S1",))
+    s = Settings(auth_disabled=True, s3_bucket="b",
+                 ledger_local_path=str(tmp_path / "led.json"),
+                 hsn_local_path=str(tmp_path / "hsn.json"),
+                 sku_registry_local_path=str(tmp_path / "reg.json"))
+    record(sku_registry_store(s), "S1", "hash-1", 7, "50072010")
+
+    TestClient(create_app(s)).post(
+        f"/generate/attributes/{job.id}/one",
+        data={"ordinal": 0, "sku__0": "S1", "hsn__0": "54075240"})
+
+    entry = read_registry(sku_registry_store(s))["S1"]
+    assert entry["hsn"] == "54075240"
+    assert entry["content_hash"] == "hash-1"        # nothing else disturbed
+
+
+def test_a_rejected_save_does_not_move_the_registry(tmp_path, monkeypatch):
+    """The registry update sits inside the same try as the write: a save that
+    never reached the sheet must not leave the registry claiming it did."""
+    from src.myntra.sku_registry import read_registry, record
+    from src.web.settings import sku_registry_store
+    job = _job(tmp_path, monkeypatch, skus=("S1",))
+    s = Settings(auth_disabled=True, s3_bucket="b",
+                 ledger_local_path=str(tmp_path / "led.json"),
+                 hsn_local_path=str(tmp_path / "hsn.json"),
+                 sku_registry_local_path=str(tmp_path / "reg.json"))
+    record(sku_registry_store(s), "S1", "hash-1", 7, "50072010")
+
+    TestClient(create_app(s)).post(
+        f"/generate/attributes/{job.id}/one",
+        data={"ordinal": 0, "sku__0": "S1", "hsn__0": "5407"})
+
+    assert read_registry(sku_registry_store(s))["S1"]["hsn"] == "50072010"

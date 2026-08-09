@@ -10,3 +10,10 @@
     <a class="btn" href="/generate/download/{{ job_id }}">⬇ Download xlsx</a>
   {% endif %}
 </div>
+{# OUTSIDE the panel div on purpose: htmx only processes hx-swap-oob on top-level
+   elements of a response fragment, so nested here it would be silently ignored
+   and the banner would never refresh after a bulk save. The error branch emits
+   nothing, so a rejected save disturbs neither the counts nor the banner. #}
+{% if not error %}
+<span id="hsn-gap-banner" hx-swap-oob="true">{% include "_hsn_gap.html" %}</span>
+{% endif %}

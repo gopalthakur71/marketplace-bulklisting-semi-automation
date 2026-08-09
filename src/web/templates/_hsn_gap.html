@@ -1,0 +1,7 @@
+{# Kept on one line: a line break inside the sentence renders as whitespace in the
+   middle of it, which reads fine but breaks any plain-text match on the phrase. #}
+{% if hsn_gaps %}
+  <span class="flag">⚠ {{ hsn_gaps }} SKU{{ "s" if hsn_gaps != 1 else "" }} still need{{ "" if hsn_gaps != 1 else "s" }} an HSN — Myntra rejects a blank one at upload.</span>
+{% else %}
+  <span class="ok">✅ Every SKU has an HSN.</span>
+{% endif %}

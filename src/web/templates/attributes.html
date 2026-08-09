@@ -16,6 +16,7 @@
      form here would make each panel's "Save this SKU" post all the other panels
      too. A plain div lets hx-include decide — all panels for the bulk button,
      one panel for a per-panel button. #}
+  <p><span id="hsn-gap-banner">{% include "_hsn_gap.html" %}</span></p>
   <div id="attr-form">
     {% for p in panels %}{% include "_attr_panel.html" %}{% endfor %}
     <button class="btn" type="button"

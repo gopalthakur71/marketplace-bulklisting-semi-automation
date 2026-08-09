@@ -3,4 +3,5 @@
 {% else %}
   <span class="ok">✅ Saved · {{ filled }}/{{ total }} filled</span>
   <span class="hint" id="attr-count-{{ ordinal }}" hx-swap-oob="true">{{ filled }}/{{ total }} filled</span>
+  <span id="hsn-gap-banner" hx-swap-oob="true">{% include "_hsn_gap.html" %}</span>
 {% endif %}

@@ -9,7 +9,9 @@ import warnings
 import openpyxl
 import yaml
 
-from src.myntra.fill import SHEET_SAREES_NAME, sheet_xml_name, shared_to_inline
+from src.myntra.fill import (SHEET_SAREES_NAME, _coerce_numeric, sheet_xml_name,
+                             shared_to_inline)
+from src.myntra.hsn_source import normalize as normalize_hsn
 from src.myntra.preview import is_set
 
 CONFIG_DIR = os.path.join("config", "myntra")
@@ -17,6 +19,11 @@ CONFIG_DIR = os.path.join("config", "myntra")
 # Free-text and mandatory in the Myntra template, but derived — never typed. See
 # docs/superpowers/specs/2026-07-27-brand-colour-auto-fill-design.md.
 BRAND_COLOUR_HEADER = "Brand Colour (Remarks)"
+
+# Mandatory, free-text in the template, but validated — unlike `tags`, which
+# accepts anything. Handled outside user_filled_attributes/_freetext so the
+# "everything in the free-text list is unvalidated" invariant still holds.
+HSN_HEADER = "HSN"
 
 # Used only if rules.yaml somehow lacks the key; the YAML is the source of truth.
 FALLBACK_USER_FILLED = [
@@ -85,6 +92,21 @@ def validate_freetext(values, columns):
     return out
 
 
+def validate_hsn(raw):
+    """Blank -> None (clears the cell). Non-blank must be a usable 8-digit code.
+
+    Unlike a bad value read from the export — which normalize() reports as simply
+    missing — a bad value *typed here* is a mistake worth showing, so this
+    raises."""
+    if raw is None or str(raw).strip() == "":
+        return None
+    value = normalize_hsn(raw)
+    if value is None:
+        raise AttributeValueError(
+            f"HSN: '{str(raw).strip()}' is not an 8-digit code")
+    return value
+
+
 def derive_brand_colour(values):
     """Brand Colour (Remarks) follows Prominent Colour, lowercased.
 
@@ -131,7 +153,12 @@ def write_attributes(xlsx_path, template, entries):
                 col = template.col_index_by_header.get(header)
                 if col is None:
                     continue
-                ws.cell(row=r, column=col).value = value
+                # Same coercion the build path applies (fill.fill_template): a
+                # numeric Myntra column stored as text is rejected at upload as
+                # "non numeric". Without this an HSN typed on the attribute screen
+                # would upload as text while the identical code from the export
+                # uploads as a number.
+                ws.cell(row=r, column=col).value = _coerce_numeric(header, value)
         wb.save(xlsx_path)
     finally:
         wb.close()

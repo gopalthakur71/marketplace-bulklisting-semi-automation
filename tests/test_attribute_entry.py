@@ -198,3 +198,44 @@ def test_validate_freetext_does_not_check_any_vocabulary():
     """The whole point: a value that would be rejected as a dropdown is fine here."""
     from src.myntra.attribute_entry import validate_freetext
     assert validate_freetext({"tags": "Salmon Pink"}, ["tags"]) == {"tags": "Salmon Pink"}
+
+
+def test_validate_hsn_accepts_eight_digits_and_strips():
+    from src.myntra.attribute_entry import validate_hsn
+    assert validate_hsn("54075240") == "54075240"
+    assert validate_hsn(" 52085990 ") == "52085990"
+
+
+def test_validate_hsn_blank_clears_the_cell():
+    from src.myntra.attribute_entry import validate_hsn
+    assert validate_hsn("") is None
+    assert validate_hsn("   ") is None
+    assert validate_hsn(None) is None
+
+
+def test_validate_hsn_rejects_a_non_empty_bad_value():
+    from src.myntra.attribute_entry import AttributeValueError, validate_hsn
+    for bad in ("5407", "6211.42.90", "abc", "540752401"):
+        with pytest.raises(AttributeValueError):
+            validate_hsn(bad)
+
+
+def test_write_attributes_stores_hsn_as_a_number(tmp_path):
+    """HSN is in fill.NUMERIC_HEADERS. A known-good upload stores those columns as
+    real numeric cells — Myntra rejects text there as "non numeric" — and the build
+    path coerces them. This save path must coerce too, or an HSN typed on the
+    attribute screen silently uploads as text while the same code from the export
+    uploads as a number."""
+    t, path = _built(tmp_path)
+    write_attributes(path, t,
+                     [{"ordinal": 0, "sku": "S1", "values": {"HSN": "54075240"}}])
+    assert _cell(path, t, 0, "HSN") == 54075240
+
+
+def test_write_attributes_leaves_text_columns_as_text(tmp_path):
+    """The numeric coercion must apply only to NUMERIC_HEADERS — a Type of '2000'
+    would otherwise become a number and break the vocabulary match on reload."""
+    t, path = _built(tmp_path)
+    write_attributes(path, t,
+                     [{"ordinal": 0, "sku": "S1", "values": {"tags": "12345678"}}])
+    assert _cell(path, t, 0, "tags") == "12345678"

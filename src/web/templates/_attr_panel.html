@@ -46,6 +46,18 @@
       <span class="hint">free text — pre-filled from Shopify, edit if needed</span>
     </label>
     {% endfor %}
+    {# Inside .attr-footer, so the save buttons' hx-include="closest .attr-panel"
+       picks it up unchanged. Outside .attr-grid, so it does not fire the live
+       preview — correct, since HSN does not appear on the Myntra card. #}
+    <label class="hint attr-free">HSN
+      <input type="text" name="hsn__{{ p.ordinal }}" value="{{ p.hsn or '' }}"
+             inputmode="numeric" autocomplete="off">
+      {% if p.hsn_missing %}
+      <span class="flag">⚠ needs an 8-digit HSN — Myntra rejects a blank one</span>
+      {% else %}
+      <span class="hint">8 digits — from Shopify’s custom.hsn_code, edit if needed</span>
+      {% endif %}
+    </label>
     <button class="btn" type="button"
             hx-post="/generate/attributes/{{ job_id }}/one"
             hx-include="closest .attr-panel"

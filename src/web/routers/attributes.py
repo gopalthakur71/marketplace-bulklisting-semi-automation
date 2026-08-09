@@ -5,16 +5,21 @@ from fastapi import APIRouter, Request, HTTPException
 from fastapi.responses import HTMLResponse
 
 from src.core.shopify_reader import read_products
-from src.myntra.attribute_entry import (BRAND_COLOUR_HEADER, AttributeValueError,
+from src.myntra.attribute_entry import (BRAND_COLOUR_HEADER, HSN_HEADER,
+                                        AttributeValueError,
                                         SkuMismatchError, attribute_vocab,
                                         derive_brand_colour, user_filled_attributes,
                                         user_filled_freetext, validate_freetext,
-                                        validate_submitted, write_attributes)
+                                        validate_hsn, validate_submitted,
+                                        write_attributes)
+from src.myntra.hsn_source import normalize as normalize_hsn
 from src.myntra.pipeline import DEFAULT_TEMPLATE_NAME
 from src.myntra.preview import build_card, is_set, read_filled_rows
+from src.myntra.sku_registry import update_hsn
 from src.myntra.template_reader import read_template
 from src.web.jobs import store
-from src.web.routers.pages import get_user
+from src.web.routers.pages import get_settings, get_user
+from src.web.settings import sku_registry_store
 
 router = APIRouter()
 TEMPLATE = os.path.join("templates", "myntra", DEFAULT_TEMPLATE_NAME)
@@ -51,7 +56,29 @@ def job_files(job_id):
 def _filled_count(values, columns, free_columns):
     """The one definition of "N filled". Shared by the screen and the per-panel
     save so a future column change cannot make the two disagree."""
-    return sum(1 for c in list(columns) + list(free_columns) if is_set(values.get(c)))
+    return sum(1 for c in list(columns) + list(free_columns) + [HSN_HEADER]
+               if is_set(values.get(c)))
+
+
+def _total(columns, free_columns):
+    """12 dropdowns + the free-text columns + HSN. One definition for the same
+    reason as _filled_count: the screen and the per-panel save must agree."""
+    return len(columns) + len(free_columns) + 1
+
+
+def _hsn_gaps_in(panels):
+    """SKUs with no usable HSN, counted off panels already built. Blank and
+    malformed count alike — Myntra rejects both, so the screen must not
+    distinguish them."""
+    return sum(1 for p in panels if p["hsn_missing"])
+
+
+def _hsn_gap_count(xlsx, template):
+    """The same count read fresh from the sheet, for the save path — which needs
+    post-write state and has no panels in hand. The screen must NOT use this: it
+    would reload the whole workbook to recount rows _panels just read."""
+    return sum(1 for attrs in read_filled_rows(xlsx, template)
+               if normalize_hsn(attrs.get(HSN_HEADER)) is None)
 
 
 def _requested_ordinal(form):
@@ -85,6 +112,8 @@ def _panels(xlsx, csv_path, template, columns, free_columns):
             "chosen": {c: attrs.get(c) for c in columns},
             "free": {c: attrs.get(c) for c in free_columns},
             "filled": _filled_count(attrs, columns, free_columns),
+            "hsn": attrs.get(HSN_HEADER),
+            "hsn_missing": normalize_hsn(attrs.get(HSN_HEADER)) is None,
             # Shown read-only: what is in the sheet now, not a guess at what a
             # pending selection would produce.
             "brand_colour": attrs.get(BRAND_COLOUR_HEADER),
@@ -99,12 +128,14 @@ def attributes_form(request: Request, job_id: str):
     job, _job_dir, xlsx, csv_path = job_files(job_id)
     template = read_template(TEMPLATE)
     columns, free_columns = user_filled_attributes(), user_filled_freetext()
+    panels = _panels(xlsx, csv_path, template, columns, free_columns)
     return _templates().TemplateResponse(request, "attributes.html", {
         "user": user, "job_id": job.id, "columns": columns,
         "free_columns": free_columns,
         "vocab": attribute_vocab(template, columns),
-        "panels": _panels(xlsx, csv_path, template, columns, free_columns),
-        "total": len(columns) + len(free_columns)})
+        "panels": panels,
+        "hsn_gaps": _hsn_gaps_in(panels),
+        "total": _total(columns, free_columns)})
 
 
 def _submitted(form, columns):
@@ -137,8 +168,17 @@ def _submitted_free(form, columns):
     return entries
 
 
-def _build_payload(entries, free, template, columns, free_columns):
-    """Validate every entry and merge dropdown + derived + free-text values.
+def _submitted_hsn(form):
+    """Parse hsn__{ordinal} into {ordinal: raw_value}."""
+    entries = {}
+    for key, value in form.items():
+        if key.startswith("hsn__"):
+            entries[int(key.split("__")[1])] = str(value)
+    return entries
+
+
+def _build_payload(entries, free, hsn, template, columns, free_columns):
+    """Validate every entry and merge dropdown + derived + free-text + HSN values.
     Raises AttributeValueError before anything is written."""
     vocab = attribute_vocab(template, columns)      # built once, not per entry
     has_brand_colour = BRAND_COLOUR_HEADER in template.col_index_by_header
@@ -149,12 +189,16 @@ def _build_payload(entries, free, template, columns, free_columns):
         if has_brand_colour:
             values[BRAND_COLOUR_HEADER] = derive_brand_colour(values)
         values.update(validate_freetext(free.get(ordinal, {}), free_columns))
+        # Only when the panel actually posted the field: a form that omits it
+        # must leave the sheet's HSN alone rather than clearing it.
+        if ordinal in hsn:
+            values[HSN_HEADER] = validate_hsn(hsn[ordinal])
         payload.append({"ordinal": ordinal, "sku": e["sku"], "values": values})
     return payload
 
 
 async def _save_entries(request, job_id, only=None):
-    """Shared by both save routes. Returns (job, ordinals, payload, error).
+    """Shared by both save routes. Returns (job, ordinals, payload, error, hsn_gaps).
 
     `only` narrows the write to that single ordinal. The per-panel save relies on
     it: scoping cannot be done in the browser (htmx `hx-include` only ever ADDS
@@ -166,17 +210,26 @@ async def _save_entries(request, job_id, only=None):
     form = await request.form()
     entries = _submitted(form, columns)
     free = _submitted_free(form, free_columns)
+    hsn = _submitted_hsn(form)
     if only is not None:
         entries = {o: e for o, e in entries.items() if o == only}
         free = {o: v for o, v in free.items() if o == only}
+        hsn = {o: v for o, v in hsn.items() if o == only}
     ordinals = list(entries)
     try:
-        payload = _build_payload(entries, free, template, columns, free_columns)
+        payload = _build_payload(entries, free, hsn, template, columns, free_columns)
         with _WRITE_LOCK:
             write_attributes(xlsx, template, payload)
+            # Only after a successful write: a rejected save must not move the
+            # registry. The fix-flow rebuild pins HSN from here, so a correction
+            # made on this screen has to reach it or a later rebuild undoes it.
+            reg_store = sku_registry_store(get_settings(request))
+            for e in payload:
+                if HSN_HEADER in e["values"]:
+                    update_hsn(reg_store, e["sku"], e["values"][HSN_HEADER])
     except (AttributeValueError, SkuMismatchError) as exc:
-        return job, ordinals, [], str(exc)
-    return job, ordinals, payload, None
+        return job, ordinals, [], str(exc), _hsn_gap_count(xlsx, template)
+    return job, ordinals, payload, None, _hsn_gap_count(xlsx, template)
 
 
 @router.post("/generate/attributes/{job_id}/preview", response_class=HTMLResponse)
@@ -197,12 +250,13 @@ async def attributes_live_preview(request: Request, job_id: str):
 @router.post("/generate/attributes/{job_id}", response_class=HTMLResponse)
 async def attributes_save(request: Request, job_id: str):
     get_user(request)
-    job, _ordinals, payload, error = await _save_entries(request, job_id)
+    job, _ordinals, payload, error, hsn_gaps = await _save_entries(request, job_id)
     if error:
         return _templates().TemplateResponse(
             request, "_attr_saved.html", {"job_id": job.id, "error": error})
     return _templates().TemplateResponse(
-        request, "_attr_saved.html", {"job_id": job.id, "saved": len(payload)})
+        request, "_attr_saved.html",
+        {"job_id": job.id, "saved": len(payload), "hsn_gaps": hsn_gaps})
 
 
 @router.post("/generate/attributes/{job_id}/one", response_class=HTMLResponse)
@@ -220,13 +274,13 @@ async def attributes_save_one(request: Request, job_id: str):
                "error": "Nothing to save — please reload the screen and try again."}
     if ordinal is None:
         # No usable ordinal, so no panel to report against. Falling back to the
-        # first posted one would silently stamp a wrong "0/13 filled" onto an
+        # first posted one would silently stamp a wrong "0/14 filled" onto an
         # untouched panel. The error branch emits no out-of-band span, so no
         # count is disturbed.
         return _templates().TemplateResponse(request, "_attr_panel_saved.html",
                                              nothing)
-    job, ordinals, payload, error = await _save_entries(request, job_id,
-                                                        only=ordinal)
+    job, ordinals, payload, error, hsn_gaps = await _save_entries(request, job_id,
+                                                                  only=ordinal)
     if not ordinals:
         # The requested panel posted no sku__N / attr__N__* keys of its own.
         return _templates().TemplateResponse(request, "_attr_panel_saved.html",
@@ -241,4 +295,5 @@ async def attributes_save_one(request: Request, job_id: str):
         request, "_attr_panel_saved.html",
         {"ordinal": ordinal,
          "filled": _filled_count(values, columns, free_columns),
-         "total": len(columns) + len(free_columns)})
+         "total": _total(columns, free_columns),
+         "hsn_gaps": hsn_gaps})
