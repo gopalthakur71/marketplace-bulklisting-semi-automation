@@ -47,3 +47,22 @@ def record(store, sku, content_hash, style_group_id, hsn, key=REGISTRY_KEY):
     entry["last_generated"] = _today()
     reg[sku] = entry
     store.put_json(key, reg)
+
+
+def update_hsn(store, sku, hsn, key=REGISTRY_KEY):
+    """Correct the stored HSN of an already-built SKU. Returns whether it existed.
+
+    The attribute screen can change an HSN after the build that recorded it. The
+    fix flow's rebuild pins HSN *from here*, so without this the rebuild would
+    quietly restore the stale build-time code.
+
+    Deliberately does not create entries: only a completed build earns a registry
+    row, and inventing one here would give the duplicate guard a SKU with no
+    content hash to compare."""
+    registry = read_registry(store, key)
+    entry = registry.get(sku)
+    if entry is None:
+        return False
+    entry["hsn"] = hsn
+    store.put_json(key, registry)
+    return True

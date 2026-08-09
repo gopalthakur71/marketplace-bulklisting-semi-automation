@@ -1,6 +1,7 @@
 import json
 
-from src.myntra.sku_registry import content_hash, read_registry, partition, record
+from src.myntra.sku_registry import (content_hash, read_registry, partition,
+                                     record, update_hsn)
 
 
 class FakeStore:
@@ -54,3 +55,26 @@ def test_record_pins_hash_id_hsn_and_dates():
 
 def test_read_registry_empty_when_absent():
     assert read_registry(FakeStore()) == {}
+
+
+def test_update_hsn_changes_only_that_field():
+    store = FakeStore()
+    record(store, "S1", "hash-1", 42, "50072010")
+    assert update_hsn(store, "S1", "54075240") is True
+    entry = read_registry(store)["S1"]
+    assert entry["hsn"] == "54075240"
+    assert entry["content_hash"] == "hash-1"      # untouched
+    assert entry["style_group_id"] == 42          # untouched
+
+
+def test_update_hsn_is_a_no_op_for_an_unknown_sku():
+    store = FakeStore()
+    assert update_hsn(store, "NEVER-BUILT", "54075240") is False
+    assert read_registry(store) == {}             # no row invented
+
+
+def test_update_hsn_accepts_none_to_clear():
+    store = FakeStore()
+    record(store, "S1", "hash-1", 42, "50072010")
+    assert update_hsn(store, "S1", None) is True
+    assert read_registry(store)["S1"]["hsn"] is None
