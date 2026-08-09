@@ -5,6 +5,7 @@ from src.core.models import Product
 COLOR_COL = "Color (product.metafields.shopify.color-pattern)"
 FABRIC_COL = "Fabric (product.metafields.shopify.fabric)"
 SIZE_COL = "Size (product.metafields.shopify.size)"
+HSN_COL = "HSN Code (product.metafields.custom.hsn_code)"
 
 
 def _first(series):
@@ -52,6 +53,7 @@ def read_products(path):
             fabric=fv(FABRIC_COL),
             size=fv(SIZE_COL),
             status=fv("Status"),
+            hsn=fv(HSN_COL),
             images=urls,
         ))
     return products

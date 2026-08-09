@@ -16,6 +16,9 @@ class Product:
     size: str | None
     status: str | None
     images: list[str] = field(default_factory=list)
+    # Raw cell from the export's custom.hsn_code metafield. Normalised by
+    # src/myntra/hsn_source.py at build time, never here.
+    hsn: str | None = None
 
 
 @dataclass
