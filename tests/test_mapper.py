@@ -108,49 +108,34 @@ def test_fabric_and_colour_no_longer_auto_filled():
     assert any(f.field == "brand" for f in row.flags)      # but flagged
 
 
-def test_silk_attributes_left_blank_but_hsn_signature_still_derivable():
-    p = Product(handle="h", sku="S2", title="Banarasi Silk Saree Blue", vendor="V",
+def test_hsn_written_from_the_export_value():
+    p = Product(handle="h", sku="S1", title="Banarasi Silk Saree Blue", vendor="V",
                 tags="", body_html="", price=3000.0, compare_at_price=None,
-                color=None, fabric=None, size=None, status="active", images=[])
-    rules = {**FABRIC_RULES,
-             "user_filled_attributes": ["Saree Fabric", "Wash Care", "Prominent Colour"]}
-    hsn_map = {"saree|silk": "50072010"}
-    consts = {"articleType": "Sarees"}
-    row = map_product(p, _template_with_rules(), {}, consts, rules,
-                      hsn_by_signature=hsn_map)
-    assert "Saree Fabric" not in row.cells
-    assert "Prominent Colour" not in row.cells
-    assert row.cells["HSN"] == "50072010"   # fabric keyword 'silk' still feeds HSN
-
-
-def test_hsn_set_from_injected_map():
-    p = Product(handle="h", sku="S1", title="Banarasi Saree", vendor="V", tags="",
-                body_html="", price=1.0, compare_at_price=None, color=None,
-                fabric="Pure Silk", size=None, status="active", images=[])
-    consts = {"articleType": "Sarees"}
-    hsn_map = {"saree|pure silk": "50072010"}
-    row = map_product(p, _template_with_rules(), {}, consts, FABRIC_RULES,
-                      hsn_by_signature=hsn_map)
+                color=None, fabric="silk", size=None, status="active", images=[])
+    row = map_product(p, _template_with_rules(), {}, {}, FABRIC_RULES,
+                      hsn="50072010")
     assert row.cells["HSN"] == "50072010"
 
 
-def test_hsn_unresolved_signature_is_flagged_not_guessed():
+def test_hsn_override_beats_the_export_value():
+    # The fix-flow rebuild pins a listed SKU's original code; it must win.
+    p = Product(handle="h", sku="S1", title="Banarasi Silk Saree Blue", vendor="V",
+                tags="", body_html="", price=3000.0, compare_at_price=None,
+                color=None, fabric="silk", size=None, status="active", images=[])
+    row = map_product(p, _template_with_rules(), {}, {}, FABRIC_RULES,
+                      hsn="50072010", hsn_override="99999999")
+    assert row.cells["HSN"] == "99999999"
+
+
+def test_no_hsn_leaves_the_cell_blank_and_raises_no_flag():
+    # The CLI and dedup-scan paths run without HSN. A gap is surfaced by the
+    # attribute screen now, so a build-time flag would only be noise.
     p = Product(handle="h", sku="S2", title="Plain Saree", vendor="V", tags="",
-                body_html="", price=1.0, compare_at_price=None, color=None,
+                body_html="", price=100.0, compare_at_price=None, color=None,
                 fabric=None, size=None, status="active", images=[])
-    consts = {"articleType": "Sarees"}
-    row = map_product(p, _template_with_rules(), {}, consts, FABRIC_RULES,
-                      hsn_by_signature={})   # nothing learned yet
+    row = map_product(p, _template_with_rules(), {}, {}, FABRIC_RULES)
     assert "HSN" not in row.cells
-    assert any(f.field == "HSN" for f in row.flags)
-
-
-def test_fabric_block_no_longer_sets_hsn():
-    p = Product(handle="h", sku="S3", title="Lavender Pure Cotton Saree", vendor="V",
-                tags="", body_html="", price=1.0, compare_at_price=None, color=None,
-                fabric=None, size=None, status="active", images=[])
-    row = map_product(p, _template_with_rules(), {}, {}, FABRIC_RULES)  # no map
-    assert "HSN" not in row.cells
+    assert not any(f.field == "HSN" for f in row.flags)
 
 
 def test_user_filled_attributes_are_left_blank():

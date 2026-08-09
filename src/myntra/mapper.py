@@ -1,7 +1,6 @@
 import re
 
 from src.core.models import MappedRow, Flag
-from src.myntra.hsn_kb import signature
 
 
 def _fmt_num(x):
@@ -110,7 +109,7 @@ def _set_forced(row, template, header, value):
     row.cells[header] = str(value)
 
 
-def map_product(product, template, column_map, constants, rules=None, hsn_by_signature=None,
+def map_product(product, template, column_map, constants, rules=None, hsn=None,
                 hsn_override=None):
     rules = rules or {}
     row = MappedRow(sku=product.sku)
@@ -150,26 +149,15 @@ def map_product(product, template, column_map, constants, rules=None, hsn_by_sig
     _set(row, template, "MRP", _fmt_num(mrp))
     _set(row, template, "ISP", _fmt_num(product.price))
 
-    # 5. Fabric keyword config is retained ONLY to feed the HSN signature below;
-    # Saree/Blouse Fabric and Wash Care are user-filled in Excel (blanked in step 8).
-    fabric_cfg = rules.get("fabric_detection") or {}
-
-    # 5b. HSN. A pinned per-SKU code (hsn_override, e.g. a rebuild from the SKU
-    # registry) wins; otherwise use the injected signature->hsn map from the KB
-    # review. HSN is never guessed from the signature alone — unresolved => flag.
-    # On the CLI path (both None) HSN is left blank.
+    # 5. HSN. A pinned per-SKU code (hsn_override, e.g. a rebuild from the SKU
+    # registry) wins; otherwise the code the Shopify export carried, already
+    # normalised by the caller. Neither — the CLI path and the dedup scan —
+    # leaves HSN blank and raises NO flag: a missing code is surfaced on the
+    # attribute screen now, so flagging it here would only be noise.
     if hsn_override:
         _set(row, template, "HSN", str(hsn_override))
-    elif hsn_by_signature is not None:
-        category = constants.get("articleType", "")
-        fabric_keywords = (fabric_cfg.get("order") or [])
-        sig = signature(product, category, fabric_keywords)
-        hsn = hsn_by_signature.get(sig)
-        if hsn:
-            _set(row, template, "HSN", str(hsn))
-        else:
-            row.flags.append(Flag(sku=row.sku, field="HSN",
-                                  reason="no HSN learned for signature", value=sig))
+    elif hsn:
+        _set(row, template, "HSN", str(hsn))
 
     # 8. Attributes the user fills by hand in Excel — never emitted by the pipeline.
     for header in (rules.get("user_filled_attributes") or []):

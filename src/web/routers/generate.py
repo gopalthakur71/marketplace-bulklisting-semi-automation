@@ -5,24 +5,20 @@ import os
 import re
 import shutil
 
-import yaml
 from fastapi import APIRouter, Request, UploadFile, File, HTTPException, Form
 from fastapi.responses import FileResponse, HTMLResponse
 
-from src.core.shopify_reader import read_products
 from src.myntra.groupid_ledger import (
     reserve, confirm, unconfirm, read_ledger, cancel as ledger_cancel)
-from src.myntra.hsn_kb import signature, read_kb, suggest, learn
 from src.myntra.pipeline import BuildCancelled
 from src.myntra.pipeline import main as pipeline_main, scan_content_hashes  # noqa: F401 (patched in tests)
 from src.myntra.sku_registry import read_registry, partition, record
 from src.web.jobs import store
 from src.web.routers.pages import get_user, get_settings
-from src.web.settings import ledger_store, hsn_store, sku_registry_store
+from src.web.settings import ledger_store, sku_registry_store
 
 router = APIRouter()
 RUNTIME = os.path.join(os.path.dirname(os.path.dirname(__file__)), "runtime")
-CONFIG_DIR = "config/myntra"
 _log = logging.getLogger("marigold.generate")
 
 
@@ -30,11 +26,6 @@ def _safe_job_id(job_id: str) -> str:
     if not re.fullmatch(r"[0-9a-f]{32}", job_id):
         raise HTTPException(status_code=404, detail="unknown job")
     return job_id
-
-
-def _load_yaml(name):
-    with open(os.path.join(CONFIG_DIR, name), encoding="utf-8") as fh:
-        return yaml.safe_load(fh)
 
 
 def count_products(path):
@@ -98,93 +89,21 @@ def generate_submit(request: Request, file: UploadFile = File(...)):
         resp.headers["x-job-id"] = job.id
         return resp
 
-    return _hsn_prescan_or_build(request, job, csv_path, job_dir, count, settings)
-
-
-def _hsn_prescan_or_build(request, job, csv_path, job_dir, count, settings, only_skus=None,
-                          style_group_id_by_sku=None):
-    # Pre-scan: which category|fabric signatures does this batch contain, and what
-    # does the KB already know? HSN is absent from the export, so we always ask.
-    constants = _load_yaml("constants.yaml")
-    rules = _load_yaml("rules.yaml")
-    category = constants.get("articleType", "")
-    fabric_keywords = (rules.get("fabric_detection") or {}).get("order") or []
-    kb = read_kb(hsn_store(settings))
-    grouped = {}
-    for p in read_products(csv_path):
-        if only_skus is not None and p.sku not in only_skus:
-            continue
-        grouped.setdefault(signature(p, category, fabric_keywords), []).append(p.title)
-
-    if not grouped:                      # empty CSV / no products → nothing to ask
-        return _start_build(request, job, csv_path, job_dir, count, settings,
-                            only_skus=only_skus,
-                            style_group_id_by_sku=style_group_id_by_sku)
-
-    signatures = [{"signature": sig, "examples": names[:5], "suggestions": suggest(kb, sig)}
-                  for sig, names in grouped.items()]
-    with open(os.path.join(job_dir, "hsn.json"), "w", encoding="utf-8") as fh:
-        json.dump({"csv_path": csv_path, "count": count, "signatures": signatures,
-                   "only_skus": (list(only_skus) if only_skus is not None else None),
-                   "style_group_id_by_sku": style_group_id_by_sku}, fh)
-    job.status = "awaiting_hsn"
-
-    resp = _templates().TemplateResponse(
-        request, "_hsn_review.html", {"job_id": job.id, "signatures": signatures})
-    resp.headers["x-job-id"] = job.id
-    return resp
+    return _start_build(request, job, csv_path, job_dir, count, settings)
 
 
 def _start_build(request, job, csv_path, job_dir, count, settings,
-                 hsn_by_signature=None, only_skus=None, style_group_id_by_sku=None):
+                 only_skus=None, style_group_id_by_sku=None):
     start, batch_id = reserve(ledger_store(settings), count, "myntra_filled.xlsx")
     job.batch_id = batch_id
     job.range = [start, start + count - 1]
     job.status = "running"
-    _spawn(job.id, csv_path, job_dir, start, settings, hsn_by_signature, only_skus,
+    _spawn(job.id, csv_path, job_dir, start, settings, only_skus,
            style_group_id_by_sku)
     resp = _templates().TemplateResponse(
         request, "_stepper.html", {"job": job, "count": count})
     resp.headers["x-job-id"] = job.id
     return resp
-
-
-@router.post("/generate/hsn/{job_id}", response_class=HTMLResponse)
-async def hsn_submit(request: Request, job_id: str):
-    get_user(request)
-    settings = get_settings(request)
-    job_id = _safe_job_id(job_id)
-    job = store.get(job_id)
-    if not job:
-        raise HTTPException(status_code=404, detail="unknown job")
-    job_dir = os.path.join(RUNTIME, job_id)
-    hsn_path = os.path.join(job_dir, "hsn.json")
-    if not os.path.exists(hsn_path):
-        raise HTTPException(status_code=404, detail="session expired, please re-upload")
-    with open(hsn_path, encoding="utf-8") as fh:
-        data = json.load(fh)
-    signatures = data["signatures"]
-
-    form = await request.form()
-    values = [str(form.get(f"hsn__{i}", "")).strip() for i in range(len(signatures))]
-    if any(not re.fullmatch(r"\d{8}", v) for v in values):
-        return _templates().TemplateResponse(
-            request, "_hsn_review.html",
-            {"job_id": job_id, "signatures": signatures, "values": values,
-             "error": "Each HSN must be exactly 8 digits."})
-
-    hsn_by_signature = {}
-    for i, s in enumerate(signatures):
-        example = s["examples"][0] if s["examples"] else None
-        learn(hsn_store(settings), s["signature"], values[i], example_name=example)
-        hsn_by_signature[s["signature"]] = values[i]
-
-    only = data.get("only_skus")
-    only_set = set(only) if only is not None else None
-    build_count = len(only_set) if only_set is not None else data["count"]
-    return _start_build(request, job, data["csv_path"], job_dir,
-                        build_count, settings, hsn_by_signature, only_skus=only_set,
-                        style_group_id_by_sku=data.get("style_group_id_by_sku"))
 
 
 @router.post("/generate/new-only/{job_id}", response_class=HTMLResponse)
@@ -202,8 +121,8 @@ def generate_new_only(request: Request, job_id: str):
     with open(dedup_path, encoding="utf-8") as fh:
         data = json.load(fh)
     only = set(data["new"]) | set(data["edited"])
-    return _hsn_prescan_or_build(request, job, data["csv_path"], job_dir,
-                                 len(only), settings, only_skus=only)
+    return _start_build(request, job, data["csv_path"], job_dir,
+                        len(only), settings, only_skus=only)
 
 
 @router.post("/generate/continue/{job_id}", response_class=HTMLResponse)
@@ -213,8 +132,8 @@ def generate_continue_anyway(request: Request, job_id: str):
     Reworking an already-generated SKU must not move it to a fresh style group —
     Myntra keys the style off styleGroupId — so every SKU the registry already knows
     (repeat AND edited) is pinned back to the id it was given the first time; only
-    genuinely new SKUs draw from the ledger. HSN is re-asked as usual, so a wrong
-    HSN can be corrected on the way through."""
+    genuinely new SKUs draw from the ledger. HSN comes from the export, and a wrong
+    one is corrected afterwards on the attribute screen."""
     get_user(request)
     settings = get_settings(request)
     job_id = _safe_job_id(job_id)
@@ -232,8 +151,8 @@ def generate_continue_anyway(request: Request, job_id: str):
     pinned = {s: reg[s]["style_group_id"] for s in known if s in reg}
     _log.info("continue anyway: job=%s rebuilding all %d SKUs, %d pinned ids",
               job_id, data["count"], len(pinned))
-    return _hsn_prescan_or_build(request, job, data["csv_path"], job_dir,
-                                 data["count"], settings, style_group_id_by_sku=pinned)
+    return _start_build(request, job, data["csv_path"], job_dir,
+                        data["count"], settings, style_group_id_by_sku=pinned)
 
 
 @router.get("/generate/rebuild/{job_id}")
@@ -259,24 +178,24 @@ def rebuild_download(request: Request, job_id: str):
     return FileResponse(res["filled"], filename="myntra_filled.xlsx")
 
 
-def _spawn(job_id, csv_path, job_dir, start, settings, hsn_by_signature=None, only_skus=None,
+def _spawn(job_id, csv_path, job_dir, start, settings, only_skus=None,
            style_group_id_by_sku=None):
     import threading
     threading.Thread(
         target=_run_generate,
-        args=(job_id, csv_path, job_dir, start, settings, hsn_by_signature, only_skus,
+        args=(job_id, csv_path, job_dir, start, settings, only_skus,
               style_group_id_by_sku),
         daemon=True).start()
 
 
 def _run_generate(job_id, csv_path, job_dir, start, settings,
-                  hsn_by_signature=None, only_skus=None, style_group_id_by_sku=None):
+                  only_skus=None, style_group_id_by_sku=None):
     try:
         store.set_step(job_id, "Ingest CSV", "active")
         job = store.get(job_id)
         res = pipeline_main(csv_path=csv_path, out_dir=job_dir,
                             style_group_id_start=start,
-                            hsn_by_signature=hsn_by_signature, only_skus=only_skus,
+                            only_skus=only_skus,
                             style_group_id_by_sku=style_group_id_by_sku,
                             should_cancel=lambda: bool(job and job.cancel_requested))
         reg = sku_registry_store(settings)

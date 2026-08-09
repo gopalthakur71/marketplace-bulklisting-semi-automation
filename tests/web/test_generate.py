@@ -16,11 +16,11 @@ def _client(tmp_path):
     return TestClient(create_app(s)), s
 
 
-def _pass_hsn_and_wait(client, job_id, hsn="12345678"):
-    """Submit the single-signature HSN review, then poll until the sheet is ready.
-    The default test CSV (Handle,Title only) yields one signature: saree|unknown."""
+def _wait(client, job_id):
+    """Poll until the sheet is ready. There is no HSN question any more — the
+    build starts as soon as the duplicate guard is satisfied."""
     import time
-    poll = client.post(f"/generate/hsn/{job_id}", data={"hsn__0": hsn})
+    poll = client.get(f"/jobs/{job_id}")
     for _ in range(20):
         if "Download" in poll.text:
             return poll
@@ -54,10 +54,10 @@ def test_generate_runs_job_and_confirm_advances_ledger(tmp_path, monkeypatch):
     csv = b"Handle,Title\na,A\nb,B\nc,C\n"
     r = client.post("/generate", files={"file": ("products_export.csv", csv, "text/csv")})
     assert r.status_code == 200
-    assert "One-time HSN" in r.text                 # pre-scan paused for HSN
+    assert "One-time HSN" not in r.text            # no HSN question any more
     job_id = r.headers["x-job-id"]
 
-    poll = _pass_hsn_and_wait(client, job_id)
+    poll = _wait(client, job_id)
     assert poll.status_code == 200
     assert "Download" in poll.text
     assert "1 –" in poll.text or "1 - 3" in poll.text or "1 – 3" in poll.text  # range shown
@@ -88,7 +88,7 @@ def test_confirm_then_undo_rolls_ledger_back(tmp_path, monkeypatch):
     csv = b"Handle,Title\na,A\nb,B\nc,C\n"
     r = client.post("/generate", files={"file": ("products_export.csv", csv, "text/csv")})
     job_id = r.headers["x-job-id"]
-    _pass_hsn_and_wait(client, job_id)
+    _wait(client, job_id)
 
     from src.myntra.groupid_ledger import read_ledger
     from src.web.settings import ledger_store
@@ -118,7 +118,7 @@ def test_result_screen_shows_verify_notice(tmp_path, monkeypatch):
 
     csv = b"Handle,Title\na,A\nb,B\nc,C\n"
     r = client.post("/generate", files={"file": ("products_export.csv", csv, "text/csv")})
-    poll = _pass_hsn_and_wait(client, r.headers["x-job-id"])
+    poll = _wait(client, r.headers["x-job-id"])
     assert "verify the downloaded file yourself" in poll.text.lower()
 
 
@@ -137,51 +137,31 @@ def test_style_start_set_and_undo(tmp_path):
     assert read_ledger(ledger_store(settings))["next_style_group_id"] == 1
 
 
-def test_hsn_review_lists_signature_and_learns_on_submit(tmp_path, monkeypatch):
-    client, settings = _client(tmp_path)
+def test_no_hsn_screen_and_the_route_is_gone(tmp_path, monkeypatch):
+    client, _ = _client(tmp_path)
 
-    def fake_main(csv_path=None, out_dir=None, style_group_id_start=None,
-                  hsn_by_signature=None, **kw):
-        # the learned map reaches the pipeline
-        assert hsn_by_signature == {"saree|unknown": "63079090"}
+    def fake_main(csv_path=None, out_dir=None, style_group_id_start=None, **kw):
+        assert "hsn_by_signature" not in kw       # the parameter is gone for good
         with open(f"{out_dir}/myntra_filled.xlsx", "wb") as fh:
-            fh.write(b"x")
+            fh.write(b"xlsx-bytes")
         with open(f"{out_dir}/report.txt", "w") as fh:
-            fh.write("r\n")
+            fh.write("1 rows\n")
         return {"filled": f"{out_dir}/myntra_filled.xlsx",
                 "report": f"{out_dir}/report.txt", "products": 1, "uploaded": 0}
 
     monkeypatch.setattr(gen, "pipeline_main", fake_main)
     monkeypatch.setattr(gen, "count_products", lambda path: 1)
 
-    csv = b"Handle,Title\na,Plain Saree\n"
+    csv = b"Handle,Title\na,A\n"
     r = client.post("/generate", files={"file": ("products_export.csv", csv, "text/csv")})
-    assert "saree|unknown" in r.text
+    assert r.status_code == 200
+    assert "One-time HSN" not in r.text
     job_id = r.headers["x-job-id"]
+    assert "Download" in _wait(client, job_id).text
 
-    ready = _pass_hsn_and_wait(client, job_id, hsn="63079090")
-    assert "Download" in ready.text
-
-    from src.myntra.hsn_kb import read_kb, suggest
-    from src.web.settings import hsn_store
-    kb = read_kb(hsn_store(settings))
-    assert suggest(kb, "saree|unknown")[0]["hsn"] == "63079090"
-
-
-def test_hsn_invalid_code_rerenders_with_error(tmp_path, monkeypatch):
-    client, settings = _client(tmp_path)
-    monkeypatch.setattr(gen, "count_products", lambda path: 1)
-
-    csv = b"Handle,Title\na,Plain Saree\n"
-    r = client.post("/generate", files={"file": ("products_export.csv", csv, "text/csv")})
-    job_id = r.headers["x-job-id"]
-
-    bad = client.post(f"/generate/hsn/{job_id}", data={"hsn__0": "123"})   # not 8 digits
-    assert "exactly 8 digits" in bad.text
-    assert 'value="123"' in bad.text                    # entered value preserved
-    from src.myntra.groupid_ledger import read_ledger
-    from src.web.settings import ledger_store
-    assert read_ledger(ledger_store(settings))["next_style_group_id"] == 1  # not built
+    # The old route is gone, not merely unused.
+    assert client.post(f"/generate/hsn/{job_id}", data={"hsn__0": "12345678"}
+                       ).status_code == 404
 
 
 def test_generate_form_still_renders(tmp_path):
@@ -201,7 +181,7 @@ def test_build_records_registry(tmp_path, monkeypatch):
     client, settings = _client(tmp_path)
 
     def fake_main(csv_path=None, out_dir=None, style_group_id_start=None,
-                  hsn_by_signature=None, only_skus=None, **kw):
+                  only_skus=None, **kw):
         with open(f"{out_dir}/myntra_filled.xlsx", "wb") as fh:
             fh.write(b"x")
         with open(f"{out_dir}/report.txt", "w") as fh:
@@ -216,7 +196,7 @@ def test_build_records_registry(tmp_path, monkeypatch):
 
     csv = b"Handle,Title\na,Plain Saree\n"   # SKU empty -> partition NEW, proceeds
     r = client.post("/generate", files={"file": ("products_export.csv", csv, "text/csv")})
-    _pass_hsn_and_wait(client, r.headers["x-job-id"])
+    _wait(client, r.headers["x-job-id"])
 
     from src.myntra.sku_registry import read_registry
     from src.web.settings import sku_registry_store
@@ -224,7 +204,7 @@ def test_build_records_registry(tmp_path, monkeypatch):
     assert reg["S1"]["style_group_id"] == 13 and reg["S1"]["hsn"] == "50072010"
 
 
-def test_repeat_upload_warns_and_skips_hsn(tmp_path):
+def test_repeat_upload_warns_instead_of_building(tmp_path):
     client, settings = _client(tmp_path)
     # Pre-seed the registry with the fixture's real hashes so the re-upload is a repeat.
     from src.myntra.pipeline import scan_content_hashes
@@ -238,7 +218,11 @@ def test_repeat_upload_warns_and_skips_hsn(tmp_path):
         csv = fh.read()
     r = client.post("/generate", files={"file": ("products_export.csv", csv, "text/csv")})
     assert "already generated" in r.text.lower()
-    assert "One-time HSN" not in r.text          # HSN review skipped for a pure repeat
+    # The guard stops short of the build: no styleGroupId range was reserved.
+    from src.myntra.groupid_ledger import read_ledger
+    from src.web.settings import ledger_store
+    led = read_ledger(ledger_store(settings))
+    assert led["next_style_group_id"] == 1 and led["batches"] == []
 
 
 def test_rebuild_download_serves_xlsx_with_pinned_values(tmp_path, monkeypatch):
@@ -296,7 +280,7 @@ def test_generate_new_only_builds_and_records_only_new(tmp_path, monkeypatch):
     built = {}
 
     def fake_main(csv_path=None, out_dir=None, style_group_id_start=None,
-                  hsn_by_signature=None, only_skus=None, **kw):
+                  only_skus=None, **kw):
         built["only_skus"] = only_skus
         with open(f"{out_dir}/myntra_filled.xlsx", "wb") as fh:
             fh.write(b"x")
@@ -315,10 +299,10 @@ def test_generate_new_only_builds_and_records_only_new(tmp_path, monkeypatch):
     job_id = r.headers["x-job-id"]
     assert "already generated" in r.text.lower()
 
-    # Choose "generate new only" -> HSN review for just the new SKU, then build it.
+    # Choose "generate new only" -> the build starts at once, no HSN question.
     r2 = client.post(f"/generate/new-only/{job_id}")
-    assert "One-time HSN" in r2.text
-    _pass_hsn_and_wait(client, job_id, hsn="63079090")
+    assert "One-time HSN" not in r2.text
+    _wait(client, job_id)
 
     assert built["only_skus"] == {new_sku}
     reg = read_registry(sku_registry_store(settings))
@@ -341,8 +325,7 @@ def test_generate_continue_anyway_rebuilds_all_pinning_repeat_ids(tmp_path, monk
     built = {}
 
     def fake_main(csv_path=None, out_dir=None, style_group_id_start=None,
-                  hsn_by_signature=None, only_skus=None,
-                  style_group_id_by_sku=None, **kw):
+                  only_skus=None, style_group_id_by_sku=None, **kw):
         built["only_skus"] = only_skus
         built["ids"] = style_group_id_by_sku
         with open(f"{out_dir}/myntra_filled.xlsx", "wb") as fh:
@@ -363,10 +346,8 @@ def test_generate_continue_anyway_rebuilds_all_pinning_repeat_ids(tmp_path, monk
     assert "continue anyway" in r.text.lower()
 
     r2 = client.post(f"/generate/continue/{job_id}")
-    assert "One-time HSN" in r2.text
-    # the whole file is in play again, so both fabric signatures are asked for
-    poll = client.post(f"/generate/hsn/{job_id}",
-                       data={"hsn__0": "63079090", "hsn__1": "63079090"})
+    assert "One-time HSN" not in r2.text           # the rebuild starts at once
+    poll = client.get(f"/jobs/{job_id}")
     for _ in range(20):
         if "Download" in poll.text:
             break
@@ -380,11 +361,12 @@ def test_generate_continue_anyway_rebuilds_all_pinning_repeat_ids(tmp_path, monk
     assert repeat_sku in reg and other_sku in reg
 
 
-def test_continue_anyway_also_pins_edited_skus(tmp_path):
+def test_continue_anyway_also_pins_edited_skus(tmp_path, monkeypatch):
     """An 'edited' SKU (content changed since it was generated) is still live on
-    Myntra under its original style number, so a rework must keep that number too."""
-    import json
-    import os
+    Myntra under its original style number, so a rework must keep that number too.
+
+    Asserted on what reaches the pipeline: the pinned ids used to be inspectable
+    in the job's hsn.json, but the HSN question — and that file — are gone."""
     client, settings = _client(tmp_path)
     from src.myntra.pipeline import scan_content_hashes
     from src.myntra.sku_registry import record
@@ -395,16 +377,30 @@ def test_continue_anyway_also_pins_edited_skus(tmp_path):
     record(store, pairs[0][0], pairs[0][1], 55, "50072010")        # unchanged -> repeat
     record(store, pairs[1][0], "stalehash", 56, "50072010")        # changed   -> edited
 
+    built = {}
+
+    def fake_main(csv_path=None, out_dir=None, only_skus=None,
+                  style_group_id_by_sku=None, **kw):
+        built["only_skus"] = only_skus
+        built["ids"] = style_group_id_by_sku
+        with open(f"{out_dir}/myntra_filled.xlsx", "wb") as fh:
+            fh.write(b"x")
+        with open(f"{out_dir}/report.txt", "w") as fh:
+            fh.write("r\n")
+        return {"filled": f"{out_dir}/myntra_filled.xlsx", "report": f"{out_dir}/report.txt",
+                "products": 2, "uploaded": 0, "records": []}
+
+    monkeypatch.setattr(gen, "pipeline_main", fake_main)
+
     with open("tests/fixtures/products_export.csv", "rb") as fh:
         csv = fh.read()
     r = client.post("/generate", files={"file": ("products_export.csv", csv, "text/csv")})
     job_id = r.headers["x-job-id"]
     client.post(f"/generate/continue/{job_id}")
+    _wait(client, job_id)
 
-    with open(os.path.join(gen.RUNTIME, job_id, "hsn.json"), encoding="utf-8") as fh:
-        data = json.load(fh)
-    assert data["style_group_id_by_sku"] == {pairs[0][0]: 55, pairs[1][0]: 56}
-    assert data["only_skus"] is None
+    assert built["ids"] == {pairs[0][0]: 55, pairs[1][0]: 56}
+    assert built["only_skus"] is None
 
 
 def test_continue_anyway_without_dedup_session_is_404(tmp_path):
@@ -434,9 +430,7 @@ def _start_blocking_build(client, monkeypatch, tmp_path):
 
     csv = b"Handle,Title\na,A\nb,B\nc,C\n"
     r = client.post("/generate", files={"file": ("products_export.csv", csv, "text/csv")})
-    job_id = r.headers["x-job-id"]
-    client.post(f"/generate/hsn/{job_id}", data={"hsn__0": "12345678"})   # starts the build
-    return job_id
+    return r.headers["x-job-id"]        # the upload itself starts the build now
 
 
 def _poll_until(client, job_id, needle, tries=60):

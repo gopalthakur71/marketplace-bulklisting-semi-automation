@@ -7,6 +7,7 @@ from src.core.shopify_reader import read_products
 from src.myntra.mapper import map_product
 from src.core.images import process_images
 from src.myntra.fill import fill_template
+from src.myntra.hsn_source import normalize as normalize_hsn
 from src.myntra.report import write_report
 from src.myntra.sku_registry import content_hash
 
@@ -28,7 +29,7 @@ def _resolve(name, subdir="input"):
 
 
 def main(template_path=None, csv_path=None, out_dir="output", config_dir="config/myntra",
-         fetch=None, upload=None, style_group_id_start=None, hsn_by_signature=None,
+         fetch=None, upload=None, style_group_id_start=None,
          only_skus=None, style_group_id_by_sku=None, hsn_by_sku=None,
          should_cancel=None):
     template_path = template_path or _resolve(DEFAULT_TEMPLATE_NAME, "templates/myntra")
@@ -71,7 +72,7 @@ def main(template_path=None, csv_path=None, out_dir="output", config_dir="config
     for i, p in enumerate(products, start=1):
         _check_cancel()
         mapped = map_product(p, template, column_map, constants, rules,
-                             hsn_by_signature=hsn_by_signature,
+                             hsn=normalize_hsn(p.hsn),
                              hsn_override=hsn_by_sku.get(p.sku))
         # Sequential styleGroupId (each product its own group), continuing from
         # the seller's existing catalog so ids don't collide with listed products.
@@ -118,8 +119,12 @@ def main(template_path=None, csv_path=None, out_dir="output", config_dir="config
 
 
 def scan_content_hashes(csv_path, template_path=None, config_dir="config/myntra"):
-    """(sku, content_hash) per product with HSN unset and no image work — the
-    upload-time input to the duplicate-generation guard."""
+    """(sku, content_hash) per product, with no image work — the upload-time
+    input to the duplicate-generation guard.
+
+    HSN is deliberately not passed, but that is belt-and-braces: the fingerprint
+    itself excludes HSN (sku_registry._EXCLUDE), so a populated code can never
+    shift a hash and make an already-listed SKU read as "edited"."""
     template_path = template_path or _resolve(DEFAULT_TEMPLATE_NAME, "templates/myntra")
     column_map = yaml.safe_load(open(os.path.join(config_dir, "column_map.yaml")))
     constants = yaml.safe_load(open(os.path.join(config_dir, "constants.yaml")))
@@ -127,7 +132,7 @@ def scan_content_hashes(csv_path, template_path=None, config_dir="config/myntra"
     template = read_template(template_path)
     out = []
     for p in read_products(csv_path):
-        mapped = map_product(p, template, column_map, constants, rules, hsn_by_signature=None)
+        mapped = map_product(p, template, column_map, constants, rules)
         out.append((p.sku, content_hash(mapped.cells)))
     return out
 
