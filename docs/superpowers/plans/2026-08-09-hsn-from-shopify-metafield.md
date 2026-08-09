@@ -28,13 +28,21 @@
 | `src/core/models.py` | `Product.hsn` field | 1 |
 | `src/myntra/hsn_source.py` (new) | The single definition of "a usable HSN". Pure; no web, jobs, or Shopify knowledge | 2 |
 | `src/myntra/mapper.py` | Writes HSN into the row from `hsn` / `hsn_override` | 3 |
-| `src/myntra/pipeline.py` | Threads the normalised export value per product | 4 |
-| `src/web/routers/generate.py` | Loses the HSN pre-scan, route, and `hsn.json` | 5 |
-| `src/myntra/sku_registry.py` | `update_hsn()` narrow updater | 6 |
-| `src/web/routers/attributes.py` | Parses, validates, saves HSN; counts gaps; updates the registry | 7 |
-| `src/myntra/attribute_entry.py` | `HSN_HEADER`, `validate_hsn()` | 7 |
-| `src/web/templates/_attr_panel.html`, `attributes.html`, `_hsn_gap.html` (new), `_attr_saved.html`, `_attr_panel_saved.html` | The field, the banner, the out-of-band refresh | 8 |
-| `docs/APP-FEATURES-GUIDE.md`, `docs/ARCHITECTURE.md`, `src/myntra/hsn_kb.py` | Documentation and the retained-not-wired note | 9 |
+| `src/myntra/pipeline.py` | Threads the normalised export value per product | 3 |
+| `src/web/routers/generate.py` | Loses the HSN pre-scan, route, and `hsn.json` | 3 |
+| `src/myntra/sku_registry.py` | `update_hsn()` narrow updater | 4 |
+| `src/web/routers/attributes.py` | Parses, validates, saves HSN; counts gaps; updates the registry | 5 |
+| `src/myntra/attribute_entry.py` | `HSN_HEADER`, `validate_hsn()` | 5 |
+| `src/web/templates/_attr_panel.html`, `attributes.html`, `_hsn_gap.html` (new), `_attr_saved.html`, `_attr_panel_saved.html` | The field, the banner, the out-of-band refresh | 5 |
+| `docs/APP-FEATURES-GUIDE.md`, `docs/ARCHITECTURE.md`, `src/myntra/hsn_kb.py` | Documentation and the retained-not-wired note | 6 |
+
+**Why Tasks 3 and 5 are large.** Changing `map_product`'s signature breaks its
+callers until they are all updated, so the mapper, the pipeline and the generate
+router are one refactor and must land in one commit to keep the suite green.
+Likewise the attribute router and its templates: the router's new context
+variables are meaningless until the templates render them. Splitting either pair
+would leave a commit with a red suite, which the "green at every commit"
+constraint forbids.
 
 ---
 
@@ -165,7 +173,7 @@ git commit -m "feat(reader): read HSN from the custom.hsn_code metafield column"
 
 **Interfaces:**
 - Consumes: nothing.
-- Produces: `normalize(raw) -> str | None`. Returns the stripped 8-digit string, or `None` for anything else. Used by Task 3 (mapper), Task 4 (pipeline), and Task 7 (attribute validation and gap counting).
+- Produces: `normalize(raw) -> str | None`. Returns the stripped 8-digit string, or `None` for anything else. Used by Task 3 (mapper and pipeline) and Task 5 (attribute validation and gap counting).
 
 - [ ] **Step 1: Write the failing test**
 
@@ -258,15 +266,23 @@ git commit -m "feat(hsn): hsn_source.normalize, the single 8-digit rule"
 
 ---
 
-### Task 3: Mapper takes a plain `hsn` instead of a signature map
+### Task 3: Swap the HSN source through the mapper, the pipeline and the router
+
+**This is one refactor, one commit.** `map_product`'s signature change breaks
+`pipeline.main`, which breaks `generate.py`. Write all the tests first, change
+all three layers, then commit once with the suite green. Do **not** commit after
+each layer — an intermediate commit would leave the suite red.
 
 **Files:**
 - Modify: `src/myntra/mapper.py:1-4` (imports), `:113-114` (signature), `:153-172` (the HSN block)
-- Test: `tests/test_mapper.py:111-153`, `tests/test_pipeline_override.py:80-93`
+- Modify: `src/myntra/pipeline.py:30-33` (signature), `:71-75` (the map call), `:120-132` (`scan_content_hashes`)
+- Modify: `src/web/routers/generate.py:15,21` (imports), `:101-135`, `:138-149`, `:152-187`, `:205-206`, `:235`, `:262-284`
+- Delete: `src/web/templates/_hsn_review.html`
+- Test: `tests/test_mapper.py:111-153`, `tests/test_pipeline_override.py:43-93`, `tests/web/test_generate.py`
 
 **Interfaces:**
-- Consumes: nothing at runtime (the caller normalises).
-- Produces: `map_product(product, template, column_map, constants, rules=None, hsn=None, hsn_override=None)`. The `hsn_by_signature` keyword no longer exists — Task 4 and Task 5 must not pass it.
+- Consumes: `hsn_source.normalize` (Task 2), `Product.hsn` (Task 1).
+- Produces: `map_product(product, template, column_map, constants, rules=None, hsn=None, hsn_override=None)`; `pipeline.main(...)` with no `hsn_by_signature` parameter (`hsn_by_sku` unchanged); `_start_build(request, job, csv_path, job_dir, count, settings, only_skus=None, style_group_id_by_sku=None)`. `POST /generate/hsn/{job_id}` no longer exists.
 
 - [ ] **Step 1: Rewrite the mapper's HSN tests**
 
@@ -321,12 +337,22 @@ In `tests/test_pipeline_override.py`, `test_hsn_override_wins_in_mapper`
     assert row.cells["HSN"] == "99999999"
 ```
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [ ] **Step 2: Rewrite the pipeline's HSN tests**
 
-Run: `python -m pytest tests/test_mapper.py tests/test_pipeline_override.py -q`
-Expected: FAIL — `TypeError: map_product() got an unexpected keyword argument 'hsn'`.
+(The code for this step is under "Task 3 — pipeline tests" further down; write
+these tests now, before changing any source.)
 
-- [ ] **Step 3: Change the signature and the HSN block**
+- [ ] **Step 3: Rewrite the web tests**
+
+(The code for this step is under "Task 3 — web tests" further down.)
+
+- [ ] **Step 4: Run all three test files to verify they fail**
+
+Run: `python -m pytest tests/test_mapper.py tests/test_pipeline_override.py tests/web/test_generate.py -q`
+Expected: FAIL — `TypeError: map_product() got an unexpected keyword argument 'hsn'`,
+and the web tests still find the HSN screen.
+
+- [ ] **Step 5: Change the mapper**
 
 In `src/myntra/mapper.py`, delete the import on line 4:
 
@@ -360,32 +386,9 @@ only to feed the removed signature. Confirm nothing else in `map_product` reads
 `fabric_cfg` before deleting it (`grep -n fabric_cfg src/myntra/mapper.py` must
 come back empty afterwards).
 
-- [ ] **Step 4: Run the tests to verify they pass**
+#### Task 3 — pipeline tests
 
-Run: `python -m pytest tests/test_mapper.py tests/test_pipeline_override.py -q`
-Expected: the mapper tests PASS. `tests/test_pipeline_override.py` tests that go
-through `pipeline.main` with `hsn_by_signature=` still FAIL — Task 4 fixes those.
-
-- [ ] **Step 5: Commit**
-
-```bash
-git add src/myntra/mapper.py tests/test_mapper.py tests/test_pipeline_override.py
-git commit -m "refactor(mapper): take a plain hsn instead of a signature map"
-```
-
----
-
-### Task 4: Pipeline threads the export's HSN per product
-
-**Files:**
-- Modify: `src/myntra/pipeline.py:30-33` (signature), `:71-75` (the map call), `:120-132` (`scan_content_hashes`)
-- Test: `tests/test_pipeline_override.py:43-77`
-
-**Interfaces:**
-- Consumes: `hsn_source.normalize` (Task 2), `map_product(..., hsn=...)` (Task 3).
-- Produces: `pipeline.main(...)` with **no** `hsn_by_signature` parameter. `hsn_by_sku` is unchanged and still pins per-SKU overrides. Task 5 must not pass `hsn_by_signature`.
-
-- [ ] **Step 1: Rewrite the pipeline HSN tests**
+This is the code for **Step 2** above. Write it before changing any source.
 
 In `tests/test_pipeline_override.py`, replace `test_hsn_by_signature_written_to_sheet`
 (lines 43-60) and `test_no_hsn_map_leaves_hsn_blank` (lines 63-77) with the code
@@ -466,13 +469,7 @@ def test_content_hash_is_unaffected_by_hsn(tmp_path):
 different parent directories; create them first with
 `(tmp_path / "a").mkdir()` and `(tmp_path / "b").mkdir()` at the top of the test.
 
-- [ ] **Step 2: Run the tests to verify they fail**
-
-Run: `python -m pytest tests/test_pipeline_override.py -q`
-Expected: FAIL — `map_product() got an unexpected keyword argument 'hsn_by_signature'`
-raised from inside `pipeline.main`.
-
-- [ ] **Step 3: Thread the value through the pipeline**
+- [ ] **Step 6: Thread the value through the pipeline**
 
 In `src/myntra/pipeline.py`, add the import beside the others at the top:
 
@@ -513,38 +510,9 @@ def scan_content_hashes(csv_path, template_path=None, config_dir="config/myntra"
         mapped = map_product(p, template, column_map, constants, rules)
 ```
 
-- [ ] **Step 4: Run the tests to verify they pass**
+#### Task 3 — web tests
 
-Run: `python -m pytest tests/test_pipeline_override.py tests/test_pipeline_cancel.py -q`
-Expected: PASS.
-
-- [ ] **Step 5: Run the full suite**
-
-Run: `python -m pytest -q`
-Expected: `tests/web/test_generate.py` FAILS — it still posts to the HSN route.
-Task 5 fixes it. Everything else passes.
-
-- [ ] **Step 6: Commit**
-
-```bash
-git add src/myntra/pipeline.py tests/test_pipeline_override.py
-git commit -m "feat(pipeline): thread the export's normalised HSN per product"
-```
-
----
-
-### Task 5: Delete the mid-build HSN screen
-
-**Files:**
-- Modify: `src/web/routers/generate.py:15` (import), `:21` (import), `:101-135` (`_hsn_prescan_or_build`), `:138-149` (`_start_build`), `:152-187` (`hsn_submit`), `:205-206`, `:235`, `:262-284` (`_spawn` / `_run_generate`)
-- Delete: `src/web/templates/_hsn_review.html`
-- Test: `tests/web/test_generate.py`
-
-**Interfaces:**
-- Consumes: `pipeline.main` without `hsn_by_signature` (Task 4).
-- Produces: `POST /generate` returns the stepper directly. `POST /generate/hsn/{job_id}` no longer exists. `_start_build(request, job, csv_path, job_dir, count, settings, only_skus=None, style_group_id_by_sku=None)`.
-
-- [ ] **Step 1: Rewrite the web tests**
+This is the code for **Step 3** above. Write it before changing any source.
 
 In `tests/web/test_generate.py`, replace the `_pass_hsn_and_wait` helper
 (lines 19-29) with a plain poll:
@@ -608,13 +576,7 @@ def test_no_hsn_screen_and_the_route_is_gone(tmp_path, monkeypatch):
                        ).status_code == 404
 ```
 
-- [ ] **Step 2: Run the tests to verify they fail**
-
-Run: `python -m pytest tests/web/test_generate.py -q`
-Expected: FAIL — the HSN screen still renders, so `"One-time HSN" not in r.text`
-fails and the removed-route assertion gets 200.
-
-- [ ] **Step 3: Strip the router**
+- [ ] **Step 7: Strip the router**
 
 In `src/web/routers/generate.py`:
 
@@ -658,36 +620,44 @@ Update `_spawn` and `_run_generate` (lines 262-284) to drop `hsn_by_signature`
 from their parameter lists, from the thread `args` tuple, and from the
 `pipeline_main(...)` call. Leave `hsn_by_sku` and `style_group_id_by_sku` alone.
 
-- [ ] **Step 4: Delete the template**
+- [ ] **Step 8: Delete the template**
 
 ```bash
 git rm src/web/templates/_hsn_review.html
 ```
 
-- [ ] **Step 5: Run the tests to verify they pass**
-
-Run: `python -m pytest tests/web/test_generate.py -q`
-Expected: PASS.
-
-- [ ] **Step 6: Confirm nothing still references the removed pieces**
-
-Run: `grep -rn "hsn_by_signature\|_hsn_review\|hsn_prescan\|generate/hsn" src/ tests/`
-Expected: no output.
+- [ ] **Step 9: Run the full suite — it must be green now**
 
 Run: `python -m pytest -q`
 Expected: all pass, including `tests/test_hsn_kb.py` and `tests/test_signature.py`
 against the retained-but-unwired module.
 
-- [ ] **Step 7: Commit**
+If anything is still red, fix it before committing. This task's whole point is
+that the three layers land together.
+
+- [ ] **Step 10: Confirm nothing still references the removed pieces**
+
+Run: `grep -rn "hsn_by_signature\|_hsn_review\|hsn_prescan\|generate/hsn" src/ tests/`
+Expected: no output.
+
+- [ ] **Step 11: Commit — once, for all three layers**
 
 ```bash
-git add -A src/web/routers/generate.py src/web/templates tests/web/test_generate.py
-git commit -m "feat(generate): drop the mid-build HSN question entirely"
+git add -A src/myntra/mapper.py src/myntra/pipeline.py src/web/routers/generate.py \
+        src/web/templates tests/test_mapper.py tests/test_pipeline_override.py \
+        tests/web/test_generate.py
+git commit -m "feat(hsn): source HSN from the export, drop the mid-build question
+
+map_product takes a plain hsn instead of a signature map; pipeline.main
+normalises each product's metafield value; the generate router loses the
+HSN pre-scan, the /generate/hsn route, _hsn_review.html and the per-job
+hsn.json. One commit because the signature change breaks every caller
+until they all move together."
 ```
 
 ---
 
-### Task 6: `sku_registry.update_hsn()`
+### Task 4: `sku_registry.update_hsn()`
 
 **Files:**
 - Modify: `src/myntra/sku_registry.py:40+`
@@ -695,7 +665,7 @@ git commit -m "feat(generate): drop the mid-build HSN question entirely"
 
 **Interfaces:**
 - Consumes: nothing.
-- Produces: `update_hsn(store, sku, hsn, key=REGISTRY_KEY) -> bool` — `True` if an existing entry was updated, `False` if the SKU is unknown. Task 7 calls it.
+- Produces: `update_hsn(store, sku, hsn, key=REGISTRY_KEY) -> bool` — `True` if an existing entry was updated, `False` if the SKU is unknown. Task 5 calls it.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -776,16 +746,23 @@ git commit -m "feat(registry): update_hsn, a narrow post-build HSN correction"
 
 ---
 
-### Task 7: Attribute screen accepts, validates and saves HSN
+### Task 5: HSN on the attribute screen
+
+**This is one task, one commit.** The router's new context variables (`p.hsn`,
+`p.hsn_missing`, `hsn_gaps`) are meaningless until the templates render them, and
+the router tests assert on rendered HTML. Committing the router alone would leave
+the suite red.
 
 **Files:**
 - Modify: `src/myntra/attribute_entry.py:19` (constants), new `validate_hsn`
 - Modify: `src/web/routers/attributes.py` — `_panels`, `_filled_count`, `_submitted_hsn`, `_build_payload`, `_save_entries`, both save routes, `attributes_form`
+- Create: `src/web/templates/_hsn_gap.html`
+- Modify: `src/web/templates/_attr_panel.html:41-48`, `attributes.html:3-13`, `_attr_saved.html`, `_attr_panel_saved.html`
 - Test: `tests/test_attribute_entry.py`, `tests/web/test_attributes.py`
 
 **Interfaces:**
-- Consumes: `hsn_source.normalize` (Task 2), `sku_registry.update_hsn` (Task 6).
-- Produces: `attribute_entry.HSN_HEADER = "HSN"`; `attribute_entry.validate_hsn(raw) -> str | None` raising `AttributeValueError`; `attributes._hsn_gap_count(xlsx, template) -> int`; `_save_entries` now returns a 5-tuple `(job, ordinals, payload, error, hsn_gaps)`. Task 8 renders `p.hsn`, `p.hsn_missing` and `hsn_gaps`.
+- Consumes: `hsn_source.normalize` (Task 2), `sku_registry.update_hsn` (Task 4).
+- Produces: `attribute_entry.HSN_HEADER = "HSN"`; `attribute_entry.validate_hsn(raw) -> str | None` raising `AttributeValueError`; `attributes._hsn_gap_count(xlsx, template) -> int`; `_save_entries` returns a 5-tuple `(job, ordinals, payload, error, hsn_gaps)`; form field `hsn__{ordinal}`; the element `id="hsn-gap-banner"` refreshed out-of-band by both save templates.
 
 - [ ] **Step 1: Write the failing validator test**
 
@@ -1118,34 +1095,7 @@ and add `"hsn_gaps": hsn_gaps` to the success-branch context only. The two early
 `nothing` returns and the error branch stay exactly as they are — they emit no
 out-of-band fragment, so no count or banner is disturbed.
 
-- [ ] **Step 8: Run the router tests**
-
-Run: `python -m pytest tests/web/test_attributes.py -q`
-Expected: still FAIL on the rendering assertions — the templates are Task 8. The
-registry test (`test_saving_an_hsn_corrects_the_sku_registry`) should now PASS.
-
-- [ ] **Step 9: Commit**
-
-```bash
-git add src/myntra/attribute_entry.py src/web/routers/attributes.py \
-        tests/test_attribute_entry.py tests/web/test_attributes.py
-git commit -m "feat(attributes): validate, save and register a per-SKU HSN"
-```
-
----
-
-### Task 8: The HSN field and the gap banner on screen
-
-**Files:**
-- Create: `src/web/templates/_hsn_gap.html`
-- Modify: `src/web/templates/_attr_panel.html:41-48`, `attributes.html:3-13`, `_attr_saved.html`, `_attr_panel_saved.html`
-- Test: `tests/web/test_attributes.py` (the assertions written in Task 7)
-
-**Interfaces:**
-- Consumes: `p.hsn`, `p.hsn_missing`, `hsn_gaps`, `total` (Task 7).
-- Produces: form field `hsn__{ordinal}`; the element `id="hsn-gap-banner"` that both save templates refresh out-of-band.
-
-- [ ] **Step 1: Create the banner partial**
+- [ ] **Step 8: Create the banner partial**
 
 Create `src/web/templates/_hsn_gap.html`:
 
@@ -1158,7 +1108,7 @@ Create `src/web/templates/_hsn_gap.html`:
 {% endif %}
 ```
 
-- [ ] **Step 2: Add the field to the panel**
+- [ ] **Step 9: Add the field to the panel**
 
 In `src/web/templates/_attr_panel.html`, inside `.attr-footer`, immediately after
 the `{% endfor %}` that closes the free-column loop (line 48):
@@ -1180,7 +1130,7 @@ It sits inside `.attr-footer`, which is inside `.attr-panel`, so the existing
 change. It is outside `.attr-grid`, so it does not trigger the live preview —
 correct, since HSN does not appear on the Myntra card.
 
-- [ ] **Step 3: Add the banner to the screen**
+- [ ] **Step 10: Add the banner to the screen**
 
 In `src/web/templates/attributes.html`, inside the `{% else %}` branch of
 `{% if not panels %}` (line 14), immediately above `<div id="attr-form">`, so an
@@ -1190,7 +1140,7 @@ empty batch does not get told every SKU has an HSN:
   <p><span id="hsn-gap-banner">{% include "_hsn_gap.html" %}</span></p>
 ```
 
-- [ ] **Step 4: Refresh it out of band on save**
+- [ ] **Step 11: Refresh it out of band on save**
 
 In `src/web/templates/_attr_panel_saved.html`, add the out-of-band span to the
 success branch only:
@@ -1216,12 +1166,12 @@ success branch, after the download link (line 10):
 The error branch of both files is left alone: it emits no out-of-band fragment,
 so a rejected save disturbs neither the panel count nor the banner.
 
-- [ ] **Step 5: Run the attribute tests**
+- [ ] **Step 12: Run the attribute tests**
 
 Run: `python -m pytest tests/web/test_attributes.py -q`
 Expected: PASS.
 
-- [ ] **Step 6: Update the older count assertions**
+- [ ] **Step 13: Update the older count assertions**
 
 `test_screen_renders_a_panel_per_sku_with_twelve_selects` counts 12 dropdowns
 via `r.text.count('name="attr__0__')` — that number is unchanged and it should
@@ -1237,21 +1187,27 @@ Change each hit to 14. Then:
 Run: `python -m pytest tests/web/test_attributes.py tests/test_attribute_entry.py -q`
 Expected: PASS.
 
-- [ ] **Step 7: Run the full suite**
+- [ ] **Step 14: Run the full suite**
 
 Run: `python -m pytest -q`
 Expected: all pass.
 
-- [ ] **Step 8: Commit**
+- [ ] **Step 15: Commit — once, router and templates together**
 
 ```bash
-git add src/web/templates tests/web/test_attributes.py
-git commit -m "feat(attributes): HSN field per SKU and a gap banner"
+git add src/myntra/attribute_entry.py src/web/routers/attributes.py \
+        src/web/templates tests/test_attribute_entry.py tests/web/test_attributes.py
+git commit -m "feat(attributes): per-SKU HSN field, validation and gap banner
+
+HSN becomes a 14th field on each panel, pre-filled from the export and
+validated as 8 digits. A banner counts the SKUs still missing one and
+refreshes out of band on save. Saving also corrects the SKU registry, so
+a later fix-flow rebuild does not restore the stale build-time code."
 ```
 
 ---
 
-### Task 9: Documentation and the retained-not-wired note
+### Task 6: Documentation and the retained-not-wired note
 
 **Files:**
 - Modify: `src/myntra/hsn_kb.py:1-14` (header comment)
