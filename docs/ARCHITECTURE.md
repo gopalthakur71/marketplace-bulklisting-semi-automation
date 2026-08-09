@@ -68,8 +68,9 @@ src/
     models.py shopify_reader.py images.py s3_upload.py
   myntra/                      # Myntra-specific
     pipeline.py template_reader.py mapper.py fill.py report.py     # Layer 1
-    template_guard.py preview.py attribute_entry.py                # Layer 1
-    groupid_ledger.py hsn_kb.py sku_registry.py                    # Layer 2
+    template_guard.py preview.py attribute_entry.py hsn_source.py  # Layer 1
+    groupid_ledger.py sku_registry.py                              # Layer 2
+    hsn_kb.py                      # Layer 2, RETAINED BUT NOT WIRED (see its docstring)
     error_reader.py corrector.py                                   # Layer 2
   web/                         # Layer 3 (FastAPI app)
     main.py settings.py auth.py jobs.py
@@ -109,7 +110,7 @@ tests/                         # 222 tests; tests/web/ covers Layer 3
                     template_guard.assert_template_compatible(...)   (fail loud on a bad swap)
                                           │
                     mapper.map_product(Product, TemplateInfo, config) ─► MappedRow
-                       • constants  • pricing  • HSN  • vocab validation (flag, never guess)
+                       • constants  • pricing  • HSN (from the export)  • vocab validation
                        • the 12 user_filled_attributes are POPPED → left blank for the seller
                                           │
  each Product ─► images.process_images ─► ImageResult         (download → JPG → public S3 .jpg URL)
@@ -133,10 +134,12 @@ tests/                         # 222 tests; tests/web/ covers Layer 3
 | `src/myntra/pipeline.py` | Orchestrator (`main`/`cli`) | Loads `config/myntra/`; assigns `styleGroupId` (offset by `style_group_id_start`); gates S3 use; writes outputs. |
 | `src/myntra/template_reader.py` | Read Myntra template | Detects header/data rows; resolves dropdown vocabularies → `{column → allowed values}`. **Plain `<dataValidation type="list">` first** (the V13 template, which openpyxl preserves), falling back to parsing **x14 extension** validations from raw sheet XML (the old 2026-06-16 template). |
 | `src/myntra/template_guard.py` | Fail loud on a template swap | `assert_template_compatible(template, column_map, constants)` raises `TemplateIncompatibleError` if the active template lacks any header the config or pipeline writes (union includes `_PIPELINE_WRITTEN_HEADERS`). Called by `pipeline.main`. |
-| `src/myntra/mapper.py` | Map + validate + rules | Constants, pricing, HSN-by-signature, **`validate_value`** (canonicalize to template spelling or flag). **Pops every `user_filled_attributes` header** so the 12 seller-decided attributes are never guessed. Returns `MappedRow`. |
+| `src/myntra/mapper.py` | Map + validate + rules | Constants, pricing, HSN (`hsn=` the export's normalised code, `hsn_override=` a pinned per-SKU code that always wins), **`validate_value`** (canonicalize to template spelling or flag). **Pops every `user_filled_attributes` header** so the 12 seller-decided attributes are never guessed. Returns `MappedRow`. |
 | `src/myntra/fill.py` | Write the Sarees sheet | Numeric cells (`NUMERIC_HEADERS`), S3 image URLs, **clears stray template rows**, **shared→inline strings** (Myntra's parser cannot resolve shared strings), x14 re-injection off by default (`preserve_dropdowns=False`; it breaks Myntra's parser — the V13 template's *plain* validations survive without it). |
 | `src/myntra/preview.py` | Reconstruct the Myntra listing | `reconstruct_title` / `reconstruct_design_details` (approximate — Myntra generates these from attributes), `_colour_phrase` / `_colour_display` (Design-Details L1 joins Prominent + Second Prominent Colour; metallics render `-Toned`, per `_TONED_COLOURS`), `missing_attributes`, `read_filled_rows`, **`build_card`** (the one place a listing card is assembled, so Flow C and Flow D can never drift apart). Read-only. |
-| `src/myntra/attribute_entry.py` | The seller-decided attributes | `user_filled_attributes()` (reads `rules.yaml` — the single loader), `attribute_vocab(template, columns)` (options **straight from** `vocab_by_header`; nothing added), `validate_submitted` (blank → `None`; non-blank must be an exact vocab member else `AttributeValueError`), `write_attributes(xlsx, template, entries)` (writes into an **already-built** workbook: verifies every row's SKU first, blanks on `None`, then re-applies `fill.shared_to_inline`), **`derive_brand_colour`** (`Brand Colour (Remarks)` = the chosen Prominent Colour, lowercased; `NA`/blank → nothing). Drives Flow D. |
+| `src/myntra/attribute_entry.py` | The seller-decided attributes | `user_filled_attributes()` (reads `rules.yaml` — the single loader), `attribute_vocab(template, columns)` (options **straight from** `vocab_by_header`; nothing added), `validate_submitted` (blank → `None`; non-blank must be an exact vocab member else `AttributeValueError`), `write_attributes(xlsx, template, entries)` (writes into an **already-built** workbook: verifies every row's SKU first, blanks on `None`, then re-applies `fill.shared_to_inline`), **`derive_brand_colour`** (`Brand Colour (Remarks)` = the chosen Prominent Colour, lowercased; `NA`/blank → nothing), **`validate_hsn`** (blank clears the cell; a non-blank value must pass `hsn_source.normalize`, else `AttributeValueError` — a bad code *typed here* is a mistake worth showing, unlike one merely absent from the export). Drives Flow D. |
+| `src/myntra/hsn_source.py` | The one definition of "a usable HSN" | `normalize(raw)` → the stripped 8-digit code or `None`. Pure — no web, jobs, or Shopify knowledge — so the build and the attribute screen enforce one rule from one place. An unusable value is a **gap to fill on the attribute screen**, never a mid-build crash, which is why it returns rather than raises. |
+| `src/myntra/hsn_kb.py` | **RETAINED BUT NOT WIRED IN** | The old learn-once-per-`category\|fabric` knowledge base. Nothing on the request path imports it; kept with its tests green as a fallback. Retired because the signature is too coarse — dhonkhali and katthai are both `saree\|cotton` yet need different codes. Do not send new work here. |
 | `src/myntra/report.py` | Audit report | `output/report.txt`: per-SKU filled count, blanks, vocab flags, image pass/fail. |
 
 ### The seller-decided attributes (why 12 columns come out blank)
@@ -187,7 +190,7 @@ Drives the web Fix flow; also usable standalone. No web dependency.
 | File | Responsibility | Key details |
 |---|---|---|
 | `src/myntra/groupid_ledger.py` | styleGroupId counter | `read_ledger`/`reserve`/`confirm` over a pluggable store. **`reserve()` records a pending batch but does NOT advance the counter; only `confirm()` advances** (so an unuploaded batch frees its ids). Store = `LocalJsonStore` (dev file) or `S3JsonStore` (key `state/myntra_groupid.json`). |
-| `src/myntra/hsn_kb.py` | HSN knowledge base | `signature(product, category, fabric_keywords)` (shared by the Generate pre-scan and the mapper), `read_kb`/`suggest`/`learn` over the same pluggable store (key `state/hsn_kb.json`, **own local path `HSN_LOCAL_PATH`** — `LocalJsonStore` is one-file-per-path). Learns an 8-digit HSN once per `category\|fabric` signature; seeds from the two ex-`rules.yaml` codes. Suggestion-only — HSN is authoritative **per SKU** (see `sku_registry.py`). HSN is no longer set by the `fabric_detection` block. |
+| `src/myntra/hsn_kb.py` | **RETAINED BUT NOT WIRED IN** — see the table in §3 | `signature`/`read_kb`/`suggest`/`learn` over a pluggable store (key `state/hsn_kb.json`, **own local path `HSN_LOCAL_PATH`**). Nothing on the request path imports it. HSN now comes from the export's `custom.hsn_code` metafield via `hsn_source.normalize`, and is corrected per SKU on the Fill-attributes screen. `settings.hsn_store` and `HSN_LOCAL_PATH` remain for it. |
 | `src/myntra/sku_registry.py` | Duplicate-generation guard | Per-SKU registry (key `state/sku_registry.json`, **own local path `SKU_REGISTRY_LOCAL_PATH`**) recorded **at generate time**: `content_hash(cells)` (excludes styleGroupId+HSN), `partition(sku_hashes, registry)` → NEW/REPEAT/EDITED, `record(store, sku, hash, style_group_id, hsn)`. On a re-upload the Generate router warns "already generated" and offers a **rebuild-on-demand** download that pins each SKU's stored styleGroupId + HSN (no ledger change). |
 | `src/myntra/error_reader.py` | Read + classify rejections | Reads the Myntra rejection `.xlsx` (headers row 3, data row 4; error cols `STATUS`, `SYSTEM ERROR MESSAGE`); splits the message on `;` and **classifies each issue via `config/myntra/error_rules.yaml`** into a `{category, action, explanation, field}`. Returns `RowError` per row. |
 | `src/myntra/corrector.py` | Apply fixes + regenerate | `plan_corrections` (preview buckets: auto/drop/manual/unknown) and `correct(...)`: drops chosen SKUs, applies deterministic **auto-fixes** (pincode from constants; backfill empty ISP from MRP), applies **user answers vocab-validated** (`validate_value`; invalid → `summary["rejected"]`, never written; mirrors Prominent Colour into Brand Colour Remarks), then regenerates via `fill.fill_template`. |
@@ -215,7 +218,7 @@ htmx. **No business logic here** — routers call `src/myntra` / `src/core`.
 | `src/web/routers/generate.py` | Flow A (below); `_safe_job_id` guards path traversal. |
 | `src/web/routers/fix.py` | Flow B (below); `_safe_fix_id` guards path traversal. |
 | `src/web/routers/preview.py` | Flow C (below): read-only round-trip preview of a filled workbook. Reads `user_filled_attributes` from `rules.yaml`; never modifies the uploaded file. |
-| `src/web/routers/attributes.py` | Flow D (below): the in-app **Fill attributes** screen. `job_files(job_id)` locates the job's built workbook + Shopify export (404 `session expired, please re-upload`); `_panels(...)` joins sheet row ↔ SKU ↔ product photo; `_submitted(...)` parses the `attr__{ordinal}__{column_index}` / `sku__{ordinal}` form fields. Writes **only** the 12 attribute cells. |
+| `src/web/routers/attributes.py` | Flow D (below): the in-app **Fill attributes** screen. `job_files(job_id)` locates the job's built workbook + Shopify export (404 `session expired, please re-upload`); `_panels(...)` joins sheet row ↔ SKU ↔ product photo; `_submitted(...)` / `_submitted_free(...)` / `_submitted_hsn(...)` parse the `attr__{ordinal}__{column_index}`, `free__{ordinal}__{column_index}`, `sku__{ordinal}` and `hsn__{ordinal}` form fields. Writes **only** the 12 attribute cells plus `tags`, `Brand Colour (Remarks)` and `HSN`. `_filled_count` / `_total` are the single shared definitions of "n of N", so the screen and the per-panel save cannot disagree. |
 | `src/web/oauth.py` | Hosted-UI OAuth helpers (`authorize_url`/`exchange_code`/`logout_url`); stdlib urllib, injectable `http` so unit tests never hit the network. |
 | `src/web/routers/auth_routes.py` | `GET /login` (state CSRF cookie → hosted UI), `GET /auth/callback` (verify state, exchange code, set `id_token` cookie), `GET /logout`. Sessions are **re-login-on-stale** (no refresh tokens). |
 
@@ -225,10 +228,9 @@ htmx. **No business logic here** — routers call `src/myntra` / `src/core`.
 |---|---|
 | `GET /` | Home / landing. |
 | `GET /generate` | Generate form; shows next styleGroupId from the ledger. |
-| `POST /generate` | Upload CSV → duplicate-SKU guard → HSN pre-scan → `reserve()` a batch → spawn background thread → return htmx stepper (header `x-job-id`). |
-| `POST /generate/hsn/{job_id}` | Submit the one-HSN-per-signature review (8 digits each) → `learn()` into the KB → start the build. |
+| `POST /generate` | Upload CSV → duplicate-SKU guard → `reserve()` a batch → spawn background thread → return htmx stepper (header `x-job-id`). No HSN question: each product's code rides in on the export. |
 | `POST /generate/new-only/{job_id}` | Duplicate guard: build only the NEW + EDITED SKUs. |
-| `POST /generate/continue/{job_id}` | Duplicate guard override ("Continue anyway"): rebuild EVERY SKU in the file. SKUs the registry already knows (repeat + edited) are pinned back to their stored styleGroupId so a rework stays in the same Myntra style group; new SKUs draw from the ledger. HSN is re-asked via the normal pre-scan. |
+| `POST /generate/continue/{job_id}` | Duplicate guard override ("Continue anyway"): rebuild EVERY SKU in the file. SKUs the registry already knows (repeat + edited) are pinned back to their stored styleGroupId so a rework stays in the same Myntra style group; new SKUs draw from the ledger. HSN comes from the export as on any build. |
 | `GET /generate/rebuild/{job_id}` | Duplicate guard: rebuild the REPEAT SKUs, pinning their stored styleGroupId + HSN (no ledger change). |
 | `GET /jobs/{job_id}` | htmx poll: returns the stepper while running, `_cancelled.html` when stopped, the result partial when done/failed. Every one of those carries the `#run-controls` OOB fragment, so Stop appears and disappears with the run. |
 | `POST /generate/cancel/{job_id}` | Stop a running build: sets the job's `cancel_requested` flag and returns the stepper immediately ("Stopping…"). The worker lands it at its next checkpoint — see the cancellation note below. |
@@ -236,7 +238,7 @@ htmx. **No business logic here** — routers call `src/myntra` / `src/core`.
 | `POST /generate/confirm/{job_id}` | `confirm()` the batch → **advances the ledger**. |
 | `POST /generate/unconfirm/{job_id}` | Undo a mark-as-uploaded (refuses if a later batch was confirmed). |
 | `POST /generate/style-start` + `/undo` | Seed the ledger from the last styleGroupId already used on Myntra. |
-| `GET /generate/attributes/{job_id}` | Flow D form: one accordion panel per SKU — product photo, the 12 vocabulary-only dropdowns (pre-selected from the workbook), an `n/12 filled` counter, the read-only derived `Brand Colour (Remarks)`, and the current listing card. |
+| `GET /generate/attributes/{job_id}` | Flow D form: one accordion panel per SKU — product photo, the 12 vocabulary-only dropdowns (pre-selected from the workbook), the free-text `tags` and **`HSN`** boxes, an `n/14 filled` counter, the read-only derived `Brand Colour (Remarks)`, and the current listing card. Above the panels, `_hsn_gap.html` counts the SKUs still missing a usable HSN — derived from the rows `_panels` already read, never a second `read_filled_rows`. |
 | `POST /generate/attributes/{job_id}/preview` | htmx fragment: re-renders **one** listing card from the posted dropdown values via the same `build_card`. Touches no file. |
 | `POST /generate/attributes/{job_id}` | Save: validate every value against the template vocabulary, then write all SKUs' attributes into the built workbook. Returns a 200 panel on success **and** on validation failure (htmx-swappable, never a 500); an off-vocab value writes nothing at all. |
 | `GET /preview` | Preview form (Flow C). |
@@ -249,7 +251,7 @@ htmx. **No business logic here** — routers call `src/myntra` / `src/core`.
 ### Flow A — Generate (request lifecycle)
 
 ```
-POST /generate (CSV) ─► save to runtime/<job>/ ─► dedup guard ─► HSN pre-scan/review
+POST /generate (CSV) ─► save to runtime/<job>/ ─► dedup guard
                      ─► reserve(count) [no advance]
                      └► daemon thread: pipeline.main(...) → set_step()/finish()/fail()
 browser htmx-polls GET /jobs/<job> ─► stepper → _result.html
@@ -301,9 +303,14 @@ on every dropdown change ─► POST /generate/attributes/<job>/preview  (hx-inc
 
 "Save attributes" ─► POST /generate/attributes/<job>
     validate_submitted(values, vocab)   → off-vocab ⇒ 200 error panel, NOTHING written
-    derive_brand_colour(values)         → Brand Colour (Remarks) = colour.lower()  (13th cell)
+    derive_brand_colour(values)         → Brand Colour (Remarks) = colour.lower()
+    validate_hsn(raw)                   → blank clears; non-blank must be 8 digits, else raise
     write_attributes(xlsx, ...)         → row SKUs verified, cells written, blanks cleared
+                                        → NUMERIC_HEADERS coerced (HSN as a number, not text)
                                         → fill.shared_to_inline() RE-APPLIED  (see below)
+    sku_registry.update_hsn(...)        → INSIDE the write lock, only after a successful write,
+                                          so a later fix-flow rebuild cannot restore a stale code
+    _hsn_gap.html refreshed out of band  → top-level in the fragment, or htmx ignores it
 GET /generate/download/<job> ─► the same file, now with the chosen attributes AND live dropdowns
 ```
 
@@ -330,7 +337,7 @@ GET /fix/download/<id>
 
 `templates/`: `base.html` (shell), `home.html`, `generate.html`, `fix.html`, `preview.html`,
 `attributes.html`, and htmx partials `_stepper.html`, `_result.html`, `_confirmed.html`,
-`_mark_upload.html`, `_dedup_warn.html`, `_hsn_review.html`, `_style_start.html`,
+`_mark_upload.html`, `_dedup_warn.html`, `_style_start.html`, `_hsn_gap.html`,
 `_cancelled.html`, `_run_controls.html`, `_fix_review.html`, `_fix_result.html`,
 `_preview.html`, `_preview_card.html` (the one card
 markup, shared by Flows C and D), `_attr_panel.html`, `_attr_saved.html`. `static/`: `app.css`
@@ -427,7 +434,7 @@ This is the section to read when something *outside* the code changes.
 |---|---|
 | `column_map.yaml` | Direct Shopify field → Myntra column copies. |
 | `constants.yaml` | Fixed per-row values: brand, **manufacturer/packer/importer address with 6-digit pincode**, sizes, AgeGroup, FashionType, Year, Season, mandatory-attribute defaults. |
-| `rules.yaml` | **`user_filled_attributes`** (the 12 seller-decided columns the mapper blanks — the single source of truth, read by `/preview` and the Fill-attributes screen too), fabric keyword detection (feeds the HSN signature only), `replicate_constant_across_numbered`, **`style_group_id_start`**, Product Details marker. |
+| `rules.yaml` | **`user_filled_attributes`** (the 12 seller-decided columns the mapper blanks — the single source of truth, read by `/preview` and the Fill-attributes screen too), fabric keyword detection (fed the retired HSN signature; no longer read by the build), `replicate_constant_across_numbered`, **`style_group_id_start`**, Product Details marker. |
 | `image_specs.yaml` | Image min dims, max bytes, JPEG quality, max images; **S3 host** (`public_base_url`, `s3_upload`, `s3_bucket`, `s3_region`, `s3_prefix`). |
 | `error_rules.yaml` | Maps Myntra error-message substrings → `{category, action, explanation, field}` for the Fix flow. |
 
@@ -446,8 +453,11 @@ Two of them guard invariants that fail *silently* if broken — do not delete th
 refactor pass: `test_write_attributes_keeps_strings_inline` (no `t="s"` cell survives an in-app
 save) and `test_save_keeps_dropdowns_alive_in_the_downloaded_file` (the owner's Excel check).
 
-Note: `tests/web/test_attributes.py` is slow (~4½ min) because every request re-reads the V13
-template (~5 s), the same cost `/preview` already pays. Correct, just unhurried.
+Note: `tests/web/test_attributes.py` is **slow — ~35-40 min on its own** (50 tests, measured
+2026-08-09), because nearly every test builds or re-saves the V13 workbook through openpyxl and
+every request re-reads the template. It is slow, not hung; do not kill it. While developing, run
+a `-k` subset (a handful of tests is 2-4 min) and budget properly for the whole file. The full
+suite is longer still — see `docs/journal/` for the standing guidance.
 
 ---
 

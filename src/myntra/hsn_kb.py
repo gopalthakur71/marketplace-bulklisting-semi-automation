@@ -1,3 +1,14 @@
+"""RETAINED BUT NOT WIRED IN. Kept deliberately — this is not dead code.
+
+HSN now comes from the Shopify export's custom.hsn_code metafield and is
+reviewed per SKU on the attribute screen; see
+docs/superpowers/specs/2026-08-09-hsn-from-shopify-metafield-design.md.
+
+Nothing on the request path imports this module. It is kept, with its tests
+passing, as a working fallback if the metafield approach disappoints. Its
+category|fabric signature is known to be too coarse to distinguish real codes
+(dhonkhali and katthai are both "saree|cotton" but need 52084121 and 52083170),
+which is why it was retired rather than merely bypassed."""
 import datetime
 import json
 import re

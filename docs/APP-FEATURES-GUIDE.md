@@ -111,7 +111,7 @@ A few things worth knowing:
   instead of after. If you don't pick a colour, it stays blank rather than the app inventing one.
 - **It's optional.** Fill all of them, some of them, or none. Whatever you skip stays blank.
 - **You can come back.** Reopen the screen and everything you saved is already selected, with an
-  "n/12 filled" count on each row so you can see what's left.
+  "n/14 filled" count on each row so you can see what's left.
 - **The Excel dropdowns still work afterwards.** Saving in the app does not kill them — download
   the file and you can still finish the rest in Excel if you'd rather.
 - **The preview here is the same one as Screen 3**, so the two can never tell you different
@@ -119,7 +119,7 @@ A few things worth knowing:
   labelled as approximate.
 - **Saving one product at a time.** Each product box has its own **Save this SKU** button. It
   saves just that product, so you can fill two or three, save them, and come back to the rest
-  later without losing anything. The counter at the top of the box ("5/13 filled") updates as
+  later without losing anything. The counter at the top of the box ("5/14 filled") updates as
   soon as the save succeeds. The **Save attributes** button at the bottom still saves every
   product at once — use whichever suits you.
 - **One caveat worth knowing:** saved work lives with that batch while the app is running. If
@@ -129,6 +129,13 @@ A few things worth knowing:
   field on the product in Shopify. Unlike the dropdowns, you can type anything you like here
   — Myntra does not restrict it. Leave it alone and your Shopify tags are used as-is; clear
   it and the product goes up with no tags.
+- **The HSN box.** Every product also has an **HSN** box, filled in automatically from Shopify —
+  from the product's `custom.hsn_code` metafield. There is no longer an HSN question during
+  Generate; the code simply comes across with the product. A banner at the top of the screen
+  counts how many products still need one, because **Myntra rejects a blank HSN at upload**, and
+  the count drops as you fill them in. The box only accepts an 8-digit code; anything else is
+  refused with a message rather than saved. One thing to remember: filling it here fixes **this
+  batch only** — update the metafield in Shopify too, or the next export will show the same gap.
 
 ### Supporting features on the Generate screen
 
@@ -138,10 +145,16 @@ A few things worth knowing:
   uses them up) only after you tell it Myntra accepted the upload. So an abandoned upload doesn't
   waste numbers. The Generate screen shows you the next number before you start.
 
-- **HSN tax-code memory ("HSN knowledge base").** Every product needs an 8-digit HSN tax code, and
-  it depends on the product's category + fabric. Instead of you looking it up every time, the app
-  **learns it once** per category-and-fabric combination on a review screen, then reuses it
-  automatically forever after. You can also seed/correct it.
+- **HSN tax codes come from Shopify.** Every product needs an 8-digit HSN tax code, and the app
+  reads each one straight from the product's `custom.hsn_code` metafield in the Shopify export.
+  There is **no HSN question during Generate any more** — you go from the upload form to the
+  build. Anything missing or malformed in Shopify is left blank in the sheet and flagged on the
+  Fill-attributes screen, where you fill it in per product (see "The HSN box" above).
+
+  This replaced an older "HSN knowledge base" that learned one code per category-and-fabric
+  combination and reused it. It was retired because that pairing is too coarse to be right: two
+  of your own cotton sarees, dhonkhali and katthai, need different codes (52084121 and 52083170)
+  despite looking identical to it. Reading the real code off each product removes the guess.
 
 - **Duplicate-upload guard.** If you accidentally re-upload products you've already generated, the
   app **notices and warns you** ("these were already generated") instead of creating clashing
@@ -154,7 +167,7 @@ A few things worth knowing:
     SKUs you've already done (you changed photos, attributes or price). It rebuilds the whole file,
     repeats included. Each repeat **keeps the style number it was given the first time**, so Myntra
     still sees the same style rather than a duplicate; only brand-new SKUs draw a fresh number. HSN
-    is asked again on the way through, so you can correct a wrong code.
+    comes across from Shopify as usual, and you can correct any code on the Fill-attributes screen.
 
 - **Stop a run you didn't mean to start.** While a sheet is being built, a **Stop** button
   appears next to Generate. Press it and the build halts — it finishes whichever product it was
