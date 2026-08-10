@@ -177,7 +177,7 @@ def regenerate_surface_b(skus, settings, out_dir, csv_path=None):
     neither the registry nor the export are reported as could_not_rebuild."""
     reg = read_registry(sku_registry_store(settings))
     only = set(skus) if skus else None
-    sgid, hsn = {}, {}
+    sgid, hsn, names = {}, {}, {}
     for sku in (skus if skus is not None else reg.keys()):
         e = reg.get(sku)
         if not e:
@@ -186,9 +186,15 @@ def regenerate_surface_b(skus, settings, out_dir, csv_path=None):
             sgid[sku] = e["style_group_id"]
         if e.get("hsn") is not None:
             hsn[sku] = e["hsn"]
+        # Names the seller wrote on the attribute screen. Same reason as the HSN
+        # pin: this rebuild remaps every column from the Shopify export, so an
+        # unpinned productDisplayName reverts to the machine-generated title.
+        if e.get("names"):
+            names[sku] = e["names"]
 
     res = pipeline_main(csv_path=csv_path, out_dir=out_dir, only_skus=only,
-                        style_group_id_by_sku=sgid, hsn_by_sku=hsn)
+                        style_group_id_by_sku=sgid, hsn_by_sku=hsn,
+                        names_by_sku=names)
 
     built = {r["sku"] for r in res.get("records", [])}
     missing = sorted(set(skus) - built) if skus else []

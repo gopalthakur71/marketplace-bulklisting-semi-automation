@@ -167,7 +167,25 @@ def test_write_attributes_rejects_sku_mismatch_without_writing(tmp_path):
 
 def test_user_filled_freetext_reads_the_yaml_list():
     from src.myntra.attribute_entry import user_filled_freetext
-    assert user_filled_freetext() == ["tags"]
+    assert user_filled_freetext() == ["tags", "List View Name", "productDisplayName"]
+
+
+def test_the_two_name_columns_are_free_text_not_dropdowns():
+    """Neither name has a template vocabulary, so validating them by exact
+    membership would reject every value the seller could possibly type."""
+    from src.myntra.attribute_entry import (user_filled_attributes,
+                                            user_filled_freetext)
+    for column in ("List View Name", "productDisplayName"):
+        assert column in user_filled_freetext()
+        assert column not in user_filled_attributes()
+
+
+def test_validate_freetext_accepts_a_typed_product_display_name():
+    from src.myntra.attribute_entry import validate_freetext
+    columns = ["tags", "List View Name", "productDisplayName"]
+    out = validate_freetext(
+        {"productDisplayName": "Ijor Handloom Cotton Saree"}, columns)
+    assert out == {"productDisplayName": "Ijor Handloom Cotton Saree"}
 
 
 def test_validate_freetext_accepts_any_value():

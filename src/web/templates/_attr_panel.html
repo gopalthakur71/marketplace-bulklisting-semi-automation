@@ -43,7 +43,7 @@
     <label class="hint attr-free">{{ column }}
       <input type="text" name="free__{{ p.ordinal }}__{{ loop.index0 }}"
              value="{{ p.free[column] or '' }}" autocomplete="off">
-      <span class="hint">free text — pre-filled from Shopify, edit if needed</span>
+      <span class="hint">{{ free_hints[column] }}</span>
     </label>
     {% endfor %}
     {# Inside .attr-footer, so the save buttons' hx-include="closest .attr-panel"

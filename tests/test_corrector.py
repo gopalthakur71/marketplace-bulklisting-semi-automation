@@ -346,3 +346,29 @@ def test_regenerate_surface_b_whole_sheet_applies_registry_pins(monkeypatch, tmp
     assert captured["style_group_id_by_sku"] == {"AAA": 42}
     assert captured["hsn_by_sku"] == {"AAA": "52081120"}
     assert summary["could_not_rebuild"] == []
+
+
+def test_regenerate_surface_b_pins_names_the_seller_wrote(monkeypatch, tmp_path):
+    """Without this the rebuild remaps productDisplayName from the Shopify title
+    and silently discards the name entered on the attribute screen."""
+    import src.myntra.corrector as corrector
+    from src.web.settings import Settings
+
+    monkeypatch.setattr(corrector, "sku_registry_store", lambda s: object())
+    monkeypatch.setattr(corrector, "read_registry", lambda store: {
+        "AAA": {"style_group_id": 42, "hsn": "52081120",
+                "names": {"productDisplayName": "Ijor Handloom Saree"}},
+        "CCC": {"style_group_id": 43, "hsn": "52081120"}})     # never renamed
+
+    captured = {}
+
+    def fake_pipeline(**kwargs):
+        captured.update(kwargs)
+        return {"filled": str(tmp_path / "myntra_filled.xlsx"),
+                "products": 2, "records": [{"sku": "AAA"}, {"sku": "CCC"}]}
+
+    monkeypatch.setattr(corrector, "pipeline_main", fake_pipeline)
+
+    corrector.regenerate_surface_b(["AAA", "CCC"], Settings(), str(tmp_path))
+    assert captured["names_by_sku"] == {
+        "AAA": {"productDisplayName": "Ijor Handloom Saree"}}

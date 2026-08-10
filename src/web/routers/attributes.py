@@ -6,16 +6,18 @@ from fastapi.responses import HTMLResponse
 
 from src.core.shopify_reader import read_products
 from src.myntra.attribute_entry import (BRAND_COLOUR_HEADER, HSN_HEADER,
+                                        PINNED_NAME_HEADERS,
                                         AttributeValueError,
                                         SkuMismatchError, attribute_vocab,
-                                        derive_brand_colour, user_filled_attributes,
+                                        derive_brand_colour, freetext_hints,
+                                        user_filled_attributes,
                                         user_filled_freetext, validate_freetext,
                                         validate_hsn, validate_submitted,
                                         write_attributes)
 from src.myntra.hsn_source import normalize as normalize_hsn
 from src.myntra.pipeline import DEFAULT_TEMPLATE_NAME
 from src.myntra.preview import build_card, is_set, read_filled_rows
-from src.myntra.sku_registry import update_hsn
+from src.myntra.sku_registry import update_hsn, update_names
 from src.myntra.template_reader import read_template
 from src.web.jobs import store
 from src.web.routers.pages import get_settings, get_user
@@ -132,6 +134,7 @@ def attributes_form(request: Request, job_id: str):
     return _templates().TemplateResponse(request, "attributes.html", {
         "user": user, "job_id": job.id, "columns": columns,
         "free_columns": free_columns,
+        "free_hints": freetext_hints(free_columns),
         "vocab": attribute_vocab(template, columns),
         "panels": panels,
         "hsn_gaps": _hsn_gaps_in(panels),
@@ -227,6 +230,14 @@ async def _save_entries(request, job_id, only=None):
             for e in payload:
                 if HSN_HEADER in e["values"]:
                     update_hsn(reg_store, e["sku"], e["values"][HSN_HEADER])
+                # Same reasoning for the hand-written names: a rebuild remaps them
+                # from the Shopify export, so an unpinned name is silently lost.
+                # Only headers this save actually posted, so a per-panel save
+                # cannot blank a name another panel owns.
+                pinned = {h: e["values"][h] for h in PINNED_NAME_HEADERS
+                          if h in e["values"]}
+                if pinned:
+                    update_names(reg_store, e["sku"], pinned)
     except (AttributeValueError, SkuMismatchError) as exc:
         return job, ordinals, [], str(exc), _hsn_gap_count(xlsx, template)
     return job, ordinals, payload, None, _hsn_gap_count(xlsx, template)

@@ -110,7 +110,7 @@ def _set_forced(row, template, header, value):
 
 
 def map_product(product, template, column_map, constants, rules=None, hsn=None,
-                hsn_override=None):
+                hsn_override=None, names_override=None):
     rules = rules or {}
     row = MappedRow(sku=product.sku)
 
@@ -162,6 +162,16 @@ def map_product(product, template, column_map, constants, rules=None, hsn=None,
     # 8. Attributes the user fills by hand in Excel — never emitted by the pipeline.
     for header in (rules.get("user_filled_attributes") or []):
         row.cells.pop(header, None)
+
+    # 8b. Names the seller wrote on the attribute screen, pinned in the SKU
+    # registry (sku_registry.update_names). Applied LAST so a pinned
+    # productDisplayName beats the title-derived one from step 3 — without this a
+    # rebuild would quietly restore the machine-generated name over the seller's.
+    # A header the current template lacks is skipped rather than invented, so a pin
+    # made against an older template cannot write a phantom column.
+    for header, value in (names_override or {}).items():
+        if header in template.col_index_by_header and value is not None:
+            row.cells[header] = str(value)
 
     # 7. record vocab-controlled headers left blank (manual / Phase 2 fill)
     for header in template.vocab_by_header:

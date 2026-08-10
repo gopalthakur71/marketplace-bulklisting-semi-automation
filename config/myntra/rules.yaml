@@ -46,8 +46,21 @@ user_filled_attributes:
 # vocabulary, and that rule must never be relaxed. `tags` is pre-filled by the
 # pipeline from the Shopify export (column_map.yaml: tags -> tags); the seller may
 # overwrite it in the app.
+#
+# The two name columns behave differently from each other on purpose:
+#   productDisplayName — pre-filled from the Shopify title by mapper.py, edit to taste.
+#   List View Name     — deliberately left BLANK by the pipeline (nothing maps to it),
+#                        so an untouched panel reads as "not written yet" rather than
+#                        silently shipping a title that was never reviewed.
+# Neither has a character cap: the template's __INSTRUCTIONS sheet states none for
+# them (unlike vendorArticleName's 40).
+#
+# ORDER MATTERS: the attribute panel names its inputs free__{ordinal}__{index} by
+# position in this list, and tests address those indices.
 user_filled_freetext:
   - tags
+  - List View Name
+  - productDisplayName
 
 # Assign a sequential styleGroupId to each product row, continuing from the
 # seller's existing Myntra catalog. styleGroupId of row i = style_group_id_start + (i-1).

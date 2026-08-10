@@ -83,7 +83,7 @@ def test_existing_values_are_preselected(tmp_path, monkeypatch):
                      [{"ordinal": 0, "sku": "S1", "values": {"Border": "Zari"}}])
     r = _client(tmp_path).get(f"/generate/attributes/{job.id}")
     assert '<option value="Zari" selected>Zari</option>' in r.text
-    assert "1/14 filled" in r.text
+    assert "1/16 filled" in r.text
 
 
 def test_missing_image_falls_back_to_placeholder(tmp_path, monkeypatch):
@@ -307,16 +307,82 @@ def test_panel_renders_a_tags_input_prefilled_from_the_sheet(tmp_path, monkeypat
     assert _free_input_value(r.text) == "saree, cotton"
 
 
+# The two name columns. free__N__1 is List View Name, free__N__2 is
+# productDisplayName — the order of user_filled_freetext in rules.yaml.
+
+def test_panel_renders_an_input_for_each_name_column(tmp_path, monkeypatch):
+    job = _job(tmp_path, monkeypatch, skus=("S1",))
+    r = _client(tmp_path).get(f"/generate/attributes/{job.id}")
+    assert 'name="free__0__1"' in r.text and "List View Name" in r.text
+    assert 'name="free__0__2"' in r.text and "productDisplayName" in r.text
+
+
+def test_each_free_text_column_carries_its_own_hint(tmp_path, monkeypatch):
+    """The shared 'pre-filled from Shopify' hint is a lie for List View Name,
+    which the pipeline deliberately leaves blank."""
+    job = _job(tmp_path, monkeypatch, skus=("S1",))
+    r = _client(tmp_path).get(f"/generate/attributes/{job.id}")
+    assert "Myntra’s short name for the list view — blank until you write it" in r.text
+    assert "the full product name — pre-filled from the Shopify title" in r.text
+
+
+def test_bulk_save_writes_both_name_columns(tmp_path, monkeypatch):
+    job = _job(tmp_path, monkeypatch, skus=("S1",))
+    r = _client(tmp_path).post(f"/generate/attributes/{job.id}", data={
+        "sku__0": "S1",
+        "free__0__1": "Ijor Cotton Saree",
+        "free__0__2": "Ijor Handloom Pure Cotton Saree with Zari Border"})
+    assert "Saved" in r.text
+    t = read_template(V13)
+    assert _cell(job.result["filled"], t, 0, "List View Name") == "Ijor Cotton Saree"
+    assert (_cell(job.result["filled"], t, 0, "productDisplayName")
+            == "Ijor Handloom Pure Cotton Saree with Zari Border")
+
+
+def test_a_long_product_display_name_is_not_truncated(tmp_path, monkeypatch):
+    """No character cap: the template's instructions sheet states none for these
+    two columns, unlike vendorArticleName's 40."""
+    job = _job(tmp_path, monkeypatch, skus=("S1",))
+    long_name = "Ijor " + "Handwoven " * 12 + "Saree"
+    _client(tmp_path).post(f"/generate/attributes/{job.id}", data={
+        "sku__0": "S1", "free__0__2": long_name})
+    assert _cell(job.result["filled"], read_template(V13), 0,
+                 "productDisplayName") == long_name
+
+
+def test_blank_name_clears_the_cell(tmp_path, monkeypatch):
+    job = _job(tmp_path, monkeypatch, skus=("S1",))
+    client = _client(tmp_path)
+    client.post(f"/generate/attributes/{job.id}",
+                data={"sku__0": "S1", "free__0__2": "Some Name"})
+    client.post(f"/generate/attributes/{job.id}",
+                data={"sku__0": "S1", "free__0__2": "   "})
+    assert _cell(job.result["filled"], read_template(V13), 0,
+                 "productDisplayName") is None
+
+
+def test_both_names_count_toward_the_filled_total_of_sixteen(tmp_path, monkeypatch):
+    job = _job(tmp_path, monkeypatch, skus=("S1",))
+    client = _client(tmp_path)
+    r = client.post(f"/generate/attributes/{job.id}", data={
+        "sku__0": "S1", "free__0__1": "A Name", "free__0__2": "Another Name"})
+    assert "Saved" in r.text
+    # The bulk response reports how many SKUs were saved; the per-panel counter is
+    # what has to reach 2/16, so re-read the screen for it.
+    r = client.get(f"/generate/attributes/{job.id}")
+    assert "2/16 filled" in r.text
+
+
 def test_tags_input_is_empty_when_the_sheet_has_none(tmp_path, monkeypatch):
     job = _job(tmp_path, monkeypatch, skus=("S1",))
     r = _client(tmp_path).get(f"/generate/attributes/{job.id}")
     assert _free_input_value(r.text) == ""
 
 
-def test_filled_count_is_out_of_fourteen_and_counts_tags(tmp_path, monkeypatch):
+def test_filled_count_is_out_of_sixteen_and_counts_tags(tmp_path, monkeypatch):
     job = _job(tmp_path, monkeypatch, skus=("S1",), tags="festive")
     r = _client(tmp_path).get(f"/generate/attributes/{job.id}")
-    assert "1/14 filled" in r.text
+    assert "1/16 filled" in r.text
 
 
 def test_count_span_is_addressable_for_out_of_band_updates(tmp_path, monkeypatch):
@@ -359,7 +425,7 @@ def test_one_panel_save_writes_only_the_requested_ordinal(tmp_path, monkeypatch)
     assert 'id="attr-count-1"' in r.text
     assert 'id="attr-count-0"' not in r.text
     assert 'hx-swap-oob="true"' in r.text
-    assert "2/14 filled" in r.text
+    assert "2/16 filled" in r.text
 
 
 def test_one_panel_save_off_vocab_elsewhere_does_not_block_this_panel(tmp_path, monkeypatch):
@@ -380,7 +446,7 @@ def test_one_panel_save_returns_the_refreshed_count_out_of_band(tmp_path, monkey
         "sku__0": "S1", "attr__0__5": "Banarasi", "free__0__0": "festive"})
     assert 'id="attr-count-0"' in r.text
     assert 'hx-swap-oob="true"' in r.text
-    assert "2/14 filled" in r.text
+    assert "2/16 filled" in r.text
     assert "Saved" in r.text
 
 
@@ -534,14 +600,14 @@ def test_saving_a_valid_hsn_writes_it_and_clears_the_banner(tmp_path, monkeypatc
     assert _cell(job.result["filled"], read_template(V13), 0, "HSN") == 54075240
 
 
-def test_hsn_counts_toward_the_filled_total_of_fourteen(tmp_path, monkeypatch):
+def test_hsn_counts_toward_the_filled_total_of_sixteen(tmp_path, monkeypatch):
     # 12 dropdowns + tags + HSN. _filled_count is the single shared definition,
     # so the panel header and the save result cannot disagree.
     job = _job(tmp_path, monkeypatch, skus=("S1",))
     r = _client(tmp_path).post(f"/generate/attributes/{job.id}/one",
                                data={"ordinal": 0, "sku__0": "S1",
                                      "hsn__0": "54075240"})
-    assert "1/14 filled" in r.text
+    assert "1/16 filled" in r.text
 
 
 def test_saving_a_bad_hsn_is_rejected_and_writes_nothing(tmp_path, monkeypatch):
@@ -666,3 +732,53 @@ def test_a_rejected_save_does_not_move_the_registry(tmp_path, monkeypatch):
         data={"ordinal": 0, "sku__0": "S1", "hsn__0": "5407"})
 
     assert read_registry(sku_registry_store(s))["S1"]["hsn"] == "50072010"
+
+
+def _registry(tmp_path):
+    import json
+    with open(tmp_path / "reg.json", encoding="utf-8") as fh:
+        return json.load(fh)
+
+
+def test_saving_a_name_pins_it_in_the_sku_registry(tmp_path, monkeypatch):
+    """The attribute screen is the only place these names are authored, so the
+    pin has to be written here or a later rebuild reverts to the Shopify title."""
+    from src.myntra.sku_registry import record
+    from src.web.settings import Settings, sku_registry_store
+    s = Settings(auth_disabled=True, s3_bucket="b",
+                 ledger_local_path=str(tmp_path / "led.json"),
+                 hsn_local_path=str(tmp_path / "hsn.json"),
+                 sku_registry_local_path=str(tmp_path / "reg.json"))
+    job = _job(tmp_path, monkeypatch, skus=("S1",))
+    record(sku_registry_store(s), "S1", "hash-1", 42, "50072010")
+
+    TestClient(create_app(s)).post(f"/generate/attributes/{job.id}", data={
+        "sku__0": "S1",
+        "free__0__1": "Ijor Saree",
+        "free__0__2": "Ijor Handloom Pure Cotton Saree"})
+
+    entry = _registry(tmp_path)["S1"]
+    assert entry["names"] == {"List View Name": "Ijor Saree",
+                              "productDisplayName": "Ijor Handloom Pure Cotton Saree"}
+    assert entry["style_group_id"] == 42          # untouched
+    assert entry["hsn"] == "50072010"             # untouched
+
+
+def test_a_rejected_save_pins_no_name(tmp_path, monkeypatch):
+    """The registry must not move when the write was refused — same rule the HSN
+    pin follows."""
+    from src.myntra.sku_registry import record
+    from src.web.settings import Settings, sku_registry_store
+    s = Settings(auth_disabled=True, s3_bucket="b",
+                 ledger_local_path=str(tmp_path / "led.json"),
+                 hsn_local_path=str(tmp_path / "hsn.json"),
+                 sku_registry_local_path=str(tmp_path / "reg.json"))
+    job = _job(tmp_path, monkeypatch, skus=("S1",))
+    record(sku_registry_store(s), "S1", "hash-1", 42, "50072010")
+
+    r = TestClient(create_app(s)).post(f"/generate/attributes/{job.id}", data={
+        "sku__0": "S1",
+        "attr__0__0": "Salmon Pink",              # off-vocabulary -> whole save fails
+        "free__0__2": "Ijor Handloom Pure Cotton Saree"})
+    assert "not one of Myntra" in r.text
+    assert not _registry(tmp_path)["S1"].get("names")

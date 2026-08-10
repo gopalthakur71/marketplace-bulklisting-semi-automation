@@ -1,7 +1,7 @@
 import json
 
 from src.myntra.sku_registry import (content_hash, read_registry, partition,
-                                     record, update_hsn)
+                                     record, update_hsn, update_names)
 
 
 class FakeStore:
@@ -78,3 +78,51 @@ def test_update_hsn_accepts_none_to_clear():
     record(store, "S1", "hash-1", 42, "50072010")
     assert update_hsn(store, "S1", None) is True
     assert read_registry(store)["S1"]["hsn"] is None
+
+
+def test_update_names_pins_an_edited_name():
+    store = FakeStore()
+    record(store, "S1", "hash-1", 42, "50072010")
+    assert update_names(store, "S1", {"productDisplayName": "Ijor Cotton Saree"}) is True
+    entry = read_registry(store)["S1"]
+    assert entry["names"] == {"productDisplayName": "Ijor Cotton Saree"}
+    assert entry["content_hash"] == "hash-1"      # untouched
+    assert entry["style_group_id"] == 42          # untouched
+    assert entry["hsn"] == "50072010"             # untouched
+
+
+def test_update_names_merges_rather_than_replacing():
+    """Saving one panel posts only the fields that panel carries; a save that
+    omits a name must not wipe a name pinned by an earlier save."""
+    store = FakeStore()
+    record(store, "S1", "hash-1", 42, "50072010")
+    update_names(store, "S1", {"productDisplayName": "Full Name"})
+    update_names(store, "S1", {"List View Name": "Short Name"})
+    assert read_registry(store)["S1"]["names"] == {
+        "productDisplayName": "Full Name", "List View Name": "Short Name"}
+
+
+def test_update_names_drops_the_pin_when_a_name_is_cleared():
+    """A cleared box means 'go back to what the pipeline writes', not 'pin blank
+    forever' — otherwise clearing it would permanently blank the column on every
+    later rebuild."""
+    store = FakeStore()
+    record(store, "S1", "hash-1", 42, "50072010")
+    update_names(store, "S1", {"productDisplayName": "Full Name"})
+    update_names(store, "S1", {"productDisplayName": None})
+    assert read_registry(store)["S1"]["names"] == {}
+
+
+def test_update_names_is_a_no_op_for_an_unknown_sku():
+    store = FakeStore()
+    assert update_names(store, "NEVER-BUILT", {"productDisplayName": "X"}) is False
+    assert read_registry(store) == {}             # no row invented
+
+
+def test_a_pinned_name_does_not_disturb_the_content_hash():
+    """The pin lives beside the fingerprint, never inside it: pinning a name must
+    not make an unchanged SKU look edited to the duplicate guard."""
+    store = FakeStore()
+    record(store, "S1", "hash-1", 42, "50072010")
+    update_names(store, "S1", {"productDisplayName": "Renamed"})
+    assert read_registry(store)["S1"]["content_hash"] == "hash-1"

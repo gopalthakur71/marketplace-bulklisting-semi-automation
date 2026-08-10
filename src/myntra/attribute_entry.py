@@ -34,7 +34,31 @@ FALLBACK_USER_FILLED = [
 # Free-text columns: no template vocabulary, so no membership check is possible.
 # Kept separate from FALLBACK_USER_FILLED so the exact-vocabulary rule that guards
 # the dropdown columns can never accidentally be relaxed.
-FALLBACK_USER_FREETEXT = ["tags"]
+FALLBACK_USER_FREETEXT = ["tags", "List View Name", "productDisplayName"]
+
+# Per-column help text under each free-text input. These columns do NOT behave
+# alike — one is pre-filled from Shopify and one is deliberately blank — so a
+# single shared hint would misdescribe at least one of them.
+FREETEXT_HINTS = {
+    "tags": "free text — pre-filled from Shopify, edit if needed",
+    "List View Name": ("Myntra’s short name for the list view — "
+                       "blank until you write it"),
+    "productDisplayName": ("the full product name — pre-filled from the Shopify "
+                           "title, edit to taste"),
+}
+DEFAULT_FREETEXT_HINT = "free text — no fixed vocabulary"
+
+# Free-text columns whose value is PINNED in the SKU registry when saved, so a
+# later rebuild cannot remap them from the Shopify export and discard what the
+# seller wrote. `tags` is deliberately not here: it is pre-filled from the export
+# and a rebuild restoring the export's tags is the expected outcome.
+PINNED_NAME_HEADERS = ("List View Name", "productDisplayName")
+
+
+def freetext_hints(columns):
+    """{column: hint}. An unknown column still gets usable text rather than none,
+    so adding a column to rules.yaml can never render a bare, unexplained box."""
+    return {c: FREETEXT_HINTS.get(c, DEFAULT_FREETEXT_HINT) for c in columns}
 
 
 class AttributeValueError(Exception):

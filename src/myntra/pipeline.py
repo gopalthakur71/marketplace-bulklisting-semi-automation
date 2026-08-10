@@ -31,7 +31,7 @@ def _resolve(name, subdir="input"):
 def main(template_path=None, csv_path=None, out_dir="output", config_dir="config/myntra",
          fetch=None, upload=None, style_group_id_start=None,
          only_skus=None, style_group_id_by_sku=None, hsn_by_sku=None,
-         should_cancel=None):
+         names_by_sku=None, should_cancel=None):
     template_path = template_path or _resolve(DEFAULT_TEMPLATE_NAME, "templates/myntra")
     csv_path = csv_path or _resolve("products_export.csv")
 
@@ -50,6 +50,7 @@ def main(template_path=None, csv_path=None, out_dir="output", config_dir="config
         products = [p for p in products if p.sku in only_skus]
     style_group_id_by_sku = style_group_id_by_sku or {}
     hsn_by_sku = hsn_by_sku or {}
+    names_by_sku = names_by_sku or {}
 
     images_dir = os.path.join(out_dir, "images")
     os.makedirs(images_dir, exist_ok=True)
@@ -73,7 +74,8 @@ def main(template_path=None, csv_path=None, out_dir="output", config_dir="config
         _check_cancel()
         mapped = map_product(p, template, column_map, constants, rules,
                              hsn=normalize_hsn(p.hsn),
-                             hsn_override=hsn_by_sku.get(p.sku))
+                             hsn_override=hsn_by_sku.get(p.sku),
+                             names_override=names_by_sku.get(p.sku))
         # Sequential styleGroupId (each product its own group), continuing from
         # the seller's existing catalog so ids don't collide with listed products.
         # A pinned id (style_group_id_by_sku, e.g. a registry rebuild) wins.

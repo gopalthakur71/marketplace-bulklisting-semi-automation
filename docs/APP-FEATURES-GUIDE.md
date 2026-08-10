@@ -119,7 +119,7 @@ A few things worth knowing:
   labelled as approximate.
 - **Saving one product at a time.** Each product box has its own **Save this SKU** button. It
   saves just that product, so you can fill two or three, save them, and come back to the rest
-  later without losing anything. The counter at the top of the box ("5/14 filled") updates as
+  later without losing anything. The counter at the top of the box ("5/16 filled") updates as
   soon as the save succeeds. The **Save attributes** button at the bottom still saves every
   product at once — use whichever suits you.
 - **One caveat worth knowing:** saved work lives with that batch while the app is running. If
@@ -129,6 +129,23 @@ A few things worth knowing:
   field on the product in Shopify. Unlike the dropdowns, you can type anything you like here
   — Myntra does not restrict it. Leave it alone and your Shopify tags are used as-is; clear
   it and the product goes up with no tags.
+- **The two name boxes.** Every product also has a **List View Name** box and a
+  **productDisplayName** box. Like tags, you can type anything — Myntra sets no vocabulary and no
+  length limit on either. They behave differently on purpose:
+  - **productDisplayName** is the full product name, and arrives **pre-filled from your Shopify
+    title**. Edit it to whatever you want Myntra to carry.
+  - **List View Name** is Myntra's shorter name for the list view, and starts **blank**. The app
+    deliberately writes nothing here, so an untouched box is a visible reminder rather than a name
+    that went up without you reading it.
+
+  Anything you type in these two is **remembered against that SKU**. If that product is later
+  rebuilt — through the Fix-errors flow or a "download listing file" rebuild — your name is put
+  back, instead of being quietly replaced by the Shopify title again. Clearing a box undoes the
+  memory: the product goes back to the app's default (the Shopify title, or blank).
+
+  One expectation to set: Myntra generates its own public title from the *attributes* after upload,
+  so what a shopper finally sees may still differ from what you type here. These boxes control what
+  we send, not what Myntra renders.
 - **The HSN box.** Every product also has an **HSN** box, filled in automatically from Shopify —
   from the product's `custom.hsn_code` metafield. There is no longer an HSN question during
   Generate; the code simply comes across with the product. A banner at the top of the screen

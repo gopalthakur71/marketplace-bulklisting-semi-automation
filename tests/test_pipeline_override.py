@@ -156,3 +156,45 @@ def test_pipeline_pins_id_hsn_and_returns_records(tmp_path):
     hdr = {ws.cell(3, c).value: c for c in range(1, ws.max_column + 1)}
     assert ws.cell(4, hdr["styleGroupId"]).value == 77
     assert ws.cell(4, hdr["HSN"]).value == 63079090
+
+
+def test_pipeline_pins_names_into_the_built_sheet(tmp_path):
+    """The end of the pin chain: a name pinned in the registry must survive a
+    rebuild and land in the workbook, beating the title-derived default."""
+    warnings.filterwarnings("ignore")
+    from src.myntra.pipeline import main, scan_content_hashes
+    template = "templates/myntra/Myntra-Sku-Template-2026-07-24.xlsx"
+    pairs = dict(scan_content_hashes("tests/fixtures/products_export.csv",
+                                     template_path=template))
+    sku0 = list(pairs)[0]
+    res = main(
+        template_path=template,
+        csv_path="tests/fixtures/products_export.csv",
+        out_dir=str(tmp_path / "out"), config_dir="config/myntra",
+        fetch=_fake_fetch(), upload=False,
+        only_skus={sku0},
+        names_by_sku={sku0: {"productDisplayName": "Ijor Handloom Saree",
+                             "List View Name": "Ijor Saree"}},
+    )
+    assert res["products"] == 1
+    ws = openpyxl.load_workbook(tmp_path / "out" / "myntra_filled.xlsx")["Sarees"]
+    hdr = {ws.cell(3, c).value: c for c in range(1, ws.max_column + 1)}
+    assert ws.cell(4, hdr["productDisplayName"]).value == "Ijor Handloom Saree"
+    assert ws.cell(4, hdr["List View Name"]).value == "Ijor Saree"
+
+
+def test_pipeline_without_a_name_pin_still_writes_the_shopify_title(tmp_path):
+    warnings.filterwarnings("ignore")
+    from src.myntra.pipeline import main
+    template = "templates/myntra/Myntra-Sku-Template-2026-07-24.xlsx"
+    res = main(
+        template_path=template,
+        csv_path="tests/fixtures/products_export.csv",
+        out_dir=str(tmp_path / "out"), config_dir="config/myntra",
+        fetch=_fake_fetch(), upload=False,
+    )
+    assert res["products"] >= 1
+    ws = openpyxl.load_workbook(tmp_path / "out" / "myntra_filled.xlsx")["Sarees"]
+    hdr = {ws.cell(3, c).value: c for c in range(1, ws.max_column + 1)}
+    assert ws.cell(4, hdr["productDisplayName"]).value        # title-derived
+    assert ws.cell(4, hdr["List View Name"]).value is None    # deliberately blank

@@ -173,3 +173,48 @@ def test_replicate_constant_across_numbered_cols():
     assert row.cells["Country Of Origin2"] == "India"
     assert row.cells["Country Of Origin3"] == "India"
     assert "Country Of Origin2" not in row.blanks
+
+
+def _named_product():
+    return Product(handle="h", sku="S1", title="Blue Saree", vendor="V",
+                   tags="", body_html="", price=100.0, compare_at_price=None,
+                   color=None, fabric=None, size=None, status="active", images=[])
+
+
+def test_product_display_name_defaults_to_the_shopify_title():
+    row = map_product(_named_product(), _template(), {}, {})
+    assert row.cells["productDisplayName"] == "Blue Saree"
+
+
+def test_list_view_name_is_left_blank_by_the_pipeline():
+    """Deliberate: nothing maps to it, so an untouched panel reads as 'not written
+    yet' rather than shipping a name nobody reviewed."""
+    headers = _template().headers + ["List View Name"]
+    t = _template()
+    t.headers = headers
+    t.col_index_by_header["List View Name"] = len(headers)
+    row = map_product(_named_product(), t, {}, {})
+    assert "List View Name" not in row.cells
+
+
+def test_names_override_beats_the_title_derived_display_name():
+    # A rebuild pins the name the seller wrote on the attribute screen.
+    row = map_product(_named_product(), _template(), {}, {},
+                      names_override={"productDisplayName": "Ijor Cotton Saree"})
+    assert row.cells["productDisplayName"] == "Ijor Cotton Saree"
+
+
+def test_names_override_can_set_a_column_the_pipeline_never_writes():
+    t = _template()
+    t.headers = t.headers + ["List View Name"]
+    t.col_index_by_header["List View Name"] = len(t.headers)
+    row = map_product(_named_product(), t, {}, {},
+                      names_override={"List View Name": "Ijor Saree"})
+    assert row.cells["List View Name"] == "Ijor Saree"
+
+
+def test_names_override_ignores_a_column_absent_from_the_template():
+    """A pin carried over from an older template must not invent a column."""
+    row = map_product(_named_product(), _template(), {}, {},
+                      names_override={"List View Name": "Ijor Saree"})
+    assert "List View Name" not in row.cells

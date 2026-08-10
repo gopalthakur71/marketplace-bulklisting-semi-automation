@@ -170,11 +170,15 @@ def rebuild_download(request: Request, job_id: str):
     reg = read_registry(sku_registry_store(settings))
     sid_by_sku = {s: reg[s]["style_group_id"] for s in repeat if s in reg}
     hsn_by_sku = {s: reg[s]["hsn"] for s in repeat if s in reg}
+    # Names authored on the attribute screen; unpinned they revert to the title.
+    names_by_sku = {s: reg[s]["names"] for s in repeat
+                    if s in reg and reg[s].get("names")}
     out_dir = os.path.join(job_dir, "rebuild")
     os.makedirs(out_dir, exist_ok=True)
     res = pipeline_main(csv_path=data["csv_path"], out_dir=out_dir,
                         only_skus=set(repeat),
-                        style_group_id_by_sku=sid_by_sku, hsn_by_sku=hsn_by_sku)
+                        style_group_id_by_sku=sid_by_sku, hsn_by_sku=hsn_by_sku,
+                        names_by_sku=names_by_sku)
     return FileResponse(res["filled"], filename="myntra_filled.xlsx")
 
 

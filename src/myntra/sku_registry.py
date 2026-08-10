@@ -66,3 +66,35 @@ def update_hsn(store, sku, hsn, key=REGISTRY_KEY):
     entry["hsn"] = hsn
     store.put_json(key, registry)
     return True
+
+
+def update_names(store, sku, names, key=REGISTRY_KEY):
+    """Pin the seller's hand-written names for an already-built SKU.
+
+    Same job as update_hsn, for the same reason: the attribute screen can rewrite
+    productDisplayName / List View Name after the build, and a later rebuild maps
+    those columns from the Shopify export — so without a pin the rebuild silently
+    restores the machine-generated title over the name the seller chose.
+
+    Merges per key rather than replacing the dict: a per-panel save posts only the
+    fields that panel carries, so a wholesale replace would drop names pinned by an
+    earlier save. A None value REMOVES the pin instead of storing None — a cleared
+    box means "go back to what the pipeline writes", not "blank this column on
+    every future rebuild".
+
+    Stored beside the fingerprint, never inside it, so pinning cannot make an
+    otherwise unchanged SKU look edited to the duplicate guard. Like update_hsn,
+    it does not invent registry rows."""
+    registry = read_registry(store, key)
+    entry = registry.get(sku)
+    if entry is None:
+        return False
+    pinned = dict(entry.get("names") or {})
+    for header, value in names.items():
+        if value is None or str(value).strip() == "":
+            pinned.pop(header, None)
+        else:
+            pinned[header] = str(value)
+    entry["names"] = pinned
+    store.put_json(key, registry)
+    return True
