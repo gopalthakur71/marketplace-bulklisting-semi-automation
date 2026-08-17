@@ -73,7 +73,16 @@ input[type=text]{background:var(--bg);border:1px solid var(--marigold);color:var
 .attr-derived{grid-column:1/-1;margin:2px 0 0}
 .attr-footer{margin-top:12px;padding-top:10px;border-top:1px solid var(--line);
   display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap}
-.attr-free{display:flex;flex-direction:column;gap:4px;flex:1;min-width:260px}
+/* align-self overrides the footer's flex-end, which keeps the Save button on the
+   baseline but made these fields line up by their BOTTOMS — so a one-line hint
+   ("tags") sat a whole line lower than a two-line one. Labels and inputs line up
+   now; the hints hang below at whatever height they need. */
+.attr-free{display:flex;flex-direction:column;gap:4px;flex:1;min-width:260px;
+  align-self:flex-start}
+/* the column gap already spaces these; .hint's own margin-top made the help line
+   sit 8px under the input while the label sat 4px above it, and HSN's .flag
+   warning (no margin) shifted the box by 4px whenever it replaced the hint */
+.attr-free > span{margin-top:0}
 .attr-free input{background:var(--panel);color:var(--ink);border:1px solid var(--line);
   border-radius:6px;padding:6px 8px;width:100%}
 .attr-save-out{min-height:1em}
