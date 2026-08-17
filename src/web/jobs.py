@@ -68,5 +68,11 @@ class JobStore:
             job.error = error
             job.status = "error"
 
+    def drop(self, job_id):
+        """Forget a job entirely. Used by an upload that turned out unreadable and
+        by the Preview screen's Clear."""
+        with self._lock:
+            return self._jobs.pop(job_id, None)
+
 
 store = JobStore()

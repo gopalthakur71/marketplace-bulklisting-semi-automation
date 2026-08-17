@@ -5,8 +5,11 @@ from src.web.settings import Settings
 from src.myntra.template_reader import read_template
 from src.myntra.fill import fill_template
 from src.core.models import MappedRow, ImageResult
+import src.web.routers.generate as gen
+from src.web.jobs import store
 
 V13 = "templates/myntra/Myntra-Sku-Template-2026-07-24.xlsx"
+XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 
 
 def _client(tmp_path):
@@ -43,21 +46,38 @@ def test_preview_form_renders(tmp_path):
     assert "Preview" in r.text
 
 
-def test_preview_shows_reconstruction_and_specs(tmp_path):
-    out = _filled(tmp_path)
-    client = _client(tmp_path)
-    with open(out, "rb") as fh:
-        r = client.post("/preview", files={"file": (
-            "filled.xlsx", fh.read(),
-            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")})
-    assert r.status_code == 200
-    assert "Floral Zari Pure Silk Banarasi Saree With Unstitched Blouse Piece" in r.text
-    assert "Blue Banarasi sarees" in r.text
-    assert "Wash Care" in r.text          # a spec row label is shown
-    assert "best reconstruction" in r.text  # the "approximate" badge is shown
-
-
 def test_preview_rejects_non_xlsx(tmp_path):
     r = _client(tmp_path).post(
         "/preview", files={"file": ("x.csv", b"a,b", "text/csv")})
     assert r.status_code == 400
+
+
+def test_upload_adopts_the_workbook_as_an_editable_job(tmp_path, monkeypatch):
+    """The uploaded file becomes a job, so every Fill-attributes surface works on
+    it unchanged. Without this the sheet is only viewable, never editable."""
+    monkeypatch.setattr(gen, "RUNTIME", str(tmp_path / "runtime"))
+    out = _filled(tmp_path)
+    client = _client(tmp_path)
+    with open(out, "rb") as fh:
+        r = client.post("/preview", files={"file": ("mysheet.xlsx", fh.read(), XLSX)})
+    assert r.status_code == 200
+    target = r.headers["hx-redirect"]
+    assert target.startswith("/generate/attributes/")
+    job = store.get(target.rsplit("/", 1)[1])
+    assert job.result["origin"] == "upload"
+    assert job.result["filename"] == "mysheet.xlsx"
+    assert client.get(target).status_code == 200
+
+
+def test_upload_with_no_sku_rows_is_rejected_and_creates_no_job(tmp_path, monkeypatch):
+    """The bare template has no data rows. Adopting it would present an empty
+    accordion with no explanation; the user needs to know it was the wrong file."""
+    monkeypatch.setattr(gen, "RUNTIME", str(tmp_path / "runtime"))
+    before = len(store._jobs)
+    with open(V13, "rb") as fh:
+        r = _client(tmp_path).post(
+            "/preview", files={"file": ("template.xlsx", fh.read(), XLSX)})
+    assert r.status_code == 200
+    assert "hx-redirect" not in r.headers
+    assert "no products" in r.text.lower()
+    assert len(store._jobs) == before
