@@ -16,6 +16,7 @@ from src.myntra.attribute_entry import (BRAND_COLOUR_HEADER, HSN_HEADER,
                                         write_attributes)
 from src.myntra.fill import IMAGE_COLUMNS
 from src.myntra.hsn_source import normalize as normalize_hsn
+from src.myntra.image_replace import ImageConfigError, host, load_specs, prepare
 from src.myntra.pipeline import DEFAULT_TEMPLATE_NAME
 from src.myntra.preview import build_card, is_set, read_filled_rows
 from src.myntra.sku_registry import update_hsn, update_names
@@ -338,3 +339,65 @@ async def attributes_save_one(request: Request, job_id: str):
          "filled": _filled_count(values, columns, free_columns),
          "total": _total(columns, free_columns),
          "hsn_gaps": hsn_gaps})
+
+
+@router.post("/generate/attributes/{job_id}/images", response_class=HTMLResponse)
+async def attributes_save_images(request: Request, job_id: str):
+    """Replace one panel's product images from uploaded files.
+
+    Outcomes are reported per slot: a photo Myntra would reject fails its own slot
+    and the slots supplied alongside it still land, so one bad file in a batch of
+    seven does not throw the other six away."""
+    get_user(request)
+    job, job_dir, xlsx, _csv = job_files(job_id)
+    form = await request.form()
+    ordinal = _requested_ordinal(form)
+    if ordinal is None:
+        return _templates().TemplateResponse(
+            request, "_attr_images_saved.html",
+            {"error": "Nothing to upload — please reload the screen and try again."})
+    sku = str(form.get(f"sku__{ordinal}") or "").strip()
+    specs = load_specs()
+    out_dir = os.path.join(job_dir, "replacements")
+
+    failed, prepared = [], []
+    for slot, header in enumerate(IMAGE_COLUMNS, start=1):
+        upload = form.get(f"img__{ordinal}__{slot}")
+        if not hasattr(upload, "read"):          # slot left empty
+            continue
+        data = await upload.read()
+        if not data:
+            continue
+        path, key, reason = prepare(sku, slot, data, specs, out_dir)
+        if reason:
+            failed.append({"header": header, "reason": reason})
+        else:
+            prepared.append((path, key, header))
+
+    if not prepared and not failed:
+        return _templates().TemplateResponse(
+            request, "_attr_images_saved.html",
+            {"error": "No image files were chosen."})
+
+    saved = []
+    if prepared:
+        try:
+            urls = host([(p, k) for p, k, _ in prepared], specs, out_dir)
+        except ImageConfigError as exc:
+            return _templates().TemplateResponse(
+                request, "_attr_images_saved.html", {"error": str(exc)})
+        values = {h: url for (_p, _k, h), url in zip(prepared, urls)}
+        # write_attributes, not a bare openpyxl save: it verifies the row still
+        # holds this SKU and re-applies shared_to_inline, which Myntra requires.
+        with _WRITE_LOCK:
+            write_attributes(xlsx, read_template(TEMPLATE),
+                             [{"ordinal": ordinal, "sku": sku, "values": values}])
+            if job.result.get("origin") == "upload":
+                job.result["edited"] = True
+        saved = [{"header": h, "url": u} for (_p, _k, h), u in zip(prepared, urls)]
+
+    return _templates().TemplateResponse(
+        request, "_attr_images_saved.html",
+        {"saved": saved, "failed": failed,
+         "origin": job.result.get("origin", "generate"),
+         "edited": job.result.get("edited", False), "job_id": job.id})

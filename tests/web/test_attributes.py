@@ -1,7 +1,9 @@
+import io
 import os
 import warnings
 
 from fastapi.testclient import TestClient
+from PIL import Image
 
 from src.core.models import MappedRow, ImageResult
 from src.myntra.fill import fill_template
@@ -9,6 +11,7 @@ from src.myntra.template_reader import read_template
 from src.web.jobs import store
 from src.web.main import create_app
 from src.web.settings import Settings
+import src.web.routers.attributes as attrs_router
 import src.web.routers.generate as gen
 
 V13 = "templates/myntra/Myntra-Sku-Template-2026-07-24.xlsx"
@@ -836,3 +839,70 @@ def test_panel_offers_a_file_input_for_every_myntra_image_slot(tmp_path, monkeyp
         assert f'name="img__0__{slot}"' in r.text
     assert "Front Image" in r.text
     assert "Additional Image 2" in r.text
+
+
+def _png_bytes(w, h):
+    buf = io.BytesIO()
+    Image.new("RGB", (w, h), "blue").save(buf, "PNG")
+    return buf.getvalue()
+
+
+def test_replacing_an_image_writes_its_url_into_the_sheet(tmp_path, monkeypatch):
+    """The point of the feature: a new photo must reach the workbook as a URL
+    Myntra can fetch."""
+    job = _job(tmp_path, monkeypatch, skus=("S1",))
+    monkeypatch.setattr(attrs_router, "load_specs", lambda: {
+        "min_width": 700, "min_height": 700, "max_bytes": 10485760, "quality": 90,
+        "public_base_url": "https://cdn.example/myntra", "s3_bucket": "b",
+        "s3_prefix": "myntra", "s3_upload": True})
+    monkeypatch.setattr(attrs_router, "host",
+                        lambda prepared, specs, out_dir: [
+                            f"https://cdn.example/myntra/{k}" for _, k in prepared])
+
+    r = _client(tmp_path).post(
+        f"/generate/attributes/{job.id}/images",
+        data={"ordinal": "0", "sku__0": "S1"},
+        files={"img__0__1": ("new.png", _png_bytes(800, 800), "image/png")})
+    assert r.status_code == 200
+    assert "Front Image" in r.text
+
+    from src.myntra.preview import read_filled_rows
+    from src.myntra.template_reader import read_template
+    rows = read_filled_rows(job.result["filled"], read_template(V13))
+    assert rows[0]["Front Image"].startswith("https://cdn.example/myntra/S1/1-")
+
+
+def test_an_undersized_replacement_fails_only_its_own_slot(tmp_path, monkeypatch):
+    """A bad photo in one slot must not discard the good photo supplied alongside it."""
+    job = _job(tmp_path, monkeypatch, skus=("S1",))
+    monkeypatch.setattr(attrs_router, "load_specs", lambda: {
+        "min_width": 700, "min_height": 700, "max_bytes": 10485760, "quality": 90,
+        "public_base_url": "https://cdn.example/myntra", "s3_bucket": "b",
+        "s3_prefix": "myntra", "s3_upload": True})
+    monkeypatch.setattr(attrs_router, "host",
+                        lambda prepared, specs, out_dir: [
+                            f"https://cdn.example/myntra/{k}" for _, k in prepared])
+
+    r = _client(tmp_path).post(
+        f"/generate/attributes/{job.id}/images",
+        data={"ordinal": "0", "sku__0": "S1"},
+        files={"img__0__1": ("small.png", _png_bytes(300, 300), "image/png"),
+               "img__0__2": ("good.png", _png_bytes(800, 800), "image/png")})
+    assert "300x300" in r.text
+    from src.myntra.preview import read_filled_rows
+    from src.myntra.template_reader import read_template
+    rows = read_filled_rows(job.result["filled"], read_template(V13))
+    assert rows[0]["Side Image"].startswith("https://cdn.example/myntra/S1/2-")
+
+
+def test_unconfigured_hosting_reports_instead_of_writing_a_local_path(tmp_path, monkeypatch):
+    job = _job(tmp_path, monkeypatch, skus=("S1",))
+    monkeypatch.setattr(attrs_router, "load_specs", lambda: {
+        "min_width": 700, "min_height": 700, "max_bytes": 10485760, "quality": 90,
+        "public_base_url": "", "s3_bucket": "", "s3_upload": False})
+    r = _client(tmp_path).post(
+        f"/generate/attributes/{job.id}/images",
+        data={"ordinal": "0", "sku__0": "S1"},
+        files={"img__0__1": ("new.png", _png_bytes(800, 800), "image/png")})
+    assert r.status_code == 200
+    assert "not configured" in r.text

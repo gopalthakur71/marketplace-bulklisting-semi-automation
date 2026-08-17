@@ -1,0 +1,13 @@
+{% if error %}
+<p class="flag mono">⚠ {{ error }}</p>
+{% else %}
+{% if saved %}
+<p class="ok mono">✅ Replaced: {% for s in saved %}{{ s.header }}{% if not loop.last %}, {% endif %}{% endfor %}</p>
+{% endif %}
+{% for f in failed %}
+<p class="flag mono">⚠ {{ f.header }} — {{ f.reason }}</p>
+{% endfor %}
+{% endif %}
+{% if origin == "upload" and not error %}
+<span id="clear-slot" hx-swap-oob="true">{% include "_clear_button.html" %}</span>
+{% endif %}
