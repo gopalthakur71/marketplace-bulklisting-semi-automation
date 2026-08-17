@@ -150,6 +150,9 @@ def attributes_form(request: Request, job_id: str):
         "free_hints": freetext_hints(free_columns),
         "vocab": attribute_vocab(template, columns),
         "panels": panels,
+        "origin": job.result.get("origin", "generate"),
+        "filename": job.result.get("filename", ""),
+        "edited": job.result.get("edited", False),
         "hsn_gaps": _hsn_gaps_in(panels),
         "total": _total(columns, free_columns)})
 

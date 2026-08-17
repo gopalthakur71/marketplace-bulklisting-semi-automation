@@ -69,6 +69,20 @@ def test_upload_adopts_the_workbook_as_an_editable_job(tmp_path, monkeypatch):
     assert client.get(target).status_code == 200
 
 
+def test_uploaded_session_names_the_file_being_edited(tmp_path, monkeypatch):
+    """Two sheets look identical on screen. The owner must be able to tell which
+    copy he is editing before he saves into it."""
+    monkeypatch.setattr(gen, "RUNTIME", str(tmp_path / "runtime"))
+    out = _filled(tmp_path)
+    client = _client(tmp_path)
+    with open(out, "rb") as fh:
+        r = client.post("/preview", files={"file": ("august-batch.xlsx", fh.read(), XLSX)})
+    page = client.get(r.headers["hx-redirect"]).text
+    assert "Preview &amp; edit" in page or "Preview & edit" in page
+    assert "august-batch.xlsx" in page
+    assert "Fill attributes" not in page
+
+
 def test_upload_with_no_sku_rows_is_rejected_and_creates_no_job(tmp_path, monkeypatch):
     """The bare template has no data rows. Adopting it would present an empty
     accordion with no explanation; the user needs to know it was the wrong file."""
