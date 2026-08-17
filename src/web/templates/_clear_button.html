@@ -1,0 +1,5 @@
+<button class="btn" type="button"
+        hx-post="/preview/clear/{{ job_id }}"
+        {% if edited %}hx-confirm="You've saved edits to this sheet. Download it first, or discard them?"{% endif %}>
+  ✕ Clear &amp; upload another
+</button>

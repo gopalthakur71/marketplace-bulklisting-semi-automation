@@ -1,4 +1,5 @@
 import os
+import re
 import shutil
 
 from fastapi import APIRouter, Request, UploadFile, File, HTTPException
@@ -56,6 +57,22 @@ async def preview_submit(request: Request, file: UploadFile = File(...)):
                           "filename": file.filename, "products": len(rows)})
     resp = HTMLResponse("")
     resp.headers["HX-Redirect"] = f"/generate/attributes/{job.id}"
+    return resp
+
+
+@router.post("/preview/clear/{job_id}", response_class=HTMLResponse)
+def preview_clear(request: Request, job_id: str):
+    """Discard the uploaded copy and hand back an empty upload box.
+
+    An unknown job is not an error: a double-click, or a Clear after a restart,
+    should land on the same empty form rather than a 404 page."""
+    get_user(request)
+    from src.web.routers.generate import RUNTIME
+    if re.fullmatch(r"[0-9a-f]{32}", job_id):
+        store.drop(job_id)
+        shutil.rmtree(os.path.join(RUNTIME, job_id), ignore_errors=True)
+    resp = HTMLResponse("")
+    resp.headers["HX-Redirect"] = "/preview"
     return resp
 
 

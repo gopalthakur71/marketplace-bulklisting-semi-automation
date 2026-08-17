@@ -1,3 +1,5 @@
+import os
+
 from fastapi.testclient import TestClient
 
 from src.web.main import create_app
@@ -95,3 +97,30 @@ def test_upload_with_no_sku_rows_is_rejected_and_creates_no_job(tmp_path, monkey
     assert "hx-redirect" not in r.headers
     assert "no products" in r.text.lower()
     assert len(store._jobs) == before
+
+
+def test_clear_forgets_the_job_and_removes_its_directory(tmp_path, monkeypatch):
+    """Clear is how the owner moves to the next file. A job left behind would keep
+    the uploaded sheet on disk for the life of the process."""
+    monkeypatch.setattr(gen, "RUNTIME", str(tmp_path / "runtime"))
+    out = _filled(tmp_path)
+    client = _client(tmp_path)
+    with open(out, "rb") as fh:
+        r = client.post("/preview", files={"file": ("s.xlsx", fh.read(), XLSX)})
+    job_id = r.headers["hx-redirect"].rsplit("/", 1)[1]
+    job_dir = os.path.join(gen.RUNTIME, job_id)
+    assert os.path.isdir(job_dir)
+
+    c = client.post(f"/preview/clear/{job_id}")
+    assert c.status_code == 200
+    assert store.get(job_id) is None
+    assert not os.path.exists(job_dir)
+    assert c.headers["hx-redirect"] == "/preview"
+
+
+def test_clear_on_an_unknown_job_is_not_an_error(tmp_path, monkeypatch):
+    """Double-click, or a Clear after a restart. Neither should show a 404 page."""
+    monkeypatch.setattr(gen, "RUNTIME", str(tmp_path / "runtime"))
+    r = _client(tmp_path).post("/preview/clear/" + "a" * 32)
+    assert r.status_code == 200
+    assert r.headers["hx-redirect"] == "/preview"

@@ -6,6 +6,8 @@
   <p class="hint">You are editing the app's copy of your uploaded file. Change
     anything below, then download when you're done — nothing is kept after the
     app restarts.</p>
+  <p><a class="btn" href="/generate/download/{{ job_id }}">⬇ Download xlsx</a>
+    <span id="clear-slot">{% include "_clear_button.html" %}</span></p>
   {% else %}
   <h2>Fill attributes</h2>
   <p class="hint">Myntra builds the public title and Design Details from these attributes.
