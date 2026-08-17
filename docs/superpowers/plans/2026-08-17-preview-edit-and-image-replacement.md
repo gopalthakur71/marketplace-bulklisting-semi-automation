@@ -594,7 +594,7 @@ git commit -m "feat(preview): confirm before clearing unsaved-to-disk edits"
 
 **Files:**
 - Create: `src/myntra/image_replace.py`
-- Test: `tests/myntra/test_image_replace.py`
+- Test: `tests/test_image_replace.py`
 
 **Interfaces:**
 - Consumes: `src.core.images.flatten_to_jpg`, `src.core.images.validate_image`, `src.myntra.fill.IMAGE_COLUMNS`
@@ -606,7 +606,7 @@ git commit -m "feat(preview): confirm before clearing unsaved-to-disk edits"
 
 - [ ] **Step 1: Write the failing tests**
 
-Create `tests/myntra/test_image_replace.py`:
+Create `tests/test_image_replace.py`:
 
 ```python
 import io
@@ -668,7 +668,7 @@ def test_prepare_reports_a_file_that_is_not_an_image(tmp_path):
 
 - [ ] **Step 2: Run the tests to verify they fail**
 
-Run: `python -m pytest tests/myntra/test_image_replace.py -q`
+Run: `python -m pytest tests/test_image_replace.py -q`
 Expected: FAIL — `ModuleNotFoundError: No module named 'src.myntra.image_replace'`
 
 - [ ] **Step 3: Write the implementation**
@@ -738,13 +738,13 @@ def prepare(sku, slot, data, specs, out_dir):
 
 - [ ] **Step 4: Run the tests to verify they pass**
 
-Run: `python -m pytest tests/myntra/test_image_replace.py -q`
+Run: `python -m pytest tests/test_image_replace.py -q`
 Expected: PASS (5 tests, fast — no workbook is loaded)
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/myntra/image_replace.py tests/myntra/test_image_replace.py
+git add src/myntra/image_replace.py tests/test_image_replace.py
 git commit -m "feat(images): content-addressed replacement keys and per-slot validation"
 ```
 
@@ -754,7 +754,7 @@ git commit -m "feat(images): content-addressed replacement keys and per-slot val
 
 **Files:**
 - Modify: `src/myntra/image_replace.py` (add `host`)
-- Test: `tests/myntra/test_image_replace.py`
+- Test: `tests/test_image_replace.py`
 
 **Interfaces:**
 - Consumes: `src.core.s3_upload.upload_images`, `prepare`'s `(local_path, key)` pairs
@@ -800,7 +800,7 @@ def test_host_refuses_when_hosting_is_not_configured(tmp_path):
 
 - [ ] **Step 2: Run the tests to verify they fail**
 
-Run: `python -m pytest tests/myntra/test_image_replace.py -q -k "host"`
+Run: `python -m pytest tests/test_image_replace.py -q -k "host"`
 Expected: FAIL — `ImportError: cannot import name 'host'`
 
 - [ ] **Step 3: Write the implementation**
@@ -830,13 +830,13 @@ def host(prepared, specs, out_dir, client=None):
 
 - [ ] **Step 4: Run the tests to verify they pass**
 
-Run: `python -m pytest tests/myntra/test_image_replace.py -q`
+Run: `python -m pytest tests/test_image_replace.py -q`
 Expected: PASS (7 tests)
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/myntra/image_replace.py tests/myntra/test_image_replace.py
+git add src/myntra/image_replace.py tests/test_image_replace.py
 git commit -m "feat(images): host replacement images and refuse when S3 is unconfigured"
 ```
 
@@ -1145,12 +1145,12 @@ Create `src/web/templates/_attr_images_saved.html`:
 
 - [ ] **Step 4: Run the tests to verify they pass**
 
-Run: `python -m pytest tests/web/test_attributes.py tests/myntra/test_image_replace.py -q`
+Run: `python -m pytest tests/web/test_attributes.py tests/test_image_replace.py -q`
 Expected: PASS
 
 - [ ] **Step 5: Verify the Myntra inline-strings guarantee still holds**
 
-Run: `python -m pytest tests/myntra -q -k "inline"`
+Run: `python -m pytest tests/test_inline_strings.py -q`
 Expected: PASS — `test_write_attributes_keeps_strings_inline` confirms no `t="s"` survives an image write
 
 - [ ] **Step 6: Commit**
@@ -1317,7 +1317,7 @@ git commit -m "docs: editable preview and image replacement"
 
 ## Verification before calling this done
 
-- [ ] `python -m pytest tests/web/test_preview.py tests/web/test_attributes.py tests/web/test_fix.py tests/myntra/test_image_replace.py -q` — all pass
-- [ ] `python -m pytest tests/myntra -q -k "inline"` — the Myntra inline-strings guarantee still holds
+- [ ] `python -m pytest tests/web/test_preview.py tests/web/test_attributes.py tests/web/test_fix.py tests/test_image_replace.py -q` — all pass
+- [ ] `python -m pytest tests/test_inline_strings.py -q` — the Myntra inline-strings guarantee still holds
 - [ ] Manual: upload a filled sheet, change an attribute, replace an image, download, open in Excel — the value changed, the image URL changed and carries a hash suffix, and the dropdowns are still live
 - [ ] Report honestly which of the above were actually run
