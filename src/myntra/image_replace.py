@@ -70,3 +70,23 @@ def prepare(sku, slot, data, specs, out_dir):
     if reason:
         return None, None, reason
     return out_path, key, None
+
+
+def host(prepared, specs, out_dir, client=None):
+    """Upload prepared JPGs and return their public URLs, in the order given.
+
+    `prepared` is [(local_path, key)] from prepare(). The S3 key is derived by
+    upload_images from each path relative to out_dir, which is exactly `key` —
+    the same mirroring the build path relies on, so the URL written into the sheet
+    always matches the object that was uploaded."""
+    base = (specs.get("public_base_url") or "").rstrip("/")
+    bucket = specs.get("s3_bucket")
+    if not base or not bucket or not specs.get("s3_upload"):
+        raise ImageConfigError(
+            "Image hosting is not configured — set public_base_url, s3_bucket and "
+            "s3_upload in config/myntra/image_specs.yaml. Without it there is no "
+            "public URL for Myntra to fetch the new photo from.")
+    from src.core.s3_upload import upload_images
+    upload_images([p for p, _ in prepared], bucket, specs.get("s3_prefix", ""),
+                  base_dir=out_dir, region=specs.get("s3_region"), client=client)
+    return [f"{base}/{key}" for _, key in prepared]

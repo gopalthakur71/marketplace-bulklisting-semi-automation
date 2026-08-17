@@ -4,7 +4,7 @@ import os
 import pytest
 from PIL import Image
 
-from src.myntra.image_replace import prepare, replacement_key
+from src.myntra.image_replace import ImageConfigError, host, prepare, replacement_key
 
 
 def _png(w, h):
@@ -83,3 +83,33 @@ def test_prepare_does_not_raise_for_windows_invalid_sku_characters(tmp_path):
     path, key, reason = prepare('S<>:"|?*1', 1, _png(800, 800), specs, str(tmp_path))
     assert path is None and key is None
     assert reason is not None
+
+
+class _FakeS3:
+    def __init__(self):
+        self.calls = []
+
+    def upload_file(self, path, bucket, key, ExtraArgs=None):
+        self.calls.append((path, bucket, key, ExtraArgs))
+
+
+def test_host_returns_public_urls_matching_the_uploaded_keys(tmp_path):
+    specs = {"public_base_url": "https://cdn.example/myntra", "s3_bucket": "b",
+             "s3_prefix": "myntra", "s3_upload": True}
+    p = tmp_path / "S1" / "1-abcd1234.jpg"
+    p.parent.mkdir(parents=True)
+    p.write_bytes(b"x")
+    client = _FakeS3()
+    urls = host([(str(p), "S1/1-abcd1234.jpg")], specs, str(tmp_path), client=client)
+    assert urls == ["https://cdn.example/myntra/S1/1-abcd1234.jpg"]
+    assert client.calls[0][1:3] == ("b", "myntra/S1/1-abcd1234.jpg")
+
+
+def test_host_refuses_when_hosting_is_not_configured(tmp_path):
+    """Without a public base URL there is no URL to write. Writing a local path into
+    a column Myntra reads as a URL fails at upload with a message pointing nowhere
+    near here, so fail loudly and early instead."""
+    with pytest.raises(ImageConfigError):
+        host([("/tmp/x.jpg", "S1/1-a.jpg")],
+             {"public_base_url": "", "s3_bucket": "b", "s3_upload": True},
+             str(tmp_path), client=_FakeS3())
