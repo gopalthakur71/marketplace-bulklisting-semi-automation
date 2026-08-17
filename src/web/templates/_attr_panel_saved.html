@@ -5,3 +5,6 @@
   <span class="hint" id="attr-count-{{ ordinal }}" hx-swap-oob="true">{{ filled }}/{{ total }} filled</span>
   <span id="hsn-gap-banner" hx-swap-oob="true">{% include "_hsn_gap.html" %}</span>
 {% endif %}
+{% if origin == "upload" and not error %}
+<span id="clear-slot" hx-swap-oob="true">{% include "_clear_button.html" %}</span>
+{% endif %}

@@ -124,3 +124,22 @@ def test_clear_on_an_unknown_job_is_not_an_error(tmp_path, monkeypatch):
     r = _client(tmp_path).post("/preview/clear/" + "a" * 32)
     assert r.status_code == 200
     assert r.headers["hx-redirect"] == "/preview"
+
+
+def test_clear_asks_for_confirmation_once_edits_are_saved(tmp_path, monkeypatch):
+    """The server copy is the only copy of a save that hasn't been downloaded.
+    Before the first save Clear stays instant — that is the common flow."""
+    monkeypatch.setattr(gen, "RUNTIME", str(tmp_path / "runtime"))
+    out = _filled(tmp_path)
+    client = _client(tmp_path)
+    with open(out, "rb") as fh:
+        r = client.post("/preview", files={"file": ("s.xlsx", fh.read(), XLSX)})
+    target = r.headers["hx-redirect"]
+    job_id = target.rsplit("/", 1)[1]
+    assert "hx-confirm" not in client.get(target).text
+
+    saved = client.post(f"/generate/attributes/{job_id}/one",
+                        data={"ordinal": "0", "sku__0": "S1", "attr__0__0": ""})
+    assert saved.status_code == 200
+    assert "hx-confirm" in saved.text
+    assert 'id="clear-slot"' in saved.text

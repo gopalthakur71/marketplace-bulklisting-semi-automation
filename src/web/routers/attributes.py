@@ -269,6 +269,10 @@ async def _save_entries(request, job_id, only=None):
                           if h in e["values"]}
                 if pinned:
                     update_names(reg_store, e["sku"], pinned)
+            # The server copy now differs from the file the owner uploaded, and he
+            # may not have downloaded it. Clear asks before discarding it.
+            if job.result.get("origin") == "upload":
+                job.result["edited"] = True
     except (AttributeValueError, SkuMismatchError) as exc:
         return job, ordinals, [], str(exc), _hsn_gap_count(xlsx, template)
     return job, ordinals, payload, None, _hsn_gap_count(xlsx, template)
@@ -298,7 +302,9 @@ async def attributes_save(request: Request, job_id: str):
             request, "_attr_saved.html", {"job_id": job.id, "error": error})
     return _templates().TemplateResponse(
         request, "_attr_saved.html",
-        {"job_id": job.id, "saved": len(payload), "hsn_gaps": hsn_gaps})
+        {"job_id": job.id, "saved": len(payload), "hsn_gaps": hsn_gaps,
+         "origin": job.result.get("origin", "generate"),
+         "edited": job.result.get("edited", False)})
 
 
 @router.post("/generate/attributes/{job_id}/one", response_class=HTMLResponse)
@@ -338,7 +344,10 @@ async def attributes_save_one(request: Request, job_id: str):
         {"ordinal": ordinal,
          "filled": _filled_count(values, columns, free_columns),
          "total": _total(columns, free_columns),
-         "hsn_gaps": hsn_gaps})
+         "hsn_gaps": hsn_gaps,
+         "job_id": job.id,
+         "origin": job.result.get("origin", "generate"),
+         "edited": job.result.get("edited", False)})
 
 
 @router.post("/generate/attributes/{job_id}/images", response_class=HTMLResponse)
