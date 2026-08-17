@@ -19,8 +19,9 @@
           hx-post="/preview/adopt-fix/{{ fix_id }}"
           hx-target="#adopt-fix-out" hx-swap="innerHTML"
           >🖼 Replace images for {{ image_skus | length }} SKU(s) →</button>
-  <p class="hint">Opens the corrected sheet so you can upload new photos for the
-    rejected products, then download it again.</p>
+  <p class="hint">Rebuilds a sheet holding just these SKUs — keeping the same HSN
+    and style group as your first attempt — and opens it so you can upload new
+    photos, then download it again.</p>
   {# On success the route answers with HX-Redirect and swaps nothing; this target
      exists so a refusal has somewhere to appear instead of vanishing. #}
   <div id="adopt-fix-out"></div>

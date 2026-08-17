@@ -5,7 +5,10 @@ from fastapi.testclient import TestClient
 from src.web.main import create_app
 from src.web.settings import Settings
 import src.web.routers.fix as fixmod
+import src.web.routers.preview as previewmod
 from src.myntra.error_sources import ErrorItem
+
+V13 = "templates/myntra/Myntra-Sku-Template-2026-07-24.xlsx"
 
 
 def _client(raise_server=True):
@@ -381,70 +384,194 @@ def _corrected_workbook(path, skus=("S1",)):
     from src.myntra.template_reader import read_template
     from src.myntra.fill import fill_template
     from src.core.models import MappedRow, ImageResult
-    v13 = "templates/myntra/Myntra-Sku-Template-2026-07-24.xlsx"
-    t = read_template(v13)
+    t = read_template(V13)
     rows = [(MappedRow(sku=s, cells={"vendorSkuCode": s}), ImageResult(sku=s))
             for s in skus]
-    fill_template(v13, t, rows, path)
+    fill_template(V13, t, rows, path)
 
 
-def test_adopt_fix_success_copies_corrected_file_and_registers_job():
-    """The 'Replace images' button hangs off /preview/adopt-fix/{fix_id}: it must
-    copy the fix run's corrected workbook into a fresh job dir, register the job
-    as finished with origin=upload, and redirect to the editable screen — the same
-    adoption mechanism /preview uses for a plain upload."""
+def _adopted_skus(job_id):
+    from src.web.jobs import store
+    from src.myntra.preview import read_filled_rows
+    from src.myntra.template_reader import read_template
+    rows = read_filled_rows(store.get(job_id).result["filled"], read_template(V13))
+    return [r["vendorSkuCode"] for r in rows]
+
+
+def _image_fix_session(client, monkeypatch, items=None, source_type="sku_xlsx"):
+    """Push a rejection file through /fix so its issues.json exists on disk, and
+    return (fix_id, fix_dir). issues.json — NOT the corrected workbook — is what
+    the replacement screen has to read: the corrected sheet excludes every
+    explain_only SKU, i.e. exactly the ones the button names."""
+    monkeypatch.setattr(fixmod, "detect_format", lambda p: (source_type, ""))
+    monkeypatch.setattr(fixmod, "read_error_file", lambda p, rules: items or _items())
+    up = client.post("/fix", files={"file": ("rej.csv", b"x", "text/csv")})
+    fix_id = up.headers["x-fix-id"]
+    return fix_id, fixmod._fix_dir(fix_id)
+
+
+def _fake_regen(captured, out_path, missing=()):
+    def regen(skus, settings, out_dir, csv_path=None):
+        captured["skus"] = list(skus)
+        captured["csv"] = csv_path
+        built = [s for s in skus if s not in missing]
+        _corrected_workbook(out_path, skus=tuple(built))
+        return {"written": len(built), "file": out_path, "fixed": built,
+                "could_not_rebuild": sorted(missing), "dropped": [],
+                "rejected": {}, "changed": {}, "manual_needed": []}
+    return regen
+
+
+def test_adopt_fix_rebuilds_exactly_the_image_rejected_skus(tmp_path, monkeypatch):
+    """The corrected workbook excludes every explain_only SKU by construction
+    (corrector.py skips them), so adopting it opened a sheet without the products
+    the button had just named. The replacement sheet must be rebuilt from the
+    image rejections themselves — and carry nothing else."""
     client = _client()
-    fix_id = "b" * 32
-    fix_dir = fixmod._fix_dir(fix_id)
-    os.makedirs(fix_dir, exist_ok=True)
-    corrected = os.path.join(fix_dir, "myntra_corrected.xlsx")
-    _corrected_workbook(corrected, skus=("S1",))
+    items = _items() + [
+        ErrorItem(sku="HSN9", style_id=None, source_type="sku_xlsx", scope="sku",
+                  raw_reason="HSN code does not match", cells={})]
+    fix_id, fix_dir = _image_fix_session(client, monkeypatch, items)
+    export = os.path.join(fix_dir, "products_export.csv")
+    with open(export, "wb") as fh:
+        fh.write(b"Handle\nabc\n")
+
+    captured = {}
+    monkeypatch.setattr(previewmod, "regenerate_surface_b",
+                        _fake_regen(captured, str(tmp_path / "rebuilt.xlsx")))
 
     r = client.post(f"/preview/adopt-fix/{fix_id}")
     assert r.status_code == 200
+    # 78SAZ is correctable and HSN9 is explain_only-but-not-an-image: neither belongs
+    assert captured["skus"] == ["IMG1"]
+    assert captured["csv"] == export
     redirect = r.headers["hx-redirect"]
     assert redirect.startswith("/generate/attributes/")
     job_id = redirect.rsplit("/", 1)[-1]
 
     from src.web.jobs import store
     job = store.get(job_id)
-    assert job is not None
     assert job.status == "done"
     assert job.result["origin"] == "upload"
-    assert job.result["filename"] == "myntra_corrected.xlsx"
-    assert os.path.exists(job.result["filled"])
-    # the adopted copy must really carry the SKU, not merely exist
-    from src.myntra.preview import read_filled_rows
-    from src.myntra.template_reader import read_template
-    adopted = read_filled_rows(job.result["filled"],
-                               read_template("templates/myntra/Myntra-Sku-Template-2026-07-24.xlsx"))
-    assert [r_["vendorSkuCode"] for r_ in adopted] == ["S1"]
+    assert _adopted_skus(job_id) == ["IMG1"]
 
 
-def test_adopt_fix_refuses_a_corrected_sheet_with_no_rows():
-    """A corrected file can legitimately come out empty (every rejection was
-    explain-only). Adopting it drops the owner on a blank accordion with no
-    explanation — the exact case /preview already refuses."""
+def test_adopt_fix_without_the_shopify_export_asks_for_it(monkeypatch):
+    """Rebuilding re-runs the pipeline, which needs the products export. On the
+    per-SKU xlsx path nobody has necessarily uploaded one — say so instead of
+    rebuilding from nothing."""
     client = _client()
-    fix_id = "d" * 32
-    fix_dir = fixmod._fix_dir(fix_id)
-    os.makedirs(fix_dir, exist_ok=True)
-    corrected = os.path.join(fix_dir, "myntra_corrected.xlsx")
-    _corrected_workbook(corrected, skus=())
+    fix_id, _ = _image_fix_session(client, monkeypatch)
+
+    called = {"regen": False}
+
+    def boom(*a, **k):
+        called["regen"] = True
+        raise AssertionError("must not rebuild without an export")
+
+    monkeypatch.setattr(previewmod, "regenerate_surface_b", boom)
+
+    r = client.post(f"/preview/adopt-fix/{fix_id}")
+    assert r.status_code == 200
+    assert called["regen"] is False
+    assert "hx-redirect" not in r.headers
+    assert "products export" in r.text.lower()
+
+
+def test_adopt_fix_names_the_skus_the_export_could_not_rebuild(tmp_path, monkeypatch):
+    """A SKU missing from the uploaded export silently vanishes from the rebuilt
+    sheet — the same 'the file excludes what the button promised' failure. Say
+    which ones, and only then offer the ones that did rebuild."""
+    client = _client()
+    items = _items() + [
+        ErrorItem(sku="IMG2", style_id=None, source_type="sku_xlsx", scope="sku",
+                  raw_reason="The image is pixelated", cells={})]
+    fix_id, fix_dir = _image_fix_session(client, monkeypatch, items)
+    with open(os.path.join(fix_dir, "products_export.csv"), "wb") as fh:
+        fh.write(b"Handle\nabc\n")
+
+    captured = {}
+    monkeypatch.setattr(previewmod, "regenerate_surface_b",
+                        _fake_regen(captured, str(tmp_path / "rebuilt.xlsx"),
+                                    missing=("IMG2",)))
 
     r = client.post(f"/preview/adopt-fix/{fix_id}")
     assert r.status_code == 200
     assert "hx-redirect" not in r.headers
-    assert "no products" in r.text.lower()
+    assert "IMG2" in r.text
+    # the one that did rebuild is still reachable, by an explicit link
+    assert "/generate/attributes/" in r.text
 
 
-def test_adopt_fix_404_when_corrected_file_missing():
-    """A fix session that hasn't been applied yet (or never will produce a
-    corrected file) must 404, not adopt a nonexistent workbook."""
+def test_adopt_fix_refuses_a_rebuilt_sheet_with_no_rows(tmp_path, monkeypatch):
+    """A rebuild can legitimately come out empty (no rejected SKU was in the
+    export). Adopting it drops the owner on a blank accordion with no
+    explanation — the exact case /preview already refuses."""
     client = _client()
-    fix_id = "c" * 32
+    fix_id, fix_dir = _image_fix_session(client, monkeypatch)
+    with open(os.path.join(fix_dir, "products_export.csv"), "wb") as fh:
+        fh.write(b"Handle\nabc\n")
+
+    captured = {}
+    monkeypatch.setattr(previewmod, "regenerate_surface_b",
+                        _fake_regen(captured, str(tmp_path / "rebuilt.xlsx"),
+                                    missing=("IMG1",)))
+
     r = client.post(f"/preview/adopt-fix/{fix_id}")
+    assert r.status_code == 200
+    assert "hx-redirect" not in r.headers
+    assert "IMG1" in r.text
+    assert "/generate/attributes/" not in r.text
+
+
+def test_adopt_fix_404_when_the_fix_session_is_unknown():
+    """A fix id with nothing behind it (expired, or never uploaded) must 404
+    rather than rebuild an empty set."""
+    client = _client()
+    r = client.post("/preview/adopt-fix/" + "c" * 32)
     assert r.status_code == 404
+
+
+def test_adopt_fix_survives_a_failing_rebuild(tmp_path, monkeypatch):
+    """The pipeline can raise on a malformed export. htmx does not swap on 5xx,
+    so an unhandled raise leaves the button looking dead — the prod bug this
+    codebase has already shipped a fix for once."""
+    client = _client(raise_server=False)
+    fix_id, fix_dir = _image_fix_session(client, monkeypatch)
+    with open(os.path.join(fix_dir, "products_export.csv"), "wb") as fh:
+        fh.write(b"not really a products export\n")
+
+    def boom(*a, **k):
+        raise RuntimeError("<script>alert(1)</script>")
+
+    monkeypatch.setattr(previewmod, "regenerate_surface_b", boom)
+
+    r = client.post(f"/preview/adopt-fix/{fix_id}")
+    assert r.status_code == 200
+    assert "hx-redirect" not in r.headers
+    assert "<script>alert(1)</script>" not in r.text
+    assert "&lt;script&gt;" in r.text
+
+
+def test_apply_saves_the_export_when_nothing_is_correctable(monkeypatch):
+    """The 'nothing correctable' branch returns before _save_export, so the export
+    the owner just attached was thrown away — and the Replace-images button then
+    asked for it again, forever."""
+    client = _client()
+    monkeypatch.setattr(fixmod, "detect_format", lambda p: ("listings_report", ""))
+    monkeypatch.setattr(fixmod, "read_error_file", lambda p, rules: [
+        ErrorItem(sku="IMGX", style_id=None, source_type="listings_report", scope="sku",
+                  raw_reason="The image is pixelated", cells={})])
+
+    up = client.post("/fix", files={"file": ("rej.csv", b"x", "text/csv")})
+    fix_id = up.headers["x-fix-id"]
+    r = client.post(f"/fix/apply/{fix_id}", files={
+        "products_export": ("products_export.csv", b"Handle\nabc\n", "text/csv")})
+    assert r.status_code == 200
+    saved = os.path.join(fixmod._fix_dir(fix_id), "products_export.csv")
+    assert os.path.exists(saved)
+    with open(saved, "rb") as fh:
+        assert fh.read() == b"Handle\nabc\n"
 
 
 def test_adopt_fix_rejects_malformed_fix_id():

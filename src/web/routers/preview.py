@@ -6,10 +6,11 @@ import tempfile
 from fastapi import APIRouter, Request, UploadFile, File, HTTPException
 from fastapi.responses import HTMLResponse
 
+from src.myntra.corrector import regenerate_surface_b
 from src.myntra.template_reader import read_template
 from src.myntra.preview import read_filled_rows
 from src.myntra.pipeline import DEFAULT_TEMPLATE_NAME
-from src.web.routers.pages import get_user
+from src.web.routers.pages import get_user, get_settings
 from src.web.jobs import store
 
 router = APIRouter()
@@ -21,6 +22,11 @@ UNREADABLE = ("That doesn't look like a Myntra listing sheet. Please upload the 
               "report, or an older template.")
 NO_PRODUCTS = ("That file has no products in it — no row carried a vendorSkuCode. "
                "Please upload a generated Myntra sheet.")
+NO_IMAGE_REJECTIONS = ("Nothing in that rejection file was turned down for its "
+                       "photos, so there is nothing to replace here.")
+REBUILD_EMPTY = ("We couldn't rebuild any of those SKUs. The Shopify products "
+                 "export you uploaded doesn't appear to contain them — re-export "
+                 "those SKUs from Shopify and try again.")
 
 
 def _templates():
@@ -46,6 +52,27 @@ def _rows_or_error(request, path):
     if not rows:
         return None, _read_error(request, NO_PRODUCTS)
     return rows, None
+
+
+def _adopt(src_path, filename, products, move=False):
+    """Register `src_path` as a finished upload-origin job and return its id. This
+    is the whole adoption mechanism the Fill-attributes screen needs; nothing
+    downstream cares whether the workbook was uploaded, built or rebuilt."""
+    from src.web.routers.generate import RUNTIME
+    job = store.create()
+    job_dir = os.path.join(RUNTIME, job.id)
+    os.makedirs(job_dir, exist_ok=True)
+    xlsx = os.path.join(job_dir, "myntra_filled.xlsx")
+    (shutil.move if move else shutil.copyfile)(src_path, xlsx)
+    store.finish(job.id, {"filled": xlsx, "origin": "upload",
+                          "filename": filename, "products": products})
+    return job.id
+
+
+def _to_attributes(job_id):
+    resp = HTMLResponse("")
+    resp.headers["HX-Redirect"] = f"/generate/attributes/{job_id}"
+    return resp
 
 
 @router.get("/preview", response_class=HTMLResponse)
@@ -78,18 +105,10 @@ async def preview_submit(request: Request, file: UploadFile = File(...)):
         if error is not None:
             return error
 
-        job = store.create()
-        job_dir = os.path.join(RUNTIME, job.id)
-        os.makedirs(job_dir, exist_ok=True)
-        xlsx = os.path.join(job_dir, "myntra_filled.xlsx")
-        shutil.move(staged, xlsx)
-        store.finish(job.id, {"filled": xlsx, "origin": "upload",
-                              "filename": file.filename, "products": len(rows)})
+        job_id = _adopt(staged, file.filename, len(rows), move=True)
     finally:
         shutil.rmtree(staging, ignore_errors=True)
-    resp = HTMLResponse("")
-    resp.headers["HX-Redirect"] = f"/generate/attributes/{job.id}"
-    return resp
+    return _to_attributes(job_id)
 
 
 @router.post("/preview/clear/{job_id}", response_class=HTMLResponse)
@@ -110,29 +129,51 @@ def preview_clear(request: Request, job_id: str):
 
 @router.post("/preview/adopt-fix/{fix_id}", response_class=HTMLResponse)
 def preview_adopt_fix(request: Request, fix_id: str):
-    """Open a fix run's corrected workbook in the editable screen.
+    """Open the photo-rejected SKUs in the editable screen.
 
-    The corrected file only exists after apply, which is why this hangs off the
-    fix *result* rather than the error listing."""
+    NOT the fix run's corrected workbook. That file holds the SKUs the app could
+    correct by itself, and an image rejection is explain_only by definition — so
+    the corrected sheet excludes exactly the products this button names. The sheet
+    is rebuilt here instead, from the persisted issues plus the Shopify export, so
+    it carries the rejected SKUs and nothing else."""
     get_user(request)
-    from src.web.routers.fix import _fix_dir, _safe_fix_id
-    from src.web.routers.generate import RUNTIME
-    src_path = os.path.join(_fix_dir(_safe_fix_id(fix_id)), "myntra_corrected.xlsx")
-    if not os.path.exists(src_path):
-        raise HTTPException(status_code=404, detail="not ready")
-    # Same check the upload path runs. Arriving from the Fix screen is no reason
-    # to land on an empty accordion with no explanation.
-    rows, error = _rows_or_error(request, src_path)
+    from src.web.routers import fix as fixmod
+    fix_dir = fixmod._fix_dir(fixmod._safe_fix_id(fix_id))
+    _, issues = fixmod._load_issues(fix_dir)  # 404 if the session is gone
+    skus = sorted({i.sku for i in issues
+                   if i.sku and i.action == "explain_only" and i.category == "image"})
+    if not skus:
+        return _read_error(request, NO_IMAGE_REJECTIONS)
+
+    # Rebuilding re-runs the listing pipeline, which needs the export the SKUs came
+    # from. The per-SKU xlsx path never asks for one, so this is a routine miss, not
+    # a failure: point the owner at the upload box the Fix screen already shows.
+    csv_path = os.path.join(fix_dir, "products_export.csv")
+    if not os.path.exists(csv_path):
+        return fixmod._export_prompt_panel()
+    out_dir = os.path.join(fix_dir, "replace-images")
+    os.makedirs(out_dir, exist_ok=True)
+    try:
+        summary = regenerate_surface_b(skus, get_settings(request), out_dir,
+                                       csv_path=csv_path)
+    except Exception as exc:  # noqa: BLE001 - htmx drops a 5xx, so the button would look dead
+        return fixmod._error_panel(exc)
+
+    built, missing = summary.get("file"), summary.get("could_not_rebuild") or []
+    rows, error, job_id = None, None, None
+    if built and os.path.exists(built):
+        rows, error = _rows_or_error(request, built)
+        if rows:
+            job_id = _adopt(built, "myntra_rejected_images.xlsx", len(rows))
+    if missing:
+        # A SKU absent from the export would otherwise vanish from the sheet in
+        # silence — the same "the file excludes what the button promised" failure
+        # this route exists to fix. Name them, and only then offer the rest.
+        return _templates().TemplateResponse(request, "_adopt_fix_partial.html",
+                                             {"missing": missing, "job_id": job_id,
+                                              "rebuilt": len(rows or [])})
     if error is not None:
         return error
-    job = store.create()
-    job_dir = os.path.join(RUNTIME, job.id)
-    os.makedirs(job_dir, exist_ok=True)
-    xlsx = os.path.join(job_dir, "myntra_filled.xlsx")
-    shutil.copyfile(src_path, xlsx)
-    store.finish(job.id, {"filled": xlsx, "origin": "upload",
-                          "filename": "myntra_corrected.xlsx",
-                          "products": len(rows)})
-    resp = HTMLResponse("")
-    resp.headers["HX-Redirect"] = f"/generate/attributes/{job.id}"
-    return resp
+    if job_id is None:
+        return _read_error(request, REBUILD_EMPTY)
+    return _to_attributes(job_id)

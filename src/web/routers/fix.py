@@ -194,6 +194,11 @@ async def _fix_apply(request, settings, fix_id, fix_dir):
         elif key.startswith("drop__"):
             submitted_drops.add(key.split("__", 1)[1])
 
+    # Persist the export BEFORE any early return. Two branches below answer without
+    # rebuilding anything, and dropping the attached export there left the Replace-
+    # images button asking for a file the owner had already handed over — forever.
+    csv_path = _save_export(export_upload, fix_dir)
+
     out_path = os.path.join(fix_dir, "myntra_corrected.xlsx")
     if action == "manual":
         # Rebuild ONLY the explain-only SKUs into a fresh Myntra sheet, pinning the
@@ -206,7 +211,6 @@ async def _fix_apply(request, settings, fix_id, fix_dir):
                        "dropped": [], "rejected": {}, "changed": {}, "manual_needed": []}
             return _templates().TemplateResponse(request, "_fix_result.html",
                                                  {"summary": summary, "fix_id": fix_id})
-        csv_path = _save_export(export_upload, fix_dir)
         if csv_path is None:
             return _export_prompt_panel()
         summary = regenerate_surface_b(skus, settings, fix_dir, csv_path=csv_path)
@@ -243,7 +247,6 @@ async def _fix_apply(request, settings, fix_id, fix_dir):
                                                      {"summary": summary, "fix_id": fix_id})
         # A real Surface-B rebuild needs the Shopify products export. Prod has no
         # baked-in export, so require the user to upload it rather than 500.
-        csv_path = _save_export(export_upload, fix_dir)
         if csv_path is None:
             return _export_prompt_panel()
         summary = regenerate_surface_b(skus, settings, fix_dir, csv_path=csv_path)

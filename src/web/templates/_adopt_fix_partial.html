@@ -1,0 +1,13 @@
+<div class="panel">
+  <h3 class="flag">⚠ {{ missing|length }} SKU(s) aren't in that export</h3>
+  <p>We rebuild each rejected product from your Shopify products export, and these
+    weren't in the file you uploaded:</p>
+  <ul class="mono">
+    {% for sku in missing %}<li>{{ sku }}</li>{% endfor %}
+  </ul>
+  <p>Re-export them from Shopify and upload that CSV with the fix again to replace
+    their photos too.</p>
+  {% if job_id %}
+    <a class="btn" href="/generate/attributes/{{ job_id }}">Carry on with the {{ rebuilt }} SKU(s) that did rebuild →</a>
+  {% endif %}
+</div>
