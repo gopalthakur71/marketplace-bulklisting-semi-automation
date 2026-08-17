@@ -250,11 +250,16 @@ writes an `origin` key at all — `generate.py`'s `store.finish(job_id, res)` pa
 stored. Templates use it only to decide UI
 chrome that makes sense for one but not the other (the Clear button and the "edited" confirm guard
 render only when `origin == "upload"` — a freshly-built job downloads from its own `_result.html`
-panel instead). A file with no product rows (`read_filled_rows` returns nothing) is never adopted: a
-job is created and the file saved to it as normal, but on finding no rows the handler immediately
-calls `store.drop(job.id)` and deletes the job's runtime dir before returning, so the owner sees an
-explanation instead of an empty accordion — the job exists only transiently, never reaches
-`store.finish`, and is gone by the time the response is sent.
+panel instead). An unusable file is never adopted, and no job is ever created for one. The upload is written to a
+staging directory under `RUNTIME` and read there first (`_rows_or_error`); only once it parses as a
+Myntra sheet **and** yields at least one product row does the handler call `store.create()` and move
+the file into the job dir. The two refusals — unreadable (`UNREADABLE`: a renamed CSV, another
+workbook, last year's template, anything `read_filled_rows` raises on) and readable-but-rowless
+(`NO_PRODUCTS`) — both render `_preview_error.html`, and a `finally` removes the staging directory
+either way. This ordering matters: creating the job first meant a parse failure became an uncaught
+500, which htmx does not swap on, so the screen showed nothing at all while the orphaned job and its
+copy of the file survived for the life of the process. `POST /preview/adopt-fix` runs the same
+`_rows_or_error` check on the fix run's corrected workbook before adopting it.
 
 ### Modules
 
@@ -337,13 +342,18 @@ exactly the same editing surface.
 
 ```
 GET /generate/download/<job> ─► seller edits in Excel (optional) ─► saves
-POST /preview (filled .xlsx) ─► read_template(V13) ─► preview.read_filled_rows()
-                             ├► no rows ─► drop the job, _preview_error.html, nothing adopted
-                             └► store.finish(job, {filled: xlsx, origin: "upload", ...})
+POST /preview (filled .xlsx) ─► stage under RUNTIME ─► _rows_or_error() ─► read_filled_rows()
+                             ├► raises ─► _preview_error.html (UNREADABLE), no job ever created
+                             ├► no rows ─► _preview_error.html (NO_PRODUCTS), no job ever created
+                             └► rows ─► store.create() ─► move file in ─► store.finish(job,
+                                        {filled: xlsx, origin: "upload", ...})
                                 └► HX-Redirect → GET /generate/attributes/<job>   (Flow D, below)
+                                (finally: the staging dir is removed on every path)
 
-POST /preview/adopt-fix/<fix_id> ─► copy myntra_corrected.xlsx into a new job, same origin="upload"
-                                  └► HX-Redirect → GET /generate/attributes/<job>
+POST /preview/adopt-fix/<fix_id> ─► _rows_or_error(myntra_corrected.xlsx)
+                                  ├► raises / no rows ─► _preview_error.html into #adopt-fix-out
+                                  └► copy into a new job, same origin="upload"
+                                     └► HX-Redirect → GET /generate/attributes/<job>
                                      (this is what the Fix screen's "Replace images" button calls)
 
 POST /preview/clear/<job> ─► store.drop(job) + delete its runtime dir ─► HX-Redirect → GET /preview

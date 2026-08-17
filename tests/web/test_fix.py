@@ -374,6 +374,20 @@ def test_image_rejections_offer_the_replacement_screen(tmp_path, monkeypatch):
     assert "/preview/adopt-fix/" in html
 
 
+def _corrected_workbook(path, skus=("S1",)):
+    """A REAL corrected sheet. The original test wrote b'corrected-bytes' here,
+    which is why nothing ever noticed that the adopted file's *contents* were
+    never checked."""
+    from src.myntra.template_reader import read_template
+    from src.myntra.fill import fill_template
+    from src.core.models import MappedRow, ImageResult
+    v13 = "templates/myntra/Myntra-Sku-Template-2026-07-24.xlsx"
+    t = read_template(v13)
+    rows = [(MappedRow(sku=s, cells={"vendorSkuCode": s}), ImageResult(sku=s))
+            for s in skus]
+    fill_template(v13, t, rows, path)
+
+
 def test_adopt_fix_success_copies_corrected_file_and_registers_job():
     """The 'Replace images' button hangs off /preview/adopt-fix/{fix_id}: it must
     copy the fix run's corrected workbook into a fresh job dir, register the job
@@ -384,8 +398,7 @@ def test_adopt_fix_success_copies_corrected_file_and_registers_job():
     fix_dir = fixmod._fix_dir(fix_id)
     os.makedirs(fix_dir, exist_ok=True)
     corrected = os.path.join(fix_dir, "myntra_corrected.xlsx")
-    with open(corrected, "wb") as fh:
-        fh.write(b"corrected-bytes")
+    _corrected_workbook(corrected, skus=("S1",))
 
     r = client.post(f"/preview/adopt-fix/{fix_id}")
     assert r.status_code == 200
@@ -399,8 +412,30 @@ def test_adopt_fix_success_copies_corrected_file_and_registers_job():
     assert job.status == "done"
     assert job.result["origin"] == "upload"
     assert job.result["filename"] == "myntra_corrected.xlsx"
-    with open(job.result["filled"], "rb") as fh:
-        assert fh.read() == b"corrected-bytes"
+    assert os.path.exists(job.result["filled"])
+    # the adopted copy must really carry the SKU, not merely exist
+    from src.myntra.preview import read_filled_rows
+    from src.myntra.template_reader import read_template
+    adopted = read_filled_rows(job.result["filled"],
+                               read_template("templates/myntra/Myntra-Sku-Template-2026-07-24.xlsx"))
+    assert [r_["vendorSkuCode"] for r_ in adopted] == ["S1"]
+
+
+def test_adopt_fix_refuses_a_corrected_sheet_with_no_rows():
+    """A corrected file can legitimately come out empty (every rejection was
+    explain-only). Adopting it drops the owner on a blank accordion with no
+    explanation — the exact case /preview already refuses."""
+    client = _client()
+    fix_id = "d" * 32
+    fix_dir = fixmod._fix_dir(fix_id)
+    os.makedirs(fix_dir, exist_ok=True)
+    corrected = os.path.join(fix_dir, "myntra_corrected.xlsx")
+    _corrected_workbook(corrected, skus=())
+
+    r = client.post(f"/preview/adopt-fix/{fix_id}")
+    assert r.status_code == 200
+    assert "hx-redirect" not in r.headers
+    assert "no products" in r.text.lower()
 
 
 def test_adopt_fix_404_when_corrected_file_missing():

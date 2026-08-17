@@ -99,6 +99,55 @@ def test_upload_with_no_sku_rows_is_rejected_and_creates_no_job(tmp_path, monkey
     assert len(store._jobs) == before
 
 
+def test_a_file_that_is_not_a_workbook_explains_itself(tmp_path, monkeypatch):
+    """A renamed CSV/PDF reaches openpyxl as a non-zip and raises BadZipFile. That
+    was a 500, and htmx does not swap on 5xx — so the screen sat there saying
+    nothing at all while the owner waited."""
+    monkeypatch.setattr(gen, "RUNTIME", str(tmp_path / "runtime"))
+    before = len(store._jobs)
+    r = _client(tmp_path).post(
+        "/preview", files={"file": ("not-really.xlsx", b"Handle,Title\na,b\n", XLSX)})
+    assert r.status_code == 200
+    assert "hx-redirect" not in r.headers
+    assert "couldn't read" in r.text.lower()
+    assert len(store._jobs) == before
+
+
+def test_a_workbook_that_is_not_a_myntra_sheet_explains_itself(tmp_path, monkeypatch):
+    """The likelier mistake: a real .xlsx that simply isn't this template (last
+    year's format, a stock report). wb[SHEET_SAREES_NAME] raised KeyError."""
+    monkeypatch.setattr(gen, "RUNTIME", str(tmp_path / "runtime"))
+    import openpyxl
+    wb = openpyxl.Workbook()
+    wb.active.title = "Sheet1"
+    wb.active["A1"] = "not a myntra sheet"
+    other = tmp_path / "other.xlsx"
+    wb.save(other)
+
+    before = len(store._jobs)
+    with open(other, "rb") as fh:
+        r = _client(tmp_path).post(
+            "/preview", files={"file": ("other.xlsx", fh.read(), XLSX)})
+    assert r.status_code == 200
+    assert "hx-redirect" not in r.headers
+    assert "couldn't read" in r.text.lower()
+    assert len(store._jobs) == before
+
+
+def test_a_rejected_upload_leaves_no_directory_behind(tmp_path, monkeypatch):
+    """The file was written to the job dir BEFORE the first line that could fail,
+    so a parse error orphaned both the job and its copy of the sheet for the life
+    of the process. Nothing may survive a refusal."""
+    runtime = tmp_path / "runtime"
+    monkeypatch.setattr(gen, "RUNTIME", str(runtime))
+    client = _client(tmp_path)
+    client.post("/preview", files={"file": ("bad.xlsx", b"nonsense", XLSX)})
+    with open(V13, "rb") as fh:                       # readable, but no data rows
+        client.post("/preview", files={"file": ("template.xlsx", fh.read(), XLSX)})
+    leftovers = list(runtime.iterdir()) if runtime.exists() else []
+    assert leftovers == [], f"rejected uploads left {leftovers} behind"
+
+
 def test_clear_forgets_the_job_and_removes_its_directory(tmp_path, monkeypatch):
     """Clear is how the owner moves to the next file. A job left behind would keep
     the uploaded sheet on disk for the life of the process."""
