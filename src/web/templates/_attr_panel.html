@@ -58,6 +58,7 @@
       <span class="hint">8 digits — from Shopify’s custom.hsn_code, edit if needed</span>
       {% endif %}
     </label>
+    {% include "_attr_images.html" %}
     <button class="btn" type="button"
             hx-post="/generate/attributes/{{ job_id }}/one"
             hx-include="closest .attr-panel"

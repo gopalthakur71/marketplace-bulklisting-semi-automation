@@ -1,0 +1,22 @@
+<details class="attr-images">
+  <summary>Product images — replace</summary>
+  <p class="hint">Choose a file for any slot you want to change. Slots you leave
+    empty are untouched. Minimum 700×700, max 10 MB.</p>
+  {% for s in p.image_slots %}
+  <label class="hint attr-slot">
+    <span class="mono">{{ s.header }}</span>
+    {% if s.url %}<img class="slot-thumb" src="{{ s.url }}" alt="{{ s.header }}" loading="lazy">
+    {% else %}<span class="hint">empty</span>{% endif %}
+    <input type="file" name="img__{{ p.ordinal }}__{{ s.slot }}" accept="image/*">
+  </label>
+  {% endfor %}
+  <button class="btn" type="button"
+          hx-post="/generate/attributes/{{ job_id }}/images"
+          hx-encoding="multipart/form-data"
+          hx-include="closest .attr-panel"
+          hx-vals='{"ordinal": {{ p.ordinal }}}'
+          hx-target="#img-out-{{ p.ordinal }}"
+          hx-swap="innerHTML"
+          hx-disabled-elt="this">Upload new images</button>
+  <span class="attr-save-out" id="img-out-{{ p.ordinal }}"></span>
+</details>

@@ -14,6 +14,7 @@ from src.myntra.attribute_entry import (BRAND_COLOUR_HEADER, HSN_HEADER,
                                         user_filled_freetext, validate_freetext,
                                         validate_hsn, validate_submitted,
                                         write_attributes)
+from src.myntra.fill import IMAGE_COLUMNS
 from src.myntra.hsn_source import normalize as normalize_hsn
 from src.myntra.pipeline import DEFAULT_TEMPLATE_NAME
 from src.myntra.preview import build_card, is_set, read_filled_rows
@@ -109,6 +110,18 @@ def _panel_image(product, attrs):
     return front if front.startswith(("http://", "https://")) else None
 
 
+def _image_slots(attrs):
+    """One entry per Myntra image column, numbered from 1 to match the {slot} in
+    the replacement key. Only real URLs become thumbnails, for the same reason as
+    _panel_image."""
+    slots = []
+    for slot, header in enumerate(IMAGE_COLUMNS, start=1):
+        url = str(attrs.get(header) or "").strip()
+        slots.append({"header": header, "slot": slot,
+                      "url": url if url.startswith(("http://", "https://")) else None})
+    return slots
+
+
 def _panels(xlsx, csv_path, template, columns, free_columns):
     products = {}
     if os.path.exists(csv_path):
@@ -122,6 +135,7 @@ def _panels(xlsx, csv_path, template, columns, free_columns):
             "sku": sku,
             "product_title": p.title if p else "",
             "image": _panel_image(p, attrs),
+            "image_slots": _image_slots(attrs),
             # NOT "values": in Jinja `p.values` would resolve to dict.values (the
             # method), silently breaking the pre-selection comparison.
             "chosen": {c: attrs.get(c) for c in columns},

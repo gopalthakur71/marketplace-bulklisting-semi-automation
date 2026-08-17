@@ -78,3 +78,6 @@ input[type=text]{background:var(--bg);border:1px solid var(--marigold);color:var
   border-radius:6px;padding:6px 8px;width:100%}
 .attr-save-out{min-height:1em}
 .attr-footer button[disabled]{opacity:.6;cursor:progress}
+.attr-slot { display: flex; align-items: center; gap: .6rem; margin: .3rem 0; }
+.attr-slot .mono { min-width: 11rem; }
+.slot-thumb { width: 48px; height: 48px; object-fit: cover; border-radius: 4px; }

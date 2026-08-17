@@ -824,3 +824,15 @@ def test_panel_photo_ignores_a_non_url_front_image(tmp_path, monkeypatch):
 
     r = _client(tmp_path).get(f"/generate/attributes/{job.id}")
     assert "no photo" in r.text
+
+
+def test_panel_offers_a_file_input_for_every_myntra_image_slot(tmp_path, monkeypatch):
+    """Myntra rejects one specific shot ('front image is pixelated'), so each slot
+    needs its own picker — replacing all seven is the same path, just more files."""
+    job = _job(tmp_path, monkeypatch, skus=("S1",))
+    r = _client(tmp_path).get(f"/generate/attributes/{job.id}")
+    assert r.status_code == 200
+    for slot in range(1, 8):
+        assert f'name="img__0__{slot}"' in r.text
+    assert "Front Image" in r.text
+    assert "Additional Image 2" in r.text
