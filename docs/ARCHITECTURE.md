@@ -242,12 +242,19 @@ thing with a fix run's `myntra_corrected.xlsx` instead.
 Because adoption produces a job that is indistinguishable in shape from a generated one, **every**
 downstream surface — the Fill-attributes accordion, the vocabulary dropdowns, the live preview card,
 per-panel save, the HSN gap banner, registry pinning, image replacement, download — operates on it
-with **no special-casing**. The one place the two are told apart is `result["origin"]`: `"upload"`
-for an adopted workbook, `"generate"` for one this app built. Templates use it only to decide UI
+with **no special-casing**. The one place the two are told apart is `result["origin"]`: it's
+literally `"upload"` for an adopted workbook (`preview.py` sets it explicitly), while a build never
+writes an `origin` key at all — `generate.py`'s `store.finish(job_id, res)` passes through
+`pipeline.main`'s result untouched, so every reader falls back to `job.result.get("origin",
+"generate")`. Behaviourally the same value either way; only the adopted case is ever actually
+stored. Templates use it only to decide UI
 chrome that makes sense for one but not the other (the Clear button and the "edited" confirm guard
 render only when `origin == "upload"` — a freshly-built job downloads from its own `_result.html`
-panel instead). A file with no product rows (`read_filled_rows` returns nothing) is refused before a
-job is even created, rather than adopted into an empty accordion with no explanation.
+panel instead). A file with no product rows (`read_filled_rows` returns nothing) is never adopted: a
+job is created and the file saved to it as normal, but on finding no rows the handler immediately
+calls `store.drop(job.id)` and deletes the job's runtime dir before returning, so the owner sees an
+explanation instead of an empty accordion — the job exists only transiently, never reaches
+`store.finish`, and is gone by the time the response is sent.
 
 ### Modules
 
