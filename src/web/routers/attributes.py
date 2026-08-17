@@ -389,11 +389,15 @@ async def attributes_save_images(request: Request, job_id: str):
         values = {h: url for (_p, _k, h), url in zip(prepared, urls)}
         # write_attributes, not a bare openpyxl save: it verifies the row still
         # holds this SKU and re-applies shared_to_inline, which Myntra requires.
-        with _WRITE_LOCK:
-            write_attributes(xlsx, read_template(TEMPLATE),
-                             [{"ordinal": ordinal, "sku": sku, "values": values}])
-            if job.result.get("origin") == "upload":
-                job.result["edited"] = True
+        try:
+            with _WRITE_LOCK:
+                write_attributes(xlsx, read_template(TEMPLATE),
+                                 [{"ordinal": ordinal, "sku": sku, "values": values}])
+                if job.result.get("origin") == "upload":
+                    job.result["edited"] = True
+        except (AttributeValueError, SkuMismatchError) as exc:
+            return _templates().TemplateResponse(
+                request, "_attr_images_saved.html", {"error": str(exc)})
         saved = [{"header": h, "url": u} for (_p, _k, h), u in zip(prepared, urls)]
 
     return _templates().TemplateResponse(

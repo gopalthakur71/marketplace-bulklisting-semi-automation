@@ -906,3 +906,32 @@ def test_unconfigured_hosting_reports_instead_of_writing_a_local_path(tmp_path, 
         files={"img__0__1": ("new.png", _png_bytes(800, 800), "image/png")})
     assert r.status_code == 200
     assert "not configured" in r.text
+
+
+def test_a_stale_sku_mismatch_reports_instead_of_raising(tmp_path, monkeypatch):
+    """A second tab that clears-and-re-uploads (Task 4) changes what row 0 holds.
+    An old panel still open in this tab now posts a SKU the sheet no longer has at
+    that ordinal — write_attributes must raise SkuMismatchError for that, and the
+    route must report it, not 500 and leave htmx with nothing to swap."""
+    job = _job(tmp_path, monkeypatch, skus=("S1",))
+    monkeypatch.setattr(attrs_router, "load_specs", lambda: {
+        "min_width": 700, "min_height": 700, "max_bytes": 10485760, "quality": 90,
+        "public_base_url": "https://cdn.example/myntra", "s3_bucket": "b",
+        "s3_prefix": "myntra", "s3_upload": True})
+    monkeypatch.setattr(attrs_router, "host",
+                        lambda prepared, specs, out_dir: [
+                            f"https://cdn.example/myntra/{k}" for _, k in prepared])
+
+    # write_attributes itself is NOT mocked: the real function must be the one
+    # that raises, and the route must catch what it actually raises.
+    r = _client(tmp_path).post(
+        f"/generate/attributes/{job.id}/images",
+        data={"ordinal": "0", "sku__0": "WRONG"},
+        files={"img__0__1": ("new.png", _png_bytes(800, 800), "image/png")})
+    assert r.status_code == 200
+    assert "sheet changed" in r.text
+
+    from src.myntra.preview import read_filled_rows
+    from src.myntra.template_reader import read_template
+    rows = read_filled_rows(job.result["filled"], read_template(V13))
+    assert rows[0]["Front Image"] in (None, "")
