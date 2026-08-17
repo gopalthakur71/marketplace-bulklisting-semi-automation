@@ -248,10 +248,15 @@ For this group there's a guided path:
 
 If the problem is specifically **bad photos**, there's a shortcut: after you apply a fix, the
 results screen shows a **"Replace images for N SKU(s) →"** button whenever image issues remain.
-It takes you straight into the Preview-and-edit screen (Screen 3) with the corrected sheet already
-loaded, so you can swap the rejected photo directly in the app instead of re-shooting in Shopify
-and re-exporting first. This works no matter which of the three rejection-file formats you started
-from.
+It builds a sheet containing **exactly the SKUs Myntra turned down for their photos** — keeping
+their original HSN and style group — and drops you into the Preview-and-edit screen (Screen 3)
+with it already loaded, so you can swap the rejected photo directly in the app instead of
+re-shooting in Shopify and re-exporting first.
+
+Building that sheet re-runs the listing pipeline, so it needs the **Shopify products export**
+those SKUs came from. If you haven't attached one, the button asks for it — go back, put the CSV
+in the box next to "Proceed", and try again. If a rejected SKU isn't in the export you uploaded,
+the app **names it** rather than quietly leaving it out, and offers to carry on with the rest.
 
 ### The self-learning part
 

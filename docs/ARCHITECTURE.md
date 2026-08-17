@@ -236,8 +236,8 @@ htmx. **No business logic here** — routers call `src/myntra` / `src/core`.
 `POST /preview` used to be read-only — upload a filled sheet, get back listing cards, done. It now
 **adopts** the uploaded workbook: it registers a new job in `src/web/jobs.py`'s `JobStore` and calls
 `store.finish(job.id, {"filled": xlsx, "origin": "upload", ...})` directly, the same call a
-completed *build* makes at the end of Flow A. `POST /preview/adopt-fix/{fix_id}` does the identical
-thing with a fix run's `myntra_corrected.xlsx` instead.
+completed *build* makes at the end of Flow A. `POST /preview/adopt-fix/{fix_id}` ends in the same
+`_adopt()` helper, with a workbook it **rebuilds** for the photo-rejected SKUs (see below).
 
 Because adoption produces a job that is indistinguishable in shape from a generated one, **every**
 downstream surface — the Fill-attributes accordion, the vocabulary dropdowns, the live preview card,
@@ -259,7 +259,22 @@ workbook, last year's template, anything `read_filled_rows` raises on) and reada
 either way. This ordering matters: creating the job first meant a parse failure became an uncaught
 500, which htmx does not swap on, so the screen showed nothing at all while the orphaned job and its
 copy of the file survived for the life of the process. `POST /preview/adopt-fix` runs the same
-`_rows_or_error` check on the fix run's corrected workbook before adopting it.
+`_rows_or_error` check on the workbook it rebuilds before adopting it.
+
+**What `/preview/adopt-fix` adopts, and why it is not the corrected file.** The obvious source —
+the fix run's `myntra_corrected.xlsx` — is wrong by construction. `corrector.py`'s
+`correct_from_issues` `continue`s past every SKU with an `explain_only` issue, and an image
+rejection *is* `explain_only`, so the corrected sheet excludes exactly the products the "Replace
+images" button names. The route therefore reads `runtime/fix-<id>/issues.json`, selects the SKUs
+whose issue is `action == "explain_only"` **and** `category == "image"`, and rebuilds a sheet for
+just those through `regenerate_surface_b` — the same call `action=manual` uses, so their original
+HSN and `styleGroupId` are pinned from the SKU registry. That rebuild re-runs the pipeline and so
+needs `runtime/fix-<id>/products_export.csv`; when it is absent (the `sku_xlsx` path never demands
+one) the route returns `fix._export_prompt_panel()` rather than rebuilding from nothing, and
+`/fix/apply` now saves an attached export **before** its early returns so the owner is never asked
+twice for the same file. A rejected SKU that the export does not contain comes back in
+`could_not_rebuild` and is **named** in `_adopt_fix_partial.html`, which offers a plain link into
+the SKUs that did rebuild — the sheet never silently omits a SKU the button promised.
 
 ### Modules
 
@@ -272,7 +287,7 @@ copy of the file survived for the life of the process. `POST /preview/adopt-fix`
 | `src/web/routers/pages.py` | `GET /` home; `get_user` (reads `id_token` cookie or `Authorization: Bearer`) and `get_settings` helpers reused by other routers. |
 | `src/web/routers/generate.py` | Flow A (below); `_safe_job_id` guards path traversal. |
 | `src/web/routers/fix.py` | Flow B (below); `_safe_fix_id` guards path traversal. |
-| `src/web/routers/preview.py` | Flow C (below): **adopts** an uploaded (or fix-corrected) workbook as a job — see "The adoption mechanism" below — then hands off to Flow D for editing. Reads `user_filled_attributes` from `rules.yaml`. |
+| `src/web/routers/preview.py` | Flow C (below): **adopts** a workbook as a job — an upload, or one rebuilt for a fix run's photo-rejected SKUs — see "The adoption mechanism" below, then hands off to Flow D for editing. Reads `user_filled_attributes` from `rules.yaml`. |
 | `src/web/routers/attributes.py` | Flow D (below): the in-app **Fill attributes** screen — drives both a freshly-built workbook and an adopted upload identically. `job_files(job_id)` locates the job's built workbook + Shopify export (404 `session expired, please re-upload`); `_panels(...)` joins sheet row ↔ SKU ↔ product photo; `_submitted(...)` / `_submitted_free(...)` / `_submitted_hsn(...)` parse the `attr__{ordinal}__{column_index}`, `free__{ordinal}__{column_index}`, `sku__{ordinal}` and `hsn__{ordinal}` form fields. Writes **only** the 12 attribute cells plus `tags`, `Brand Colour (Remarks)` and `HSN`. `_filled_count` / `_total` are the single shared definitions of "n of N", so the screen and the per-panel save cannot disagree. `attributes_save_images` (the `/images` route) reads up to 7 uploaded files per panel keyed `img__{ordinal}__{slot}` (`slot` 1-based over `IMAGE_COLUMNS`), calls `image_replace.prepare()` per slot so one bad photo fails only its own slot, then `image_replace.host()` once for everything that prepared cleanly, and writes the resulting URLs through `write_attributes` (never a bare openpyxl save). On any adopted (`origin == "upload"`) job, a successful attribute *or* image save sets `job.result["edited"] = True`, which is what makes the Clear button ask for confirmation. |
 | `src/web/oauth.py` | Hosted-UI OAuth helpers (`authorize_url`/`exchange_code`/`logout_url`); stdlib urllib, injectable `http` so unit tests never hit the network. |
 | `src/web/routers/auth_routes.py` | `GET /login` (state CSRF cookie → hosted UI), `GET /auth/callback` (verify state, exchange code, set `id_token` cookie), `GET /logout`. Sessions are **re-login-on-stale** (no refresh tokens). |
@@ -301,10 +316,10 @@ copy of the file survived for the life of the process. `POST /preview/adopt-fix`
 | `GET /preview` | Preview form (Flow C). |
 | `POST /preview` | Upload a filled `.xlsx` → **adopts** it as a job (see "The adoption mechanism") and redirects (`HX-Redirect`) straight into `GET /generate/attributes/{job_id}` — i.e. Flow C now hands off to Flow D rather than rendering read-only cards itself. Rejects a file with no product rows. |
 | `POST /preview/clear/{job_id}` | Discards an adopted job (`store.drop` + delete its runtime dir) and redirects to `GET /preview`. An unknown/already-cleared `job_id` is not an error — it lands on the same empty form. |
-| `POST /preview/adopt-fix/{fix_id}` | Copies a fix run's `myntra_corrected.xlsx` into a new adopted job and redirects into Flow D the same way `POST /preview` does — this is what the Fix screen's "Replace images" button calls. 404s if the corrected file doesn't exist yet (i.e. before `/fix/apply` has run). |
+| `POST /preview/adopt-fix/{fix_id}` | Rebuilds a sheet for the fix run's photo-rejected SKUs (`issues.json` → `explain_only` + `category == "image"` → `regenerate_surface_b`), checks it with `_rows_or_error`, adopts it as a job and redirects into Flow D the same way `POST /preview` does — this is what the Fix screen's "Replace images" button calls. **Not** the corrected workbook, which excludes those SKUs by construction. 404s if the fix session is unknown or expired (no `issues.json`); answers with a panel — never a 500 — when there are no image rejections, no `products_export.csv`, or the rebuild raises. |
 | `GET /fix` | Fix form. |
 | `POST /fix` | Upload a rejection file (**3 formats:** per-SKU `.xlsx`, file-level `.csv`, or MDirect Listings Report) → detect format → classify → persist `rows.json` → return review partial (header `x-fix-id`) split into **correctable** vs **explain_only** groups. |
-| `POST /fix/apply/{fix_id}` | Two submit actions from `_fix_review.html`: **`action=fix`** applies typed answers + drop checkboxes → `correct()` → corrected sheet of *only the correctable* SKUs ("Download now to fix"); **`action=manual`** rebuilds a fresh sheet for *only the explain_only* SKUs from an uploaded Shopify export, pinning their original HSN + styleGroupId ("Download listing file"). Surface-B correctable rebuilds and every manual rebuild need `products_export` (`needs_export`); the whole handler is wrapped so any error returns a 200 error panel, never a swallowed 500. The result panel (`_fix_result.html`) also offers **"Replace images for N SKU(s)"** when any `manual_needed` issue has `category == "image"`, posting to `/preview/adopt-fix/{fix_id}`. |
+| `POST /fix/apply/{fix_id}` | Two submit actions from `_fix_review.html`: **`action=fix`** applies typed answers + drop checkboxes → `correct()` → corrected sheet of *only the correctable* SKUs ("Download now to fix"); **`action=manual`** rebuilds a fresh sheet for *only the explain_only* SKUs from an uploaded Shopify export, pinning their original HSN + styleGroupId ("Download listing file"). Surface-B correctable rebuilds and every manual rebuild need `products_export` (`needs_export`), which is saved to the fix dir **before** any early return so a later rebuild can reuse it; the whole handler is wrapped so any error returns a 200 error panel, never a swallowed 500. The result panel (`_fix_result.html`) also offers **"Replace images for N SKU(s)"** when any `manual_needed` issue has `category == "image"`, posting to `/preview/adopt-fix/{fix_id}`. |
 | `GET /fix/download/{fix_id}` | Download the rebuilt `.xlsx`. |
 
 ### Flow A — Generate (request lifecycle)
@@ -350,10 +365,14 @@ POST /preview (filled .xlsx) ─► stage under RUNTIME ─► _rows_or_error() 
                                 └► HX-Redirect → GET /generate/attributes/<job>   (Flow D, below)
                                 (finally: the staging dir is removed on every path)
 
-POST /preview/adopt-fix/<fix_id> ─► _rows_or_error(myntra_corrected.xlsx)
-                                  ├► raises / no rows ─► _preview_error.html into #adopt-fix-out
-                                  └► copy into a new job, same origin="upload"
-                                     └► HX-Redirect → GET /generate/attributes/<job>
+POST /preview/adopt-fix/<fix_id> ─► issues.json ─► SKUs with action=explain_only, category=image
+                                  ├► none ─► _preview_error.html into #adopt-fix-out
+                                  ├► no products_export.csv ─► _export_prompt_panel()
+                                  └► regenerate_surface_b(image_skus) ─► _rows_or_error(rebuilt)
+                                     ├► raises ─► _error_panel() (escaped), never a 500
+                                     ├► could_not_rebuild ─► _adopt_fix_partial.html names them
+                                     └► copy into a new job, same origin="upload"
+                                        └► HX-Redirect → GET /generate/attributes/<job>
                                      (this is what the Fix screen's "Replace images" button calls)
 
 POST /preview/clear/<job> ─► store.drop(job) + delete its runtime dir ─► HX-Redirect → GET /preview
@@ -458,7 +477,8 @@ form's values (including the CSV, under the inherited multipart encoding) on eve
 ### Runtime working dirs — `src/web/runtime/`
 
 Per-request scratch: `runtime/<job_id>/` (Generate: uploaded CSV + outputs) and
-`runtime/fix-<id>/` (Fix: `rejection.xlsx`, `rows.json`, `myntra_corrected.xlsx`). Git-ignored
+`runtime/fix-<id>/` (Fix: `rejection.xlsx`, `issues.json`, `products_export.csv`,
+`myntra_corrected.xlsx`, and `replace-images/` for the adopt-fix rebuild). Git-ignored
 except `.gitkeep`. **Security:** `fix_id` is validated `^[0-9a-f]{32}$` + realpath-contained
 inside `runtime/` to prevent path traversal; session rows are JSON (never pickle).
 
@@ -560,11 +580,13 @@ Two of them guard invariants that fail *silently* if broken — do not delete th
 refactor pass: `test_write_attributes_keeps_strings_inline` (no `t="s"` cell survives an in-app
 save) and `test_save_keeps_dropdowns_alive_in_the_downloaded_file` (the owner's Excel check).
 
-Note: `tests/web/test_attributes.py` is **slow — ~35-40 min on its own** (50 tests, measured
-2026-08-09), because nearly every test builds or re-saves the V13 workbook through openpyxl and
-every request re-reads the template. It is slow, not hung; do not kill it. While developing, run
-a `-k` subset (a handful of tests is 2-4 min) and budget properly for the whole file. The full
-suite is longer still — see `docs/journal/` for the standing guidance.
+Note: `tests/web/test_attributes.py` is **slow — ~12 min on its own** (measured 2026-08-17, down
+from ~27 min once `read_filled_rows` stopped re-scanning a read-only sheet on every cell read;
+see `docs/journal/2026-08-17.md`). What remains is genuine: nearly every test builds or re-saves
+the V13 workbook through openpyxl. It is slow, not hung; do not kill it. While developing, run a
+`-k` subset and budget properly for the whole file — and **profile one test before accepting any
+of this as inherent**; that is how the 27→12 min bug was found. The full suite is longer still —
+see `docs/journal/` for the standing guidance.
 
 ---
 
