@@ -236,7 +236,8 @@ async def _fix_apply(request, settings, fix_id, fix_dir):
                 summary = {"written": 0, "file": None, "fixed": [],
                            "could_not_rebuild": [], "dropped": sorted(submitted_drops),
                            "rejected": {}, "changed": {},
-                           "manual_needed": [{"sku": i.sku, "explanation": i.explanation}
+                           "manual_needed": [{"sku": i.sku, "category": i.category,
+                                              "explanation": i.explanation}
                                              for i in issues if i.action == "explain_only"]}
                 return _templates().TemplateResponse(request, "_fix_result.html",
                                                      {"summary": summary, "fix_id": fix_id})
@@ -253,7 +254,7 @@ async def _fix_apply(request, settings, fix_id, fix_dir):
         # explain_only issues on this path. Use `or` so the fallback list wins
         # whenever the corrector didn't actually populate it.
         summary["manual_needed"] = summary.get("manual_needed") or [
-            {"sku": i.sku, "explanation": i.explanation}
+            {"sku": i.sku, "category": i.category, "explanation": i.explanation}
             for i in issues if i.action == "explain_only"]
 
     return _templates().TemplateResponse(request, "_fix_result.html",

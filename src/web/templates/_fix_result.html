@@ -13,6 +13,14 @@
       {% for m in summary.manual_needed %}<li>{{ m.sku }} — {{ m.explanation }}</li>{% endfor %}
     </ul>
   {% endif %}
+  {% set image_skus = summary.manual_needed | selectattr("category", "equalto", "image") | list %}
+  {% if image_skus %}
+  <button class="btn" type="button"
+          hx-post="/preview/adopt-fix/{{ fix_id }}"
+          hx-swap="none">🖼 Replace images for {{ image_skus | length }} SKU(s) →</button>
+  <p class="hint">Opens the corrected sheet so you can upload new photos for the
+    rejected products, then download it again.</p>
+  {% endif %}
   {% if summary.written %}
     <a class="btn" href="/fix/download/{{ fix_id }}">⬇ Download corrected xlsx</a>
   {% endif %}

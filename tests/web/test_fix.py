@@ -359,3 +359,16 @@ def test_dismiss_writes_nothing():
     r = client.get("/fix/dismiss")
     assert r.status_code == 200
     assert "No changes" in r.text
+
+
+def test_image_rejections_offer_the_replacement_screen(tmp_path, monkeypatch):
+    """error_rules.yaml diagnoses 'pixelated' correctly and then dead-ends. The fix
+    now sits next to the diagnosis."""
+    summary = {"written": 1, "file": None, "fixed": [], "could_not_rebuild": [],
+               "dropped": [], "rejected": {}, "changed": {},
+               "manual_needed": [{"sku": "S1", "category": "image",
+                                  "explanation": "The image resolution is too low."}]}
+    from src.web.main import templates
+    html = templates.get_template("_fix_result.html").render(
+        summary=summary, fix_id="a" * 32, request=None)
+    assert "/preview/adopt-fix/" in html

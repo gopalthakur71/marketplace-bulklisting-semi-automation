@@ -57,3 +57,27 @@ async def preview_submit(request: Request, file: UploadFile = File(...)):
     resp = HTMLResponse("")
     resp.headers["HX-Redirect"] = f"/generate/attributes/{job.id}"
     return resp
+
+
+@router.post("/preview/adopt-fix/{fix_id}", response_class=HTMLResponse)
+def preview_adopt_fix(request: Request, fix_id: str):
+    """Open a fix run's corrected workbook in the editable screen.
+
+    The corrected file only exists after apply, which is why this hangs off the
+    fix *result* rather than the error listing."""
+    get_user(request)
+    from src.web.routers.fix import _fix_dir, _safe_fix_id
+    from src.web.routers.generate import RUNTIME
+    src_path = os.path.join(_fix_dir(_safe_fix_id(fix_id)), "myntra_corrected.xlsx")
+    if not os.path.exists(src_path):
+        raise HTTPException(status_code=404, detail="not ready")
+    job = store.create()
+    job_dir = os.path.join(RUNTIME, job.id)
+    os.makedirs(job_dir, exist_ok=True)
+    xlsx = os.path.join(job_dir, "myntra_filled.xlsx")
+    shutil.copyfile(src_path, xlsx)
+    store.finish(job.id, {"filled": xlsx, "origin": "upload",
+                          "filename": "myntra_corrected.xlsx"})
+    resp = HTMLResponse("")
+    resp.headers["HX-Redirect"] = f"/generate/attributes/{job.id}"
+    return resp
