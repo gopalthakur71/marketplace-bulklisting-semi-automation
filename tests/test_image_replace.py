@@ -1,6 +1,7 @@
 import io
 import os
 
+import pytest
 from PIL import Image
 
 from src.myntra.image_replace import prepare, replacement_key
@@ -53,3 +54,32 @@ def test_prepare_reports_a_file_that_is_not_an_image(tmp_path):
     path, key, reason = prepare("S1", 1, b"not an image", specs, str(tmp_path))
     assert path is None
     assert "convert error" in reason
+
+
+@pytest.mark.parametrize("bad_sku", ["../../evil", "C:/Windows/Temp/pwn", ".."])
+def test_replacement_key_rejects_unsafe_sku(bad_sku):
+    """sku ends up in a filesystem path and an S3 key. An unsanitized value like
+    a ".." segment or an absolute path is a path-traversal / arbitrary-file-write
+    hole, not just a formatting quirk — it must be rejected outright."""
+    with pytest.raises(ValueError):
+        replacement_key(bad_sku, 1, b"data")
+
+
+def test_prepare_does_not_escape_out_dir_for_a_path_traversal_sku(tmp_path):
+    """A malicious sku must fail its own slot, and critically must not write
+    anything outside out_dir — not even before returning the failure reason."""
+    specs = {"min_width": 700, "min_height": 700, "max_bytes": 10485760, "quality": 90}
+    path, key, reason = prepare("../../evil", 1, _png(800, 800), specs, str(tmp_path))
+    assert path is None and key is None
+    assert reason is not None
+    escaped = os.path.abspath(os.path.join(str(tmp_path), "..", "..", "evil"))
+    assert not os.path.exists(escaped)
+
+
+def test_prepare_does_not_raise_for_windows_invalid_sku_characters(tmp_path):
+    """A sku containing characters Windows forbids in filenames must fail its own
+    slot with a reason, not raise an OSError that aborts the whole upload."""
+    specs = {"min_width": 700, "min_height": 700, "max_bytes": 10485760, "quality": 90}
+    path, key, reason = prepare('S<>:"|?*1', 1, _png(800, 800), specs, str(tmp_path))
+    assert path is None and key is None
+    assert reason is not None

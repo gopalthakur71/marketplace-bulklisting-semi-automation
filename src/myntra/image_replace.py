@@ -8,11 +8,17 @@ Myntra specs — is imported, not duplicated."""
 import hashlib
 import io
 import os
+import re
 
 import yaml
 from PIL import Image
 
 from src.core.images import flatten_to_jpg, validate_image
+
+# SKU is used to build a filesystem path and an S3 key, so it must not contain
+# path separators or ".." segments. No dots at all: allowing "." in the charset
+# would let the literal SKU ".." match and still traverse one directory level.
+_SAFE_SKU = re.compile(r"[A-Za-z0-9_-]{1,64}")
 
 
 class ImageConfigError(Exception):
@@ -32,7 +38,15 @@ def replacement_key(sku, slot, data):
     object and leave Myntra with a URL byte-identical to the one it already
     rejected — which it may never re-fetch, so the new photo would never be seen.
     A different photo therefore yields a different URL, while re-uploading the
-    same file twice stays idempotent instead of littering the bucket."""
+    same file twice stays idempotent instead of littering the bucket.
+
+    Validates sku against _SAFE_SKU first: sku ends up in a filesystem path and
+    an S3 key, so an unsanitized value (e.g. "../../evil" or an absolute path)
+    would be a path-traversal / arbitrary-file-write hole. This is the single
+    choke point for that check — any caller building a key goes through it, so
+    nothing downstream can bypass it by skipping a separate validation step."""
+    if not _SAFE_SKU.fullmatch(sku):
+        raise ValueError(f"unsafe sku for image key: {sku!r}")
     digest = hashlib.sha256(data).hexdigest()[:8]
     return f"{sku}/{slot}-{digest}.jpg"
 
@@ -41,13 +55,13 @@ def prepare(sku, slot, data, specs, out_dir):
     """Convert one uploaded file to a validated JPG on disk.
 
     Returns (local_path, key, None) on success, or (None, None, reason) when the
-    photo cannot be used. Never raises on bad input: a corrupt upload is a
-    per-slot message the owner can act on, not a failed request that loses the
-    other slots he supplied in the same click."""
-    key = replacement_key(sku, slot, data)
-    out_path = os.path.join(out_dir, key.replace("/", os.sep))
-    os.makedirs(os.path.dirname(out_path), exist_ok=True)
+    photo cannot be used. Never raises on bad input: a corrupt upload, an unsafe
+    sku, or a filesystem error is a per-slot message the owner can act on, not a
+    failed request that loses the other slots he supplied in the same click."""
     try:
+        key = replacement_key(sku, slot, data)
+        out_path = os.path.join(out_dir, key.replace("/", os.sep))
+        os.makedirs(os.path.dirname(out_path), exist_ok=True)
         with Image.open(io.BytesIO(data)) as im:
             flatten_to_jpg(im, specs.get("quality", 90), out_path)
     except Exception as exc:
