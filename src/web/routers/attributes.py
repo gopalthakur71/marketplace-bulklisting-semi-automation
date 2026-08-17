@@ -96,6 +96,19 @@ def _requested_ordinal(form):
         return None
 
 
+def _panel_image(product, attrs):
+    """The panel photo: the Shopify export's first image when the job has an
+    export, else the sheet's own Front Image.
+
+    Only a real URL is used. fill.py falls back to bare local basenames when S3
+    hosting is off, and rendering one as an <img src> would show a broken image
+    rather than the honest 'no photo' placeholder."""
+    if product and product.images:
+        return product.images[0]
+    front = str(attrs.get("Front Image") or "").strip()
+    return front if front.startswith(("http://", "https://")) else None
+
+
 def _panels(xlsx, csv_path, template, columns, free_columns):
     products = {}
     if os.path.exists(csv_path):
@@ -108,7 +121,7 @@ def _panels(xlsx, csv_path, template, columns, free_columns):
             "ordinal": ordinal,
             "sku": sku,
             "product_title": p.title if p else "",
-            "image": (p.images[0] if p and p.images else None),
+            "image": _panel_image(p, attrs),
             # NOT "values": in Jinja `p.values` would resolve to dict.values (the
             # method), silently breaking the pre-selection comparison.
             "chosen": {c: attrs.get(c) for c in columns},

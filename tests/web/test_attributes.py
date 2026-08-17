@@ -782,3 +782,45 @@ def test_a_rejected_save_pins_no_name(tmp_path, monkeypatch):
         "free__0__2": "Ijor Handloom Pure Cotton Saree"})
     assert "not one of Myntra" in r.text
     assert not _registry(tmp_path)["S1"].get("names")
+
+
+def test_panel_photo_falls_back_to_the_sheet_front_image(tmp_path, monkeypatch):
+    """An adopted upload has no Shopify export, so the only photo available is the
+    URL already in the sheet. Without this every uploaded sheet shows 'no photo'."""
+    warnings.filterwarnings("ignore")
+    monkeypatch.setattr(gen, "RUNTIME", str(tmp_path / "runtime"))
+    job = store.create()
+    job_dir = os.path.join(gen.RUNTIME, job.id)
+    os.makedirs(job_dir, exist_ok=True)
+    t = read_template(V13)
+    row = MappedRow(sku="S1", cells={
+        "vendorSkuCode": "S1", "brand": "Ijor",
+        "Front Image": "https://cdn.example/S1-front.jpg"})
+    xlsx = os.path.join(job_dir, "myntra_filled.xlsx")
+    fill_template(V13, t, [(row, ImageResult(sku="S1"))], xlsx)
+    job.status = "done"
+    job.result = {"filled": xlsx, "origin": "upload", "filename": "s.xlsx"}
+
+    r = _client(tmp_path).get(f"/generate/attributes/{job.id}")
+    assert r.status_code == 200
+    assert "https://cdn.example/S1-front.jpg" in r.text
+
+
+def test_panel_photo_ignores_a_non_url_front_image(tmp_path, monkeypatch):
+    """fill.py falls back to bare local filenames when S3 is off. Rendering one as
+    an <img src> would show a broken image; the placeholder is honest."""
+    warnings.filterwarnings("ignore")
+    monkeypatch.setattr(gen, "RUNTIME", str(tmp_path / "runtime"))
+    job = store.create()
+    job_dir = os.path.join(gen.RUNTIME, job.id)
+    os.makedirs(job_dir, exist_ok=True)
+    t = read_template(V13)
+    row = MappedRow(sku="S1", cells={
+        "vendorSkuCode": "S1", "brand": "Ijor", "Front Image": "1.jpg"})
+    xlsx = os.path.join(job_dir, "myntra_filled.xlsx")
+    fill_template(V13, t, [(row, ImageResult(sku="S1"))], xlsx)
+    job.status = "done"
+    job.result = {"filled": xlsx, "origin": "upload", "filename": "s.xlsx"}
+
+    r = _client(tmp_path).get(f"/generate/attributes/{job.id}")
+    assert "no photo" in r.text
