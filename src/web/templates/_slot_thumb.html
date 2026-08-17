@@ -1,0 +1,7 @@
+{# One image slot's thumbnail. Rendered inline on the panel, and again as an
+   out-of-band swap after a replace so the slot shows the NEW photo rather than
+   the one Myntra rejected. `oob` picks which. #}
+<span class="slot-thumb-wrap" id="slot-{{ ordinal }}-{{ slot }}"{% if oob %} hx-swap-oob="true"{% endif %}>
+  {% if url %}<img class="slot-thumb" src="{{ url }}" alt="{{ header }}" loading="lazy">
+  {% else %}<span class="hint">empty</span>{% endif %}
+</span>

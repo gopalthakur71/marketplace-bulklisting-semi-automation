@@ -533,7 +533,8 @@ def test_panels_are_not_wrapped_in_a_form(tmp_path, monkeypatch):
 def test_live_preview_element_declares_its_own_ordinal(tmp_path, monkeypatch):
     job = _job(tmp_path, monkeypatch, skus=("S1", "S2"))
     r = _client(tmp_path).get(f"/generate/attributes/{job.id}")
-    assert r.text.count("""hx-vals='{"ordinal": 1}'""") == 2   # grid + save button
+    # grid + save button + the image-upload button (_attr_images.html)
+    assert r.text.count("""hx-vals='{"ordinal": 1}'""") == 3
 
 
 def test_one_panel_save_with_no_parseable_entries_touches_no_panel(tmp_path, monkeypatch):
@@ -906,6 +907,64 @@ def test_unconfigured_hosting_reports_instead_of_writing_a_local_path(tmp_path, 
         files={"img__0__1": ("new.png", _png_bytes(800, 800), "image/png")})
     assert r.status_code == 200
     assert "not configured" in r.text
+
+
+def test_s3_refusing_the_upload_reports_instead_of_raising(tmp_path, monkeypatch):
+    """The S3 leg has never run against real credentials, so a NoCredentialsError /
+    AccessDenied on the owner's first real attempt is the likeliest outcome of all —
+    and only ImageConfigError was caught, so it 500'd and htmx swallowed it, leaving
+    the screen silent after the photos had already been converted."""
+    job = _job(tmp_path, monkeypatch, skus=("S1",))
+    monkeypatch.setattr(attrs_router, "load_specs", lambda: {
+        "min_width": 700, "min_height": 700, "max_bytes": 10485760, "quality": 90,
+        "public_base_url": "https://cdn.example/myntra", "s3_bucket": "b",
+        "s3_prefix": "myntra", "s3_upload": True})
+
+    class _NoCredentialsError(Exception):
+        pass
+
+    def _boom(prepared, specs, out_dir):
+        raise _NoCredentialsError("Unable to locate credentials")
+
+    monkeypatch.setattr(attrs_router, "host", _boom)
+
+    r = _client(tmp_path).post(
+        f"/generate/attributes/{job.id}/images",
+        data={"ordinal": "0", "sku__0": "S1"},
+        files={"img__0__1": ("new.png", _png_bytes(800, 800), "image/png")})
+    assert r.status_code == 200
+    assert "Unable to locate credentials" in r.text
+    assert "be uploaded to s3" in r.text.lower()   # apostrophes are escaped
+
+    from src.myntra.preview import read_filled_rows
+    from src.myntra.template_reader import read_template
+    rows = read_filled_rows(job.result["filled"], read_template(V13))
+    assert rows[0]["Front Image"] in (None, "")   # nothing written on a failed upload
+
+
+def test_a_successful_replace_refreshes_the_slot_and_names_the_new_url(tmp_path, monkeypatch):
+    """The screen used to keep showing the photo Myntra rejected: it asserted
+    success while displaying the old image, on the one feature whose whole purpose
+    is replacing it. The new URL was already computed and thrown away."""
+    job = _job(tmp_path, monkeypatch, skus=("S1",))
+    monkeypatch.setattr(attrs_router, "load_specs", lambda: {
+        "min_width": 700, "min_height": 700, "max_bytes": 10485760, "quality": 90,
+        "public_base_url": "https://cdn.example/myntra", "s3_bucket": "b",
+        "s3_prefix": "myntra", "s3_upload": True})
+    monkeypatch.setattr(attrs_router, "host",
+                        lambda prepared, specs, out_dir: [
+                            f"https://cdn.example/myntra/{k}" for _, k in prepared])
+
+    r = _client(tmp_path).post(
+        f"/generate/attributes/{job.id}/images",
+        data={"ordinal": "0", "sku__0": "S1"},
+        files={"img__0__1": ("new.png", _png_bytes(800, 800), "image/png")})
+    assert r.status_code == 200
+    # the slot itself is swapped out of band, so the thumbnail updates in place
+    assert 'id="slot-0-1"' in r.text
+    assert 'hx-swap-oob="true"' in r.text
+    # and the new address is shown, so it can be matched against the sheet
+    assert "https://cdn.example/myntra/S1/1-" in r.text
 
 
 def test_a_stale_sku_mismatch_reports_instead_of_raising(tmp_path, monkeypatch):

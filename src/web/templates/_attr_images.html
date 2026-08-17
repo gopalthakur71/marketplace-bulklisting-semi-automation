@@ -5,8 +5,9 @@
   {% for s in p.image_slots %}
   <label class="hint attr-slot">
     <span class="mono">{{ s.header }}</span>
-    {% if s.url %}<img class="slot-thumb" src="{{ s.url }}" alt="{{ s.header }}" loading="lazy">
-    {% else %}<span class="hint">empty</span>{% endif %}
+    {% with ordinal = p.ordinal, slot = s.slot, url = s.url, header = s.header, oob = False %}
+      {% include "_slot_thumb.html" %}
+    {% endwith %}
     <input type="file" name="img__{{ p.ordinal }}__{{ s.slot }}" accept="image/*">
   </label>
   {% endfor %}

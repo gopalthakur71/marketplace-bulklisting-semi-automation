@@ -366,7 +366,12 @@ async def attributes_save_images(request: Request, job_id: str):
             request, "_attr_images_saved.html",
             {"error": "Nothing to upload — please reload the screen and try again."})
     sku = str(form.get(f"sku__{ordinal}") or "").strip()
-    specs = load_specs()
+    try:
+        specs = load_specs()
+    except Exception as exc:  # noqa: BLE001 - a missing/broken specs file must show
+        return _templates().TemplateResponse(
+            request, "_attr_images_saved.html",
+            {"error": f"Couldn't read the image settings: {exc}"})
     out_dir = os.path.join(job_dir, "replacements")
 
     failed, prepared = [], []
@@ -381,7 +386,7 @@ async def attributes_save_images(request: Request, job_id: str):
         if reason:
             failed.append({"header": header, "reason": reason})
         else:
-            prepared.append((path, key, header))
+            prepared.append((path, key, header, slot))
 
     if not prepared and not failed:
         return _templates().TemplateResponse(
@@ -391,11 +396,17 @@ async def attributes_save_images(request: Request, job_id: str):
     saved = []
     if prepared:
         try:
-            urls = host([(p, k) for p, k, _ in prepared], specs, out_dir)
+            urls = host([(p, k) for p, k, _h, _s in prepared], specs, out_dir)
         except ImageConfigError as exc:
             return _templates().TemplateResponse(
                 request, "_attr_images_saved.html", {"error": str(exc)})
-        values = {h: url for (_p, _k, h), url in zip(prepared, urls)}
+        except Exception as exc:  # noqa: BLE001 - boto3 credential/permission/network
+            # This leg talks to S3. A raise here used to be a 500 that htmx drops,
+            # so the owner saw nothing at all after their photos had converted.
+            return _templates().TemplateResponse(
+                request, "_attr_images_saved.html",
+                {"error": f"The photos couldn't be uploaded to S3: {exc}"})
+        values = {h: url for (_p, _k, h, _s), url in zip(prepared, urls)}
         # write_attributes, not a bare openpyxl save: it verifies the row still
         # holds this SKU and re-applies shared_to_inline, which Myntra requires.
         try:
@@ -407,10 +418,11 @@ async def attributes_save_images(request: Request, job_id: str):
         except (AttributeValueError, SkuMismatchError) as exc:
             return _templates().TemplateResponse(
                 request, "_attr_images_saved.html", {"error": str(exc)})
-        saved = [{"header": h, "url": u} for (_p, _k, h), u in zip(prepared, urls)]
+        saved = [{"header": h, "url": u, "slot": s}
+                 for (_p, _k, h, s), u in zip(prepared, urls)]
 
     return _templates().TemplateResponse(
         request, "_attr_images_saved.html",
-        {"saved": saved, "failed": failed,
+        {"saved": saved, "failed": failed, "ordinal": ordinal,
          "origin": job.result.get("origin", "generate"),
          "edited": job.result.get("edited", False), "job_id": job.id})

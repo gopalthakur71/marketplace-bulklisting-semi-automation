@@ -2,7 +2,20 @@
 <p class="flag mono">⚠ {{ error }}</p>
 {% else %}
 {% if saved %}
-<p class="ok mono">✅ Replaced: {% for s in saved %}{{ s.header }}{% if not loop.last %}, {% endif %}{% endfor %}</p>
+<p class="ok mono">✅ Uploaded to S3 and written into the sheet:</p>
+<ul class="mono">
+  {% for s in saved %}<li>{{ s.header }} — <a href="{{ s.url }}" target="_blank" rel="noopener">{{ s.url }}</a></li>{% endfor %}
+</ul>
+<p class="hint">Each address ends in a fingerprint of the picture itself, so a
+  different photo always gets a different address. Check these against the sheet
+  after you download it.</p>
+{# Refresh each replaced slot in place: without this the panel keeps showing the
+   photo Myntra rejected, contradicting the success message above. #}
+{% for s in saved %}
+  {% with slot = s.slot, url = s.url, header = s.header, oob = True %}
+    {% include "_slot_thumb.html" %}
+  {% endwith %}
+{% endfor %}
 {% endif %}
 {% for f in failed %}
 <p class="flag mono">⚠ {{ f.header }} — {{ f.reason }}</p>
