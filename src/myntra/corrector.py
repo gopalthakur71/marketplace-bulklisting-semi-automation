@@ -139,6 +139,8 @@ def correct_from_issues(issues, template, template_path, constants, answers, out
         if any(i.action == "explain_only" for i in its):
             manual_needed.append({
                 "sku": sku,
+                "category": next((i.category for i in its
+                                  if i.action == "explain_only"), None),
                 "explanation": "; ".join(i.explanation for i in its
                                          if i.action == "explain_only")})
             continue

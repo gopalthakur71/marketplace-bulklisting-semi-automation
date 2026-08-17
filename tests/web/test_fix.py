@@ -372,3 +372,47 @@ def test_image_rejections_offer_the_replacement_screen(tmp_path, monkeypatch):
     html = templates.get_template("_fix_result.html").render(
         summary=summary, fix_id="a" * 32, request=None)
     assert "/preview/adopt-fix/" in html
+
+
+def test_adopt_fix_success_copies_corrected_file_and_registers_job():
+    """The 'Replace images' button hangs off /preview/adopt-fix/{fix_id}: it must
+    copy the fix run's corrected workbook into a fresh job dir, register the job
+    as finished with origin=upload, and redirect to the editable screen — the same
+    adoption mechanism /preview uses for a plain upload."""
+    client = _client()
+    fix_id = "b" * 32
+    fix_dir = fixmod._fix_dir(fix_id)
+    os.makedirs(fix_dir, exist_ok=True)
+    corrected = os.path.join(fix_dir, "myntra_corrected.xlsx")
+    with open(corrected, "wb") as fh:
+        fh.write(b"corrected-bytes")
+
+    r = client.post(f"/preview/adopt-fix/{fix_id}")
+    assert r.status_code == 200
+    redirect = r.headers["hx-redirect"]
+    assert redirect.startswith("/generate/attributes/")
+    job_id = redirect.rsplit("/", 1)[-1]
+
+    from src.web.jobs import store
+    job = store.get(job_id)
+    assert job is not None
+    assert job.status == "done"
+    assert job.result["origin"] == "upload"
+    assert job.result["filename"] == "myntra_corrected.xlsx"
+    with open(job.result["filled"], "rb") as fh:
+        assert fh.read() == b"corrected-bytes"
+
+
+def test_adopt_fix_404_when_corrected_file_missing():
+    """A fix session that hasn't been applied yet (or never will produce a
+    corrected file) must 404, not adopt a nonexistent workbook."""
+    client = _client()
+    fix_id = "c" * 32
+    r = client.post(f"/preview/adopt-fix/{fix_id}")
+    assert r.status_code == 404
+
+
+def test_adopt_fix_rejects_malformed_fix_id():
+    client = _client()
+    r = client.post("/preview/adopt-fix/../etc")
+    assert r.status_code == 404

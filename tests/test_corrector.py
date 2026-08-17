@@ -222,6 +222,37 @@ def test_correct_from_issues_excludes_explain_only_and_logs(tmp_path):
     assert "brand" in recs[0]["changes"]
 
 
+def test_correct_from_issues_manual_needed_carries_category(tmp_path):
+    """The web result template filters manual_needed on `category == "image"` to
+    show a 'replace images' link (see _fix_result.html). correct_from_issues is
+    Surface A's real path for the sku_xlsx fix format, so its manual_needed
+    entries must carry category too, not just the web-router-built fallbacks."""
+    from src.myntra.explainer import ExplainedIssue
+    from src.myntra.corrector import correct_from_issues
+    from src.web.settings import LocalJsonStore
+
+    template = read_template(TEMPLATE)
+    constants = {"brand": "Ijor Ethnic Partners"}
+
+    def _iss(sku, action, category, cells, explanation="x", field=None):
+        return ExplainedIssue(sku=sku, style_id=None, scope="sku",
+                              source_type="sku_xlsx", raw_reason="Primary image is a flat shot",
+                              explanation=explanation, action=action, field=field,
+                              category=category, source="yaml", cells=cells)
+
+    issues = [
+        _iss("IMG", "explain_only", "image", {"vendorSkuCode": "IMG"},
+             explanation="Reshoot the photo"),
+    ]
+    log = LocalJsonStore(str(tmp_path / "log.json"))
+    out = tmp_path / "out.xlsx"
+    summary = correct_from_issues(issues, template, TEMPLATE, constants, {},
+                                  str(out), log_store=log, fix_id="fix123")
+
+    assert summary["manual_needed"] == [
+        {"sku": "IMG", "category": "image", "explanation": "Reshoot the photo"}]
+
+
 def test_correct_from_issues_drops_sku(tmp_path):
     from src.myntra.explainer import ExplainedIssue
     from src.myntra.corrector import correct_from_issues
