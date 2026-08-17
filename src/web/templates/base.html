@@ -9,7 +9,7 @@
 <body>
   <nav class="nav">
     <span class="brand">Marigold Ops</span>
-    <a href="/">Home</a><a href="/generate">Generate</a><a href="/fix">Fix errors</a>
+    <a href="/">Home</a><a href="/generate">Generate</a><a href="/preview">Preview</a><a href="/fix">Fix errors</a>
     <span style="margin-left:auto" class="mono">{{ user.email if user else "" }}</span>
   </nav>
   <div class="wrap">{% block content %}{% endblock %}</div>

@@ -29,6 +29,14 @@ def _filled(tmp_path):
     return out
 
 
+def test_nav_links_to_preview(tmp_path):
+    """The screen was only reachable from a fresh generate result; every page's
+    nav must offer it, or a re-check of an already-filled sheet needs a typed URL."""
+    r = _client(tmp_path).get("/")
+    assert r.status_code == 200
+    assert '<a href="/preview">' in r.text
+
+
 def test_preview_form_renders(tmp_path):
     r = _client(tmp_path).get("/preview")
     assert r.status_code == 200

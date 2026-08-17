@@ -260,9 +260,10 @@ business data.)
 
 **What it's for:** seeing what your listing will actually look like **before** Myntra sees it.
 
-**How you use it:** after you've filled the attribute dropdowns in Excel and saved, upload that
-same file on the Preview screen. You get one card per product. Then upload that same file to
-Myntra — the app never changes your file, it only reads it.
+**How you use it:** click **Preview** in the top menu bar — it is there on every screen, so you can
+come back to a sheet you filled days ago. After you've filled the attribute dropdowns in Excel and
+saved, upload that same file on the Preview screen. You get one card per product. Then upload that
+same file to Myntra — the app never changes your file, it only reads it.
 
 (If you filled the attributes on Screen 1b instead, you have already seen this preview live while
 choosing. This screen is still useful as a final look at a file you've since edited in Excel.)
