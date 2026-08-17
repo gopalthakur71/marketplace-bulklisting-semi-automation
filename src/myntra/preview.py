@@ -101,6 +101,15 @@ def build_card(attrs, user_filled):
     }
 
 
+def _cell_value(row, col_index):
+    """Value at a 1-based column in a row tuple, or None past the row's end.
+
+    A read-only row stops at its last populated cell, so trailing blank columns
+    are simply absent rather than present-and-empty."""
+    i = col_index - 1
+    return row[i].value if 0 <= i < len(row) else None
+
+
 def read_filled_rows(xlsx_path, template):
     """One {header: value_or_None} dict per data row that carries a vendorSkuCode."""
     with warnings.catch_warnings():
@@ -110,12 +119,17 @@ def read_filled_rows(xlsx_path, template):
             ws = wb[SHEET_SAREES_NAME]
             sku_col = template.col_index_by_header.get("vendorSkuCode")
             rows = []
-            for r in range(template.first_data_row, ws.max_row + 1):
-                if sku_col is None or not is_set(ws.cell(row=r, column=sku_col).value):
+            if sku_col is None:
+                return rows
+            # A read-only worksheet has no random access: ws.cell(r, c) re-scans the
+            # sheet from the top on every call, so addressing ~230 columns per row
+            # costs one full pass each. Walk the rows once and index into the tuple.
+            for row in ws.iter_rows(min_row=template.first_data_row):
+                if not is_set(_cell_value(row, sku_col)):
                     continue
                 cells = {}
                 for header, col in template.col_index_by_header.items():
-                    v = ws.cell(row=r, column=col).value
+                    v = _cell_value(row, col)
                     cells[header] = None if v is None else str(v).strip()
                 rows.append(cells)
         finally:
