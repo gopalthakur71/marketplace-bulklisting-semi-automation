@@ -18,6 +18,9 @@ for *why* decisions were made see [decisions/](decisions/).
 | The Myntra title/description isn't what we expected | Nothing to fix in the sheet — Myntra **generates** them from the attributes. `src/myntra/preview.py` reconstructs them (approximate); see journal 2026-07-24. |
 | `Brand Colour (Remarks) cannot be null` on upload | Free-text, mandatory, and **not** filled by the pipeline. Saving via Flow D derives it from Prominent Colour (`attribute_entry.derive_brand_colour`); a sheet filled only in Excel still leaves it blank and Flow B backfills it (`corrector.py`). |
 | Image rejected (`.webp` / extension / size) | `src/core/images.py` + `src/core/s3_upload.py` + `config/myntra/image_specs.yaml` |
+| Replacement image not accepted / "not configured" error | `src/myntra/image_replace.py` (`prepare`/`host`) + `config/myntra/image_specs.yaml`. `host()` raises `ImageConfigError` rather than write a local path — check `public_base_url`/`s3_bucket`/`s3_upload`. |
+| A corrected photo still shows the rejected one on Myntra | Caching, not a bug — the replacement key is content-addressed (`{sku}/{slot}-{hash}.jpg`) precisely so a genuinely different photo gets a new URL; re-check the file you actually uploaded. See "Image replacement" in §3. |
+| Preview screen won't open an uploaded file / "no products" | `src/web/routers/preview.py` (`preview_submit`) — refuses before adopting if `read_filled_rows` finds no rows. |
 | styleGroupId wrong, duplicated, or skipped | `src/myntra/groupid_ledger.py` (reserve vs confirm) + `style_group_id_start` in `rules.yaml` |
 | Sheet structurally rejected (`SHEET_VALIDATION_FAILED`, null brand) | `src/myntra/fill.py` (clears stray rows; inline strings; dropdowns) — see journal 2026-06-24/25 |
 | Rejection file not classified / wrong fix bucket | `src/myntra/error_reader.py` + `config/myntra/error_rules.yaml` |
@@ -35,7 +38,8 @@ for *why* decisions were made see [decisions/](decisions/).
                          ┌─────────────────────────── Layer 3: Web app (src/web, FastAPI) ──┐
                          │  Flow A Generate    Flow B Fix      Flow C Preview   Flow D Fill │
   browser ──────────────►  upload CSV → xlsx  upload rejection upload filled xlsx  attributes│
-   (Cognito/AUTH_DISABLED)│        │           → corrected xlsx → listing cards   in-app     │
+   (Cognito/AUTH_DISABLED)│        │           → corrected xlsx → adopts, hands  + images    │
+                         │        │                             off to Flow D    in-app     │
                          └────────┼──────────────────────────┼──────────────────────────────┘
                                   │ calls                     │ calls
         ┌─────────────────────────▼───────────┐   ┌──────────▼──────────────────────────────┐
@@ -69,6 +73,7 @@ src/
   myntra/                      # Myntra-specific
     pipeline.py template_reader.py mapper.py fill.py report.py     # Layer 1
     template_guard.py preview.py attribute_entry.py hsn_source.py  # Layer 1
+    image_replace.py                                               # Layer 1
     groupid_ledger.py sku_registry.py                              # Layer 2
     hsn_kb.py                      # Layer 2, RETAINED BUT NOT WIRED (see its docstring)
     error_reader.py corrector.py                                   # Layer 2
@@ -139,6 +144,7 @@ tests/                         # 222 tests; tests/web/ covers Layer 3
 | `src/myntra/preview.py` | Reconstruct the Myntra listing | `reconstruct_title` / `reconstruct_design_details` (approximate — Myntra generates these from attributes), `_colour_phrase` / `_colour_display` (Design-Details L1 joins Prominent + Second Prominent Colour; metallics render `-Toned`, per `_TONED_COLOURS`), `missing_attributes`, `read_filled_rows`, **`build_card`** (the one place a listing card is assembled, so Flow C and Flow D can never drift apart). Read-only. |
 | `src/myntra/attribute_entry.py` | The seller-decided attributes | `user_filled_attributes()` (reads `rules.yaml` — the single loader), `attribute_vocab(template, columns)` (options **straight from** `vocab_by_header`; nothing added), `validate_submitted` (blank → `None`; non-blank must be an exact vocab member else `AttributeValueError`), `write_attributes(xlsx, template, entries)` (writes into an **already-built** workbook: verifies every row's SKU first, blanks on `None`, then re-applies `fill.shared_to_inline`), **`derive_brand_colour`** (`Brand Colour (Remarks)` = the chosen Prominent Colour, lowercased; `NA`/blank → nothing), **`validate_hsn`** (blank clears the cell; a non-blank value must pass `hsn_source.normalize`, else `AttributeValueError` — a bad code *typed here* is a mistake worth showing, unlike one merely absent from the export). Drives Flow D. |
 | `src/myntra/hsn_source.py` | The one definition of "a usable HSN" | `normalize(raw)` → the stripped 8-digit code or `None`. Pure — no web, jobs, or Shopify knowledge — so the build and the attribute screen enforce one rule from one place. An unusable value is a **gap to fill on the attribute screen**, never a mid-build crash, which is why it returns rather than raises. |
+| `src/myntra/image_replace.py` | Replace one product's image after a rejection | Pure image prep + hosting, no web-framework imports — separate from `core/images.py` because the source differs (browser-uploaded bytes, not a Shopify URL fetched during a build); shares the conversion/validation code rather than duplicating it. `load_specs()` reads `image_specs.yaml`. `prepare(sku, slot, data, specs, out_dir)` converts+validates **one** file and **never raises** — a bad photo, an unsafe SKU, or a filesystem error comes back as a per-slot reason string, so one bad file in a batch of seven costs only that slot. `host(prepared, specs, out_dir)` uploads the prepared JPGs and returns their public URLs, raising `ImageConfigError` if S3 hosting isn't configured (no silent fallback to a local path Myntra could never fetch). `replacement_key(sku, slot, data)` builds the S3 key `{sku}/{slot}-{hash}.jpg`, hashing the file's own bytes — see "Image replacement" below for why. Validates `sku` against `_SAFE_SKU = [A-Za-z0-9_-]{1,64}` (no dots — a bare `..` would otherwise traverse one directory level) before it ever reaches a filesystem path or S3 key. |
 | `src/myntra/hsn_kb.py` | **RETAINED BUT NOT WIRED IN** | The old learn-once-per-`category\|fabric` knowledge base. Nothing on the request path imports it; kept with its tests green as a fallback. Retired because the signature is too coarse — dhonkhali and katthai are both `saree\|cotton` yet need different codes. Do not send new work here. |
 | `src/myntra/report.py` | Audit report | `output/report.txt`: per-SKU filled count, blanks, vocab flags, image pass/fail. |
 
@@ -181,6 +187,25 @@ dropdowns.
 There is no synonym map, no self-learning, and no pre-fill for these columns. Reverse-engineered
 title/description rules and the four live listings they came from are in journal 2026-07-24.
 
+### Image replacement (why the S3 key is content-addressed)
+
+The build path writes each image as `{sku}/{n}.jpg`. A **replacement** photo (uploaded from the
+Preview/Fill-attributes screen after Myntra rejects one) is written as `{sku}/{slot}-{hash}.jpg`
+instead, where the hash is the SHA-256 of the file's own bytes (`image_replace.replacement_key`).
+
+This matters because Myntra, browsers, and any CDN in front of the bucket cache by **URL**. If a
+corrected photo were uploaded to the *same* URL as the rejected one, a cached copy could keep being
+served and the correction would silently not take — there is no reliable way from this side to force
+a re-fetch of an unchanged URL. Deriving the filename from the image's own content sidesteps the
+problem entirely: every distinct photo gets a distinct URL, so a replacement is always fetched fresh,
+while uploading the identical file twice is idempotent (same bytes → same hash → same key, no
+duplicate object).
+
+`image_replace.prepare()` never raises — a bad photo, a filesystem error, or an unsafe SKU comes back
+as a reason string scoped to that one slot, so one bad file among several submitted together fails
+only its own slot; the others still land. `image_replace.host()` raises `ImageConfigError` if S3
+hosting isn't configured, rather than falling back to a local path Myntra could never fetch.
+
 ---
 
 ## 4. Layer 2 — Error-correction backend
@@ -206,6 +231,24 @@ corrector only auto-fixes what it deterministically can.
 Wraps layers 1–2 so non-technical staff can run them. FastAPI + Jinja + plain CSS + vendored
 htmx. **No business logic here** — routers call `src/myntra` / `src/core`.
 
+### The adoption mechanism
+
+`POST /preview` used to be read-only — upload a filled sheet, get back listing cards, done. It now
+**adopts** the uploaded workbook: it registers a new job in `src/web/jobs.py`'s `JobStore` and calls
+`store.finish(job.id, {"filled": xlsx, "origin": "upload", ...})` directly, the same call a
+completed *build* makes at the end of Flow A. `POST /preview/adopt-fix/{fix_id}` does the identical
+thing with a fix run's `myntra_corrected.xlsx` instead.
+
+Because adoption produces a job that is indistinguishable in shape from a generated one, **every**
+downstream surface — the Fill-attributes accordion, the vocabulary dropdowns, the live preview card,
+per-panel save, the HSN gap banner, registry pinning, image replacement, download — operates on it
+with **no special-casing**. The one place the two are told apart is `result["origin"]`: `"upload"`
+for an adopted workbook, `"generate"` for one this app built. Templates use it only to decide UI
+chrome that makes sense for one but not the other (the Clear button and the "edited" confirm guard
+render only when `origin == "upload"` — a freshly-built job downloads from its own `_result.html`
+panel instead). A file with no product rows (`read_filled_rows` returns nothing) is refused before a
+job is even created, rather than adopted into an empty accordion with no explanation.
+
 ### Modules
 
 | File | Responsibility |
@@ -217,8 +260,8 @@ htmx. **No business logic here** — routers call `src/myntra` / `src/core`.
 | `src/web/routers/pages.py` | `GET /` home; `get_user` (reads `id_token` cookie or `Authorization: Bearer`) and `get_settings` helpers reused by other routers. |
 | `src/web/routers/generate.py` | Flow A (below); `_safe_job_id` guards path traversal. |
 | `src/web/routers/fix.py` | Flow B (below); `_safe_fix_id` guards path traversal. |
-| `src/web/routers/preview.py` | Flow C (below): read-only round-trip preview of a filled workbook. Reads `user_filled_attributes` from `rules.yaml`; never modifies the uploaded file. |
-| `src/web/routers/attributes.py` | Flow D (below): the in-app **Fill attributes** screen. `job_files(job_id)` locates the job's built workbook + Shopify export (404 `session expired, please re-upload`); `_panels(...)` joins sheet row ↔ SKU ↔ product photo; `_submitted(...)` / `_submitted_free(...)` / `_submitted_hsn(...)` parse the `attr__{ordinal}__{column_index}`, `free__{ordinal}__{column_index}`, `sku__{ordinal}` and `hsn__{ordinal}` form fields. Writes **only** the 12 attribute cells plus `tags`, `Brand Colour (Remarks)` and `HSN`. `_filled_count` / `_total` are the single shared definitions of "n of N", so the screen and the per-panel save cannot disagree. |
+| `src/web/routers/preview.py` | Flow C (below): **adopts** an uploaded (or fix-corrected) workbook as a job — see "The adoption mechanism" below — then hands off to Flow D for editing. Reads `user_filled_attributes` from `rules.yaml`. |
+| `src/web/routers/attributes.py` | Flow D (below): the in-app **Fill attributes** screen — drives both a freshly-built workbook and an adopted upload identically. `job_files(job_id)` locates the job's built workbook + Shopify export (404 `session expired, please re-upload`); `_panels(...)` joins sheet row ↔ SKU ↔ product photo; `_submitted(...)` / `_submitted_free(...)` / `_submitted_hsn(...)` parse the `attr__{ordinal}__{column_index}`, `free__{ordinal}__{column_index}`, `sku__{ordinal}` and `hsn__{ordinal}` form fields. Writes **only** the 12 attribute cells plus `tags`, `Brand Colour (Remarks)` and `HSN`. `_filled_count` / `_total` are the single shared definitions of "n of N", so the screen and the per-panel save cannot disagree. `attributes_save_images` (the `/images` route) reads up to 7 uploaded files per panel keyed `img__{ordinal}__{slot}` (`slot` 1-based over `IMAGE_COLUMNS`), calls `image_replace.prepare()` per slot so one bad photo fails only its own slot, then `image_replace.host()` once for everything that prepared cleanly, and writes the resulting URLs through `write_attributes` (never a bare openpyxl save). On any adopted (`origin == "upload"`) job, a successful attribute *or* image save sets `job.result["edited"] = True`, which is what makes the Clear button ask for confirmation. |
 | `src/web/oauth.py` | Hosted-UI OAuth helpers (`authorize_url`/`exchange_code`/`logout_url`); stdlib urllib, injectable `http` so unit tests never hit the network. |
 | `src/web/routers/auth_routes.py` | `GET /login` (state CSRF cookie → hosted UI), `GET /auth/callback` (verify state, exchange code, set `id_token` cookie), `GET /logout`. Sessions are **re-login-on-stale** (no refresh tokens). |
 
@@ -240,12 +283,16 @@ htmx. **No business logic here** — routers call `src/myntra` / `src/core`.
 | `POST /generate/style-start` + `/undo` | Seed the ledger from the last styleGroupId already used on Myntra. |
 | `GET /generate/attributes/{job_id}` | Flow D form: one accordion panel per SKU — product photo, the 12 vocabulary-only dropdowns (pre-selected from the workbook), the free-text `tags` and **`HSN`** boxes, an `n/14 filled` counter, the read-only derived `Brand Colour (Remarks)`, and the current listing card. Above the panels, `_hsn_gap.html` counts the SKUs still missing a usable HSN — derived from the rows `_panels` already read, never a second `read_filled_rows`. |
 | `POST /generate/attributes/{job_id}/preview` | htmx fragment: re-renders **one** listing card from the posted dropdown values via the same `build_card`. Touches no file. |
-| `POST /generate/attributes/{job_id}` | Save: validate every value against the template vocabulary, then write all SKUs' attributes into the built workbook. Returns a 200 panel on success **and** on validation failure (htmx-swappable, never a 500); an off-vocab value writes nothing at all. |
+| `POST /generate/attributes/{job_id}` | Save (all panels): validate every value against the template vocabulary, then write all SKUs' attributes into the built workbook. Returns a 200 panel on success **and** on validation failure (htmx-swappable, never a 500); an off-vocab value writes nothing at all. |
+| `POST /generate/attributes/{job_id}/one` | Save (one panel): the same validate-then-write path scoped to a single SKU, so a partial batch can be saved incrementally. |
+| `POST /generate/attributes/{job_id}/images` | Replace one panel's images: up to 7 uploaded files → `image_replace.prepare()` per slot (per-slot failure isolation) → `image_replace.host()` once for what prepared → `write_attributes` with the new URLs. Sets `job.result["edited"]` on an adopted job. |
 | `GET /preview` | Preview form (Flow C). |
-| `POST /preview` | Upload the **filled** `.xlsx` → one listing card per row: exact specifications + labelled-approximate title/Design Details + "not filled" flags. Read-only. |
+| `POST /preview` | Upload a filled `.xlsx` → **adopts** it as a job (see "The adoption mechanism") and redirects (`HX-Redirect`) straight into `GET /generate/attributes/{job_id}` — i.e. Flow C now hands off to Flow D rather than rendering read-only cards itself. Rejects a file with no product rows. |
+| `POST /preview/clear/{job_id}` | Discards an adopted job (`store.drop` + delete its runtime dir) and redirects to `GET /preview`. An unknown/already-cleared `job_id` is not an error — it lands on the same empty form. |
+| `POST /preview/adopt-fix/{fix_id}` | Copies a fix run's `myntra_corrected.xlsx` into a new adopted job and redirects into Flow D the same way `POST /preview` does — this is what the Fix screen's "Replace images" button calls. 404s if the corrected file doesn't exist yet (i.e. before `/fix/apply` has run). |
 | `GET /fix` | Fix form. |
 | `POST /fix` | Upload a rejection file (**3 formats:** per-SKU `.xlsx`, file-level `.csv`, or MDirect Listings Report) → detect format → classify → persist `rows.json` → return review partial (header `x-fix-id`) split into **correctable** vs **explain_only** groups. |
-| `POST /fix/apply/{fix_id}` | Two submit actions from `_fix_review.html`: **`action=fix`** applies typed answers + drop checkboxes → `correct()` → corrected sheet of *only the correctable* SKUs ("Download now to fix"); **`action=manual`** rebuilds a fresh sheet for *only the explain_only* SKUs from an uploaded Shopify export, pinning their original HSN + styleGroupId ("Download listing file"). Surface-B correctable rebuilds and every manual rebuild need `products_export` (`needs_export`); the whole handler is wrapped so any error returns a 200 error panel, never a swallowed 500. |
+| `POST /fix/apply/{fix_id}` | Two submit actions from `_fix_review.html`: **`action=fix`** applies typed answers + drop checkboxes → `correct()` → corrected sheet of *only the correctable* SKUs ("Download now to fix"); **`action=manual`** rebuilds a fresh sheet for *only the explain_only* SKUs from an uploaded Shopify export, pinning their original HSN + styleGroupId ("Download listing file"). Surface-B correctable rebuilds and every manual rebuild need `products_export` (`needs_export`); the whole handler is wrapped so any error returns a 200 error panel, never a swallowed 500. The result panel (`_fix_result.html`) also offers **"Replace images for N SKU(s)"** when any `manual_needed` issue has `category == "image"`, posting to `/preview/adopt-fix/{fix_id}`. |
 | `GET /fix/download/{fix_id}` | Download the rebuilt `.xlsx`. |
 
 ### Flow A — Generate (request lifecycle)
@@ -273,35 +320,49 @@ safe to simply repeat.
 `should_cancel` defaults to `None`, which keeps the CLI path and every other caller of
 `pipeline.main` unchanged.
 
-### Flow C — Preview (request lifecycle)
+### Flow C — Preview & edit (request lifecycle)
+
+Preview stopped being read-only: uploading a filled sheet now **adopts** it (see "The adoption
+mechanism" above) and hands the browser straight into Flow D for editing. There is no separate
+"preview card" screen reached from an upload any more — the card itself now lives *inside* Flow D
+(`POST /generate/attributes/<job>/preview`), so an uploaded file and a freshly-built one see
+exactly the same editing surface.
 
 ```
-GET /generate/download/<job> ─► seller fills the 12 attribute dropdowns in Excel ─► saves
-POST /preview (filled .xlsx) ─► temp file ─► read_template(V13) ─► preview.read_filled_rows()
-                             └► _preview.html: one card per SKU
-                                • Specifications  = EXACT (what the seller entered)
-                                • Title / Design Details = APPROXIMATE, badged
-                                  (Myntra generates them; we reconstruct)
-                                • "Not filled" flags for blank attributes
-seller ─► uploads the SAME file to Myntra   (the app never modifies it)
+GET /generate/download/<job> ─► seller edits in Excel (optional) ─► saves
+POST /preview (filled .xlsx) ─► read_template(V13) ─► preview.read_filled_rows()
+                             ├► no rows ─► drop the job, _preview_error.html, nothing adopted
+                             └► store.finish(job, {filled: xlsx, origin: "upload", ...})
+                                └► HX-Redirect → GET /generate/attributes/<job>   (Flow D, below)
+
+POST /preview/adopt-fix/<fix_id> ─► copy myntra_corrected.xlsx into a new job, same origin="upload"
+                                  └► HX-Redirect → GET /generate/attributes/<job>
+                                     (this is what the Fix screen's "Replace images" button calls)
+
+POST /preview/clear/<job> ─► store.drop(job) + delete its runtime dir ─► HX-Redirect → GET /preview
+seller ─► downloads the edited file from Flow D, then uploads THAT to Myntra
 ```
 
 ### Flow D — Fill attributes in-app (request lifecycle)
 
-Additive: Flow C's Excel round-trip still works untouched. Filling here is **optional**.
+Additive: Flow C's Excel round-trip still works untouched. Filling here is **optional**. Reached
+either from `_result.html`'s "✎ Fill attributes" button (a job this app just built) or, since Flow
+C's adoption change, from an uploaded/adopted job — the two are indistinguishable to this screen.
 
 ```
-_result.html "✎ Fill attributes" ─► GET /generate/attributes/<job>
+GET /generate/attributes/<job>          (from _result.html, or redirected here by adoption)
     job_files() → runtime/<job>/{myntra_filled.xlsx, products_export.csv}
     read_filled_rows(xlsx) ─┬─ row ordinal ↔ vendorSkuCode ↔ Product.images[0]  (photo)
                             └─ attributes already in the sheet → pre-selected options
-    attributes.html: one <details> panel per SKU (12 selects, options = vocab_by_header only)
+    attributes.html: one <details> panel per SKU (12 selects, options = vocab_by_header only,
+                      + 7 image-slot file pickers, one per IMAGE_COLUMNS entry)
 
 on every dropdown change ─► POST /generate/attributes/<job>/preview  (hx-include closest panel)
                          └► preview.build_card(posted values) ─► _preview_card.html fragment
-                            (the SAME reconstruction /preview uses — no JS logic duplicate)
+                            (the SAME reconstruction /preview used to render directly — no JS
+                            logic duplicate, and no separate read-only screen any more)
 
-"Save attributes" ─► POST /generate/attributes/<job>
+"Save attributes" / "Save this SKU" ─► POST /generate/attributes/<job>[/one]
     validate_submitted(values, vocab)   → off-vocab ⇒ 200 error panel, NOTHING written
     derive_brand_colour(values)         → Brand Colour (Remarks) = colour.lower()
     validate_hsn(raw)                   → blank clears; non-blank must be 8 digits, else raise
@@ -314,8 +375,21 @@ on every dropdown change ─► POST /generate/attributes/<job>/preview  (hx-inc
                                           (List View Name, productDisplayName): a rebuild remaps
                                           those columns from the export, so an unpinned name is
                                           silently replaced by the Shopify title
+    if origin == "upload": job.result["edited"] = True   → Clear now asks for confirmation
     _hsn_gap.html refreshed out of band  → top-level in the fragment, or htmx ignores it
-GET /generate/download/<job> ─► the same file, now with the chosen attributes AND live dropdowns
+
+"pick replacement photos" ─► POST /generate/attributes/<job>/images  (one panel, up to 7 files)
+    for each non-empty slot: image_replace.prepare(sku, slot, bytes, specs, out_dir)
+        → per-slot (local_path, key, None) on success, or (None, None, reason) on failure —
+          NEVER raises, so one bad photo fails only its own slot
+    image_replace.host(prepared, specs, out_dir)  → uploads what prepared, returns public URLs
+        → raises ImageConfigError if hosting isn't configured (S3 bucket / base URL / s3_upload
+          unset) — reported to the owner, nothing written, no local path ever lands in the sheet
+    write_attributes(xlsx, ..., {ordinal, sku, values: {header: url, ...}})
+        → same write-lock, same shared-string re-apply as an attribute save
+    if origin == "upload": job.result["edited"] = True
+GET /generate/download/<job> ─► the same file, now with the chosen attributes, replaced images,
+                                 AND live dropdowns
 ```
 
 **The invariant that bites:** openpyxl re-creates shared strings on every save, and Myntra's
@@ -339,14 +413,23 @@ GET /fix/download/<id>
 
 ### Templates & static
 
-`templates/`: `base.html` (shell), `home.html`, `generate.html`, `fix.html`, `preview.html`,
-`attributes.html`, and htmx partials `_stepper.html`, `_result.html`, `_confirmed.html`,
-`_mark_upload.html`, `_dedup_warn.html`, `_style_start.html`, `_hsn_gap.html`,
-`_cancelled.html`, `_run_controls.html`, `_fix_review.html`, `_fix_result.html`,
-`_preview.html`, `_preview_card.html` (the one card
-markup, shared by Flows C and D), `_attr_panel.html`, `_attr_saved.html`. `static/`: `app.css`
-(Marigold Ops theme: warm near-black bg, marigold `#E8A33D` accent), vendored `htmx.min.js`,
-and vendored fonts (Space Grotesk / IBM Plex Mono / Inter) — **no runtime CDN**.
+`templates/`: `base.html` (shell), `home.html`, `generate.html`, `fix.html`, `preview.html`
+(now just the upload form shell — `{% include "_preview_upload.html" %}`), `attributes.html`,
+and htmx partials `_stepper.html`, `_result.html`, `_confirmed.html`, `_mark_upload.html`,
+`_dedup_warn.html`, `_style_start.html`, `_hsn_gap.html`, `_cancelled.html`, `_run_controls.html`,
+`_fix_review.html`, `_fix_result.html`, `_preview_upload.html` (the empty upload box, swapped back
+in after Clear), `_preview_error.html` (the "no products found" refusal), `_preview_card.html`
+(the one card markup, shared by Flows C and D), `_attr_panel.html`, `_attr_panel_saved.html`
+(one-panel save response), `_attr_saved.html` (all-panels save response), `_attr_images.html`
+(the 7 per-slot file pickers inside a panel), `_attr_images_saved.html` (image-save response:
+per-slot success/failure), `_clear_button.html` (the Clear control, `hx-confirm` gated on
+`edited`). `static/`: `app.css` (Marigold Ops theme: warm near-black bg, marigold `#E8A33D`
+accent), vendored `htmx.min.js`, and vendored fonts (Space Grotesk / IBM Plex Mono / Inter) —
+**no runtime CDN**.
+
+`_preview.html` (the old read-only card-list template) is no longer referenced by any router —
+Flow C's adoption change replaced it with a redirect into Flow D. Left in place rather than
+deleted as part of a docs-only task; a future cleanup can remove it once confirmed dead.
 
 `_run_controls.html` is the only **out-of-band** partial: every Generate-flow response
 swaps it into the `#run-controls` slot beside the Generate button, filled with Stop while
@@ -425,7 +508,7 @@ This is the section to read when something *outside* the code changes.
 | **Myntra template (.xlsx)** | `src/myntra/template_reader.py`, `template_guard.py`, `fill.py` | Active template = V13 (`DEFAULT_TEMPLATE_NAME`), whose dropdowns are **plain data-validations openpyxl preserves**; the older template's **x14 extension** validations are dropped on save and are read from raw `xl/worksheets/*.xml` instead. Headers row 3 / data row 4. A new template version can shift columns/vocab — `template_guard` fails the run loudly rather than silently dropping a column. |
 | **Myntra vocabulary** | `mapper.validate_value`, `template_reader.vocab_by_header` | Dropdown values must match template spelling exactly — flagged, never guessed. The seller-facing dropdowns offer **only** these values; nothing (not even `NA`) is ever added to a list. |
 | **Myntra's generated title/description** | `src/myntra/preview.py` | Myntra derives them from the attributes and ignores what we submit. The reconstruction is deliberately labelled approximate — do not try to pixel-match it. Both preview surfaces go through `build_card`, so change it in one place. |
-| **S3 (images + ledger)** | `src/core/s3_upload.py`, `groupid_ledger.S3JsonStore` | Bucket `ijorethnicpartners`, region `ap-south-1`, image prefix `myntra/`, ledger key `state/myntra_groupid.json`. Images must be `.jpg` and public-read. |
+| **S3 (images + ledger)** | `src/core/s3_upload.py`, `groupid_ledger.S3JsonStore`, `src/myntra/image_replace.py` (replacement leg) | Bucket `ijorethnicpartners`, region `ap-south-1`, image prefix `myntra/`, ledger key `state/myntra_groupid.json`. Images must be `.jpg` and public-read. Replacement images key as `{sku}/{slot}-{hash}.jpg` (content-addressed, not `{sku}/{n}.jpg`) — see §3. **Unverified:** the replacement upload leg has not yet been exercised against real AWS credentials, only against a fake/injected boto3 client in tests. |
 | **Cognito (auth)** | `src/web/auth.py`, `settings.py`, `oauth.py`, `auth_routes.py` | Pool/client/domain + client secret (SecureString) in SSM; JWT validated by JWKS with `verify_at_hash: False` (Cognito id_tokens carry `at_hash`). Hosted-UI login round-trip (/login → /auth/callback → /logout) is **live**. |
 | **ECR (image registry)** | `ci-cd.yml`, deploy systemd | Repo `marketplace-bulklisting`, `:latest` pulled on boot; CI `deploy` job restarts via SSM. |
 | **SSM Parameter Store (config)** | `src/web/settings.py` | Per-field env→SSM fallback; prefix `/marketplace-listing/`; read on EC2 via instance role. Secret is a SecureString. No Secrets Manager. |
@@ -449,9 +532,12 @@ This is the section to read when something *outside* the code changes.
 Layers 1–2 in `tests/*.py` (template reader, shopify reader, mapper, images, s3 upload, fill /
 inline strings / dropdowns, report, models, config load, end-to-end, **groupid_ledger**,
 **hsn_kb**, **sku_registry**, **error_reader**, **corrector**, **pipeline_override**,
-**template_guard**, **preview**, **attribute_entry**). Layer 3 in `tests/web/` (settings, auth,
-jobs, pages, generate, fix, preview, **attributes**, and a real-pipeline fix e2e).
-`python -m pytest -q` is the CI gate.
+**template_guard**, **preview**, **attribute_entry**, **image_replace**). Layer 3 in `tests/web/`
+(settings, auth, jobs, pages, generate, fix, preview, **attributes**, and a real-pipeline fix e2e).
+`python -m pytest -q` is the CI gate. (The test count in this heading predates the preview-edit /
+image-replacement branch — new tests were added in `tests/test_image_replace.py` and across
+`tests/web/test_preview.py` / `test_attributes.py` / `test_fix.py`, but the full suite has not been
+re-run to get an updated total; see `docs/journal/2026-08-17.md`.)
 
 Two of them guard invariants that fail *silently* if broken — do not delete them to make a
 refactor pass: `test_write_attributes_keeps_strings_inline` (no `t="s"` cell survives an in-app

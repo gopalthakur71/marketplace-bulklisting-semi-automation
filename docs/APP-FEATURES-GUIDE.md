@@ -246,6 +246,13 @@ For this group there's a guided path:
    but **keeping the same HSN and style group** as the first attempt — so Myntra sees a corrected
    version, not a brand-new clashing listing.
 
+If the problem is specifically **bad photos**, there's a shortcut: after you apply a fix, the
+results screen shows a **"Replace images for N SKU(s) →"** button whenever image issues remain.
+It takes you straight into the Preview-and-edit screen (Screen 3) with the corrected sheet already
+loaded, so you can swap the rejected photo directly in the app instead of re-shooting in Shopify
+and re-exporting first. This works no matter which of the three rejection-file formats you started
+from.
+
 ### The self-learning part
 
 Every time Myntra sends a new kind of error, the app records its "signature" and how it was
@@ -256,17 +263,25 @@ business data.)
 
 ---
 
-## Screen 3 — Preview the Myntra listing
+## Screen 3 — Preview and edit a Myntra listing
 
-**What it's for:** seeing what your listing will actually look like **before** Myntra sees it.
+**What it's for:** seeing what your listing will actually look like **before** Myntra sees it —
+and now, fixing anything you spot without leaving the app or reopening Excel.
 
 **How you use it:** click **Preview** in the top menu bar — it is there on every screen, so you can
-come back to a sheet you filled days ago. After you've filled the attribute dropdowns in Excel and
-saved, upload that same file on the Preview screen. You get one card per product. Then upload that
-same file to Myntra — the app never changes your file, it only reads it.
+come back to a sheet you filled days ago. Upload a filled `.xlsx` file (one you built with Generate
+and finished in Excel, or one you're partway through) and the app **opens it as if you'd just built
+it** — the same Fill-attributes screen you'd land on from Screen 1b, with every product's dropdowns,
+photo, tags, names and HSN box, all pre-filled from what's already in the file. A file with no
+product rows in it is refused with a message instead of being opened.
 
-(If you filled the attributes on Screen 1b instead, you have already seen this preview live while
-choosing. This screen is still useful as a final look at a file you've since edited in Excel.)
+From there you can change **anything** — an attribute, a name, the HSN code, a tag — and press
+**Save** to write it into your copy. You can also **replace a product's photos**: see "Replacing
+images" below. When you're done, download the file; that download is the corrected sheet, ready to
+upload to Myntra.
+
+(If you filled the attributes on Screen 1b right after Generate, this is the exact same screen —
+Preview is just a second door into it, for a file you already have sitting on your computer.)
 
 **What's on a card, and how much to trust it:**
 
@@ -287,6 +302,42 @@ choosing. This screen is still useful as a final look at a file you've since edi
   catch it here instead of after a rejection.
 
 Use it as a last look: if the title reads wrong, the fix is to change an *attribute*, not a name.
+
+### Replacing images
+
+Each product's panel has a picture-swap box for every image slot Myntra takes — Front Image, Side
+Image, Back Image, Detail Angle, and three more. Pick a replacement photo for any slot (or several
+at once) and save; the app checks each one against Myntra's rules (minimum 700×700, under 10 MB),
+converts it, hosts it, and writes the new link into the sheet.
+
+If Myntra rejected the whole batch, or several of your seven photos are fine and only one is too
+small, only the bad one is refused — the good photos you supplied in the same click still go
+through. You don't lose the rest of the batch to one bad file.
+
+If the app isn't set up to host images publicly, it tells you plainly and saves nothing for that
+photo, rather than writing a link Myntra could never actually open.
+
+### Clear, and what survives
+
+A **Clear & upload another** button lets you drop the current file and start on a different one.
+Before you've saved anything, it acts immediately. Once you've saved at least one change, clicking
+it first **asks you to confirm** — because at that point your edit exists **only on the app's
+copy**, not in the file sitting on your computer. Confirming discards it.
+
+This matters for one more reason: **nothing here survives the app restarting.** If the app is
+restarted or redeployed while you have unsaved work open, that work is gone — there is no server
+copy to recover. Download the file before you close the tab or step away for the day; the
+downloaded `.xlsx` is the only copy that's truly yours to keep.
+
+### One thing you can't change here
+
+The **SKU is not editable** in this screen, on purpose — it's how Myntra identifies the product,
+and it's used in three different places behind the scenes. If you ever do need to change a SKU by
+hand, do it in Excel, and take care with the hazard below.
+
+> If you change a SKU by hand in Excel, change it in **all three** columns —
+> `vendorSkuCode`, `SKUCode` and `vendorArticleNumber` — or Myntra receives an
+> inconsistent identity for that product.
 
 ---
 

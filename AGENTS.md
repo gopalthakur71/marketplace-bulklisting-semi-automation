@@ -18,9 +18,9 @@ which is why the deploy/AWS machinery is richer than a one-off script would need
 
 | Layer | Path | Does |
 |---|---|---|
-| 1. Core fill pipeline | `src/core/` + `src/myntra/` + `config/myntra/` | Shopify CSV → mapped/validated Myntra `.xlsx` + images → S3. Entry: `run.py`. |
+| 1. Core fill pipeline | `src/core/` + `src/myntra/` + `config/myntra/` | Shopify CSV → mapped/validated Myntra `.xlsx` + images → S3. Entry: `run.py`. `src/myntra/image_replace.py` handles a single owner-uploaded replacement image (prepare + host), separate from the build-time image path in `src/core/images.py`. |
 | 2. Error-correction backend | `src/myntra/{groupid_ledger,hsn_kb,sku_registry,error_reader,corrector}.py` | styleGroupId ledger; HSN knowledge base (learn HSN once per category\|fabric signature); per-SKU generation registry (duplicate-upload guard); read+classify Myntra rejection files; regenerate a corrected sheet. |
-| 3. Web app (FastAPI) | `src/web/` | "Marigold Ops" UI: Flow A *Generate*, Flow B *Fix*, Flow C *Preview* (round-trip the filled sheet → see the Myntra listing before uploading), Flow D *Fill attributes* (choose the 12 seller-decided attributes in-app, with a live listing preview, instead of in Excel). Calls layers 1–2; no business logic of its own. |
+| 3. Web app (FastAPI) | `src/web/` | "Marigold Ops" UI: Flow A *Generate*, Flow B *Fix*, Flow C *Preview* (upload a filled or corrected sheet — the app **adopts** it as a job and opens it in Flow D for editing, rather than showing read-only cards), Flow D *Fill attributes* (choose the 12 seller-decided attributes in-app with a live listing preview, edit tags/names/HSN, and **replace individual product photos per slot**, instead of doing all of that in Excel). Calls layers 1–2; no business logic of its own. |
 | 4. Cloud / CI-CD / deploy | `Dockerfile`, `.github/workflows/ci-cd.yml`, `aws/`, `S3/`, `docs/runbooks/` | Image build, GitHub Actions → ECR via OIDC, **auto-deploy to EC2 via SSM**, Cognito/SSM/Secrets. |
 
 **Full map with data flow, every module, and integration boundaries:**
