@@ -17,6 +17,21 @@
   {% endwith %}
 {% endfor %}
 {% endif %}
+{% if removed %}
+<p class="ok mono">✅ Cleared from the sheet:</p>
+<ul class="mono">{% for r in removed %}<li>{{ r.header }}</li>{% endfor %}</ul>
+<p class="hint">The slot is empty in the file you download — choose a file for it
+  whenever you want to put a picture back.</p>
+{# Same reason as the replace path: without these the panel keeps showing the
+   photo that was just removed, contradicting the message above. The Remove tick
+   goes with it, since an empty slot has nothing left to clear. #}
+{% for r in removed %}
+  {% with slot = r.slot, url = None, header = r.header, oob = True %}
+    {% include "_slot_thumb.html" %}
+  {% endwith %}
+  <span class="slot-remove" id="slot-rm-{{ ordinal }}-{{ r.slot }}" hx-swap-oob="true"></span>
+{% endfor %}
+{% endif %}
 {% for f in failed %}
 <p class="flag mono">⚠ {{ f.header }} — {{ f.reason }}</p>
 {% endfor %}

@@ -1,5 +1,9 @@
 <details class="attr-panel">
   <summary>
+    {# Outside the <details> toggle's intent: the click handler in attributes.js
+       stops propagation so ticking a box does not expand the card. #}
+    <input class="sku-pick" type="checkbox" value="{{ p.sku }}"
+           aria-label="Select {{ p.sku }}">
     <strong class="mono">{{ p.sku }}</strong>
     <span class="hint">{{ p.product_title }}</span>
     <span class="hint" id="attr-count-{{ p.ordinal }}">{{ p.filled }}/{{ total }} filled</span>
@@ -40,9 +44,24 @@
   </div>
   <div class="attr-footer">
     {% for column in free_columns %}
+    {% set limit = free_limits.get(column) %}
+    {% set over = p.over_limit.get(column) %}
     <label class="hint attr-free">{{ column }}
+      {# maxlength caps typing and pasting at the limit. It cannot fix a value
+         that arrived in an uploaded workbook, so the server still refuses one
+         and `over` renders the error for it. #}
       <input type="text" name="free__{{ p.ordinal }}__{{ loop.index0 }}"
-             value="{{ p.free[column] or '' }}" autocomplete="off">
+             value="{{ p.free[column] or '' }}" autocomplete="off"
+             {% if limit %}maxlength="{{ limit }}" data-limit="{{ limit }}"
+             class="{% if over %}over-limit{% endif %}"{% endif %}>
+      {% if limit %}
+      <span class="hint char-count{% if over %} over-limit{% endif %}"
+            >{{ over or (p.free[column] or '') | trim | length }} / {{ limit }}</span>
+      {% endif %}
+      {% if over %}
+      <span class="flag">⚠ {{ column }} must be {{ limit }} characters or fewer —
+        Myntra will reject this SKU. (Currently {{ over }}.) Shorten it, then save.</span>
+      {% endif %}
       <span class="hint">{{ free_hints[column] }}</span>
     </label>
     {% endfor %}

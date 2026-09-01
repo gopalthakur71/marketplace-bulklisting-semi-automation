@@ -1,7 +1,7 @@
 <details class="attr-images">
   <summary>Product images — replace</summary>
-  <p class="hint">Choose a file for any slot you want to change. Slots you leave
-    empty are untouched. Minimum 700×700, max 10 MB.</p>
+  <p class="hint">Choose a file for any slot you want to change, or tick Remove to
+    clear one. Slots you leave alone are untouched. Minimum 700×700, max 10 MB.</p>
   {% for s in p.image_slots %}
   <label class="hint attr-slot">
     <span class="mono">{{ s.header }}</span>
@@ -9,6 +9,16 @@
       {% include "_slot_thumb.html" %}
     {% endwith %}
     <input type="file" name="img__{{ p.ordinal }}__{{ s.slot }}" accept="image/*">
+    {# Only a filled slot can be cleared. An empty one would post a removal that
+       writes the blank it already holds. #}
+    {% if s.url %}
+    <span class="slot-remove" id="slot-rm-{{ p.ordinal }}-{{ s.slot }}">
+      <label class="hint"><input type="checkbox"
+             name="rm__{{ p.ordinal }}__{{ s.slot }}" value="1"> Remove</label>
+    </span>
+    {% else %}
+    <span class="slot-remove" id="slot-rm-{{ p.ordinal }}-{{ s.slot }}"></span>
+    {% endif %}
   </label>
   {% endfor %}
   <button class="btn" type="button"

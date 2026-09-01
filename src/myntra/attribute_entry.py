@@ -4,6 +4,7 @@ The pipeline never guesses these; they are offered as dropdowns whose options co
 strictly from the Myntra template's own vocabulary, and are written into the built
 workbook only after an exact-membership check."""
 import os
+import shutil
 import warnings
 
 import openpyxl
@@ -12,7 +13,7 @@ import yaml
 from src.myntra.fill import (SHEET_SAREES_NAME, _coerce_numeric, sheet_xml_name,
                              shared_to_inline)
 from src.myntra.hsn_source import normalize as normalize_hsn
-from src.myntra.preview import is_set
+from src.myntra.preview import is_set, read_filled_rows
 
 CONFIG_DIR = os.path.join("config", "myntra")
 
@@ -53,6 +54,12 @@ DEFAULT_FREETEXT_HINT = "free text — no fixed vocabulary"
 # seller wrote. `tags` is deliberately not here: it is pre-filled from the export
 # and a rebuild restoring the export's tags is the expected outcome.
 PINNED_NAME_HEADERS = ("List View Name", "productDisplayName")
+
+# Myntra rejects the WHOLE SKU when this column exceeds 30 characters, so the cap
+# is enforced here rather than left to the browser: the field is capped at 30 in
+# the UI, but a workbook uploaded through Preview can already carry a longer name
+# that no keystroke limit ever saw.
+MAX_FREETEXT_LEN = {"List View Name": 30}
 
 
 def freetext_hints(columns):
@@ -112,8 +119,36 @@ def validate_freetext(values, columns):
         if value is None or str(value).strip() == "":
             out[column] = None
             continue
-        out[column] = str(value).strip()
+        # The stripped string is what reaches the cell, so it is also what the
+        # limit measures — counting the raw value would reject a name that
+        # exports well within the cap.
+        text = str(value).strip()
+        limit = MAX_FREETEXT_LEN.get(column)
+        if limit is not None and len(text) > limit:
+            raise AttributeValueError(
+                f"{column} must be {limit} characters or fewer — Myntra rejects "
+                f"the whole SKU otherwise (currently {len(text)}).")
+        out[column] = text
     return out
+
+
+def freetext_limits(columns):
+    """{column: max length} for the columns that have one. Drives the UI cap and
+    counter from the same constant the save path enforces."""
+    return {c: MAX_FREETEXT_LEN[c] for c in columns if c in MAX_FREETEXT_LEN}
+
+
+def over_limit_freetext(values):
+    """{column: length} for values already longer than their cap.
+
+    Reads what is in the sheet, so the screen can flag a name that arrived in an
+    uploaded workbook. A save cannot produce one — validate_freetext refuses."""
+    over = {}
+    for column, limit in MAX_FREETEXT_LEN.items():
+        text = str(values.get(column) or "").strip()
+        if len(text) > limit:
+            over[column] = len(text)
+    return over
 
 
 def validate_hsn(raw):
@@ -191,3 +226,52 @@ def write_attributes(xlsx_path, template, entries):
     # them, so re-apply fill.py's inline conversion (see fill.fill_template).
     shared_to_inline(xlsx_path, sheet_xml_name(xlsx_path, SHEET_SAREES_NAME))
     return len(entries)
+
+
+class NoRowsSelectedError(Exception):
+    """None of the requested SKUs is in the sheet, so there is nothing to export."""
+
+
+def write_subset(src_xlsx, dst_xlsx, template, skus):
+    """Copy the workbook to dst_xlsx keeping only the rows whose vendorSkuCode is
+    in `skus`. Returns the SKUs actually kept, in sheet order.
+
+    Selection is resolved by SKU read from the sheet, not by the row positions the
+    screen was rendered with: an edit saved after the page loaded can only ever
+    change values, but resolving here means a stale screen exports the products
+    the owner ticked rather than whatever now sits at those offsets.
+
+    Rows are deleted rather than blanked, and bottom-up so earlier offsets stay
+    valid. A blank row inside the data region reads to Myntra as the end of the
+    file (or as a null-brand product), which is how the stray example row in the
+    template used to fail an upload."""
+    sku_col = template.col_index_by_header.get("vendorSkuCode")
+    if sku_col is None:
+        raise SkuMismatchError("Template has no vendorSkuCode column")
+    wanted = {str(s).strip() for s in skus if str(s).strip()}
+
+    rows = read_filled_rows(src_xlsx, template)
+    keep = [i for i, attrs in enumerate(rows)
+            if str(attrs.get("vendorSkuCode") or "").strip() in wanted]
+    if not keep:
+        raise NoRowsSelectedError(
+            "None of the selected products is in this sheet any more — "
+            "please reload the screen and try again.")
+
+    shutil.copyfile(src_xlsx, dst_xlsx)
+    warnings.filterwarnings("ignore")
+    wb = openpyxl.load_workbook(dst_xlsx)
+    try:
+        ws = wb[SHEET_SAREES_NAME]
+        keep_set = set(keep)
+        for ordinal in reversed(range(len(rows))):
+            if ordinal not in keep_set:
+                ws.delete_rows(template.first_data_row + ordinal)
+        wb.save(dst_xlsx)
+    finally:
+        wb.close()
+
+    # Same reason as write_attributes: openpyxl re-writes text as shared strings
+    # and Myntra's parser cannot resolve them.
+    shared_to_inline(dst_xlsx, sheet_xml_name(dst_xlsx, SHEET_SAREES_NAME))
+    return [str(rows[i].get("vendorSkuCode") or "").strip() for i in keep]

@@ -994,3 +994,269 @@ def test_a_stale_sku_mismatch_reports_instead_of_raising(tmp_path, monkeypatch):
     from src.myntra.template_reader import read_template
     rows = read_filled_rows(job.result["filled"], read_template(V13))
     assert rows[0]["Front Image"] in (None, "")
+# --- Change 1: per-SKU selection & filtered download -------------------------
+
+def test_every_sku_row_carries_a_selection_checkbox(tmp_path, monkeypatch):
+    """The checkbox has to be usable without opening the card, so it lives in the
+    <summary> alongside the SKU code."""
+    job = _job(tmp_path, monkeypatch, skus=("S1", "S2"))
+    r = _client(tmp_path).get(f"/generate/attributes/{job.id}")
+    assert r.text.count('class="sku-pick"') == 2
+    assert 'value="S1"' in r.text and 'value="S2"' in r.text
+    assert 'id="sku-pick-all"' in r.text          # the select-all header box
+    assert 'id="download-selected"' in r.text
+
+
+def test_selected_download_returns_only_the_chosen_rows(tmp_path, monkeypatch):
+    job = _job(tmp_path, monkeypatch, skus=("S1", "S2", "S3"))
+    r = _client(tmp_path).get(f"/generate/download/{job.id}/selected",
+                              params={"sku": ["S1", "S3"]})
+    assert r.status_code == 200
+
+    out = tmp_path / "got.xlsx"
+    out.write_bytes(r.content)
+    from src.myntra.preview import read_filled_rows
+    rows = read_filled_rows(str(out), read_template(V13))
+    assert [x["vendorSkuCode"] for x in rows] == ["S1", "S3"]
+
+
+def test_selected_download_keeps_the_full_export_schema(tmp_path, monkeypatch):
+    """Same writer, fewer rows — Myntra parses the file by header, so a subset that
+    dropped or reordered a column would be rejected wholesale."""
+    job = _job(tmp_path, monkeypatch, skus=("S1", "S2"))
+    client = _client(tmp_path)
+    full = client.get(f"/generate/download/{job.id}")
+    part = client.get(f"/generate/download/{job.id}/selected", params={"sku": "S1"})
+
+    a, b = tmp_path / "full.xlsx", tmp_path / "part.xlsx"
+    a.write_bytes(full.content)
+    b.write_bytes(part.content)
+    import openpyxl
+    from src.myntra.fill import SHEET_SAREES_NAME
+    t = read_template(V13)
+    wa = openpyxl.load_workbook(str(a))
+    wb_ = openpyxl.load_workbook(str(b))
+    try:
+        ra = [c.value for c in wa[SHEET_SAREES_NAME][t.header_row]]
+        rb = [c.value for c in wb_[SHEET_SAREES_NAME][t.header_row]]
+        assert ra == rb
+    finally:
+        wa.close()
+        wb_.close()
+
+
+def test_selected_download_reflects_unsaved_to_disk_edits(tmp_path, monkeypatch):
+    """The screen's edits live in the app's copy of the workbook; a filtered export
+    that read some earlier snapshot would hand back stale values."""
+    job = _job(tmp_path, monkeypatch, skus=("S1", "S2"))
+    client = _client(tmp_path)
+    client.post(f"/generate/attributes/{job.id}/one",
+                data={"ordinal": "0", "sku__0": "S1", "free__0__1": "Edited name"})
+
+    r = client.get(f"/generate/download/{job.id}/selected", params={"sku": "S1"})
+    out = tmp_path / "got.xlsx"
+    out.write_bytes(r.content)
+    from src.myntra.preview import read_filled_rows
+    rows = read_filled_rows(str(out), read_template(V13))
+    assert rows[0]["List View Name"] == "Edited name"
+
+
+def test_selected_download_is_named_for_the_count(tmp_path, monkeypatch):
+    job = _job(tmp_path, monkeypatch, skus=("S1", "S2", "S3"))
+    r = _client(tmp_path).get(f"/generate/download/{job.id}/selected",
+                              params={"sku": ["S1", "S2"]})
+    assert "myntra_filled_selected_2.xlsx" in r.headers["content-disposition"]
+
+
+def test_selecting_nothing_is_refused_rather_than_exporting_everything(tmp_path, monkeypatch):
+    """An empty selection must not silently fall back to the whole file."""
+    job = _job(tmp_path, monkeypatch, skus=("S1",))
+    r = _client(tmp_path).get(f"/generate/download/{job.id}/selected")
+    assert r.status_code == 400
+
+
+def test_selecting_a_sku_that_is_gone_reports_rather_than_emitting_an_empty_sheet(
+        tmp_path, monkeypatch):
+    job = _job(tmp_path, monkeypatch, skus=("S1",))
+    r = _client(tmp_path).get(f"/generate/download/{job.id}/selected",
+                              params={"sku": "NOPE"})
+    assert r.status_code == 409
+
+
+def test_full_download_still_exports_every_sku(tmp_path, monkeypatch):
+    """The fallback the spec says to leave alone."""
+    job = _job(tmp_path, monkeypatch, skus=("S1", "S2", "S3"))
+    r = _client(tmp_path).get(f"/generate/download/{job.id}")
+    out = tmp_path / "full.xlsx"
+    out.write_bytes(r.content)
+    from src.myntra.preview import read_filled_rows
+    rows = read_filled_rows(str(out), read_template(V13))
+    assert [x["vendorSkuCode"] for x in rows] == ["S1", "S2", "S3"]
+
+
+# --- Change 2: List View Name is capped at 30 --------------------------------
+
+def test_list_view_name_field_is_capped_and_counted(tmp_path, monkeypatch):
+    job = _job(tmp_path, monkeypatch, skus=("S1",))
+    r = _client(tmp_path).get(f"/generate/attributes/{job.id}")
+    assert 'maxlength="30"' in r.text
+    assert 'data-limit="30"' in r.text
+    assert "0 / 30" in r.text
+    # tags and productDisplayName have no Myntra limit, so only one field is capped
+    assert r.text.count('data-limit="30"') == 1
+
+
+def test_saving_an_over_length_list_view_name_is_refused(tmp_path, monkeypatch):
+    """The field is capped in the browser, but a tampered post must not get past
+    the server — Myntra rejects the whole SKU on this one."""
+    job = _job(tmp_path, monkeypatch, skus=("S1",))
+    r = _client(tmp_path).post(
+        f"/generate/attributes/{job.id}/one",
+        data={"ordinal": "0", "sku__0": "S1", "free__0__1": "x" * 31})
+    assert "30 characters or fewer" in r.text
+
+    from src.myntra.preview import read_filled_rows
+    rows = read_filled_rows(job.result["filled"], read_template(V13))
+    assert not rows[0]["List View Name"]          # nothing was written
+
+
+def test_exactly_thirty_characters_is_accepted(tmp_path, monkeypatch):
+    job = _job(tmp_path, monkeypatch, skus=("S1",))
+    _client(tmp_path).post(
+        f"/generate/attributes/{job.id}/one",
+        data={"ordinal": "0", "sku__0": "S1", "free__0__1": "y" * 30})
+    from src.myntra.preview import read_filled_rows
+    rows = read_filled_rows(job.result["filled"], read_template(V13))
+    assert rows[0]["List View Name"] == "y" * 30
+
+
+def test_padding_does_not_count_toward_the_limit(tmp_path, monkeypatch):
+    """The value is trimmed on the way into the cell, so the limit measures the
+    trimmed string — otherwise a name that exports at 30 would be refused."""
+    job = _job(tmp_path, monkeypatch, skus=("S1",))
+    _client(tmp_path).post(
+        f"/generate/attributes/{job.id}/one",
+        data={"ordinal": "0", "sku__0": "S1", "free__0__1": "   " + "z" * 30 + "   "})
+    from src.myntra.preview import read_filled_rows
+    rows = read_filled_rows(job.result["filled"], read_template(V13))
+    assert rows[0]["List View Name"] == "z" * 30
+
+
+def test_an_uploaded_sheet_with_a_long_name_shows_the_error(tmp_path, monkeypatch):
+    """The one case maxlength cannot cover: the value was already in the workbook
+    when it was uploaded, so the screen has to flag it."""
+    job = _job(tmp_path, monkeypatch, skus=("S1",))
+    from src.myntra.attribute_entry import write_attributes
+    write_attributes(job.result["filled"], read_template(V13),
+                     [{"ordinal": 0, "sku": "S1",
+                       "values": {"List View Name": "w" * 34}}])
+
+    r = _client(tmp_path).get(f"/generate/attributes/{job.id}")
+    assert "Currently 34" in r.text
+    assert "over-limit" in r.text
+
+
+# --- Change 3: removing an image ---------------------------------------------
+
+def test_a_filled_slot_offers_remove_and_an_empty_one_does_not(tmp_path, monkeypatch):
+    job = _job(tmp_path, monkeypatch, skus=("S1",))
+    from src.myntra.attribute_entry import write_attributes
+    write_attributes(job.result["filled"], read_template(V13),
+                     [{"ordinal": 0, "sku": "S1",
+                       "values": {"Front Image": "https://cdn.example/f.jpg"}}])
+
+    r = _client(tmp_path).get(f"/generate/attributes/{job.id}")
+    assert 'name="rm__0__1"' in r.text            # Front Image is filled
+    assert 'name="rm__0__7"' not in r.text        # Additional Image 2 is empty
+
+
+def test_removing_an_image_clears_the_column_in_the_sheet(tmp_path, monkeypatch):
+    job = _job(tmp_path, monkeypatch, skus=("S1",))
+    from src.myntra.attribute_entry import write_attributes
+    write_attributes(job.result["filled"], read_template(V13),
+                     [{"ordinal": 0, "sku": "S1",
+                       "values": {"Front Image": "https://cdn.example/f.jpg",
+                                  "Side Image": "https://cdn.example/s.jpg"}}])
+
+    r = _client(tmp_path).post(f"/generate/attributes/{job.id}/images",
+                               data={"ordinal": "0", "sku__0": "S1", "rm__0__1": "1"})
+    assert r.status_code == 200
+    assert "Front Image" in r.text
+
+    from src.myntra.preview import read_filled_rows
+    rows = read_filled_rows(job.result["filled"], read_template(V13))
+    assert not rows[0]["Front Image"]                              # cleared
+    assert rows[0]["Side Image"] == "https://cdn.example/s.jpg"    # untouched
+
+
+def test_removing_needs_no_s3(tmp_path, monkeypatch):
+    """Clearing a cell must not depend on image hosting: a removal has to work on
+    a machine that could not upload a replacement."""
+    job = _job(tmp_path, monkeypatch, skus=("S1",))
+    from src.myntra.attribute_entry import write_attributes
+    write_attributes(job.result["filled"], read_template(V13),
+                     [{"ordinal": 0, "sku": "S1",
+                       "values": {"Front Image": "https://cdn.example/f.jpg"}}])
+
+    def _boom(*a, **k):
+        raise AssertionError("hosting must not be called for a removal")
+    monkeypatch.setattr(attrs_router, "host", _boom)
+
+    r = _client(tmp_path).post(f"/generate/attributes/{job.id}/images",
+                               data={"ordinal": "0", "sku__0": "S1", "rm__0__1": "1"})
+    assert r.status_code == 200
+    from src.myntra.preview import read_filled_rows
+    rows = read_filled_rows(job.result["filled"], read_template(V13))
+    assert not rows[0]["Front Image"]
+
+
+def test_remove_wins_over_a_file_chosen_for_the_same_slot(tmp_path, monkeypatch):
+    """Doing both in one click is a contradiction; clearing is the safer reading."""
+    job = _job(tmp_path, monkeypatch, skus=("S1",))
+    from src.myntra.attribute_entry import write_attributes
+    write_attributes(job.result["filled"], read_template(V13),
+                     [{"ordinal": 0, "sku": "S1",
+                       "values": {"Front Image": "https://cdn.example/f.jpg"}}])
+    monkeypatch.setattr(attrs_router, "host",
+                        lambda prepared, specs, out_dir: ["https://cdn.example/new.jpg"])
+
+    _client(tmp_path).post(
+        f"/generate/attributes/{job.id}/images",
+        data={"ordinal": "0", "sku__0": "S1", "rm__0__1": "1"},
+        files={"img__0__1": ("new.png", _png_bytes(800, 800), "image/png")})
+
+    from src.myntra.preview import read_filled_rows
+    rows = read_filled_rows(job.result["filled"], read_template(V13))
+    assert not rows[0]["Front Image"]
+
+
+def test_removing_one_slot_while_replacing_another_does_both(tmp_path, monkeypatch):
+    job = _job(tmp_path, monkeypatch, skus=("S1",))
+    from src.myntra.attribute_entry import write_attributes
+    write_attributes(job.result["filled"], read_template(V13),
+                     [{"ordinal": 0, "sku": "S1",
+                       "values": {"Front Image": "https://cdn.example/f.jpg"}}])
+    monkeypatch.setattr(attrs_router, "load_specs", lambda: {
+        "min_width": 700, "min_height": 700, "max_bytes": 10485760, "quality": 90,
+        "public_base_url": "https://cdn.example/myntra", "s3_bucket": "b",
+        "s3_prefix": "myntra", "s3_upload": True})
+    monkeypatch.setattr(attrs_router, "host",
+                        lambda prepared, specs, out_dir: [
+                            f"https://cdn.example/myntra/{k}" for _, k in prepared])
+
+    _client(tmp_path).post(
+        f"/generate/attributes/{job.id}/images",
+        data={"ordinal": "0", "sku__0": "S1", "rm__0__1": "1"},
+        files={"img__0__2": ("new.png", _png_bytes(800, 800), "image/png")})
+
+    from src.myntra.preview import read_filled_rows
+    rows = read_filled_rows(job.result["filled"], read_template(V13))
+    assert not rows[0]["Front Image"]
+    assert rows[0]["Side Image"].startswith("https://cdn.example/myntra/S1/2-")
+
+
+def test_a_post_with_neither_file_nor_removal_says_so(tmp_path, monkeypatch):
+    job = _job(tmp_path, monkeypatch, skus=("S1",))
+    r = _client(tmp_path).post(f"/generate/attributes/{job.id}/images",
+                               data={"ordinal": "0", "sku__0": "S1"})
+    assert "nothing was marked for removal" in r.text

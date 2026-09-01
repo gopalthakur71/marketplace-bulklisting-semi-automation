@@ -10,6 +10,7 @@ from src.myntra.attribute_entry import (BRAND_COLOUR_HEADER, HSN_HEADER,
                                         AttributeValueError,
                                         SkuMismatchError, attribute_vocab,
                                         derive_brand_colour, freetext_hints,
+                                        freetext_limits, over_limit_freetext,
                                         user_filled_attributes,
                                         user_filled_freetext, validate_freetext,
                                         validate_hsn, validate_submitted,
@@ -141,6 +142,9 @@ def _panels(xlsx, csv_path, template, columns, free_columns):
             # method), silently breaking the pre-selection comparison.
             "chosen": {c: attrs.get(c) for c in columns},
             "free": {c: attrs.get(c) for c in free_columns},
+            # Only an uploaded workbook can carry one: the field is capped at the
+            # limit and validate_freetext refuses anything longer.
+            "over_limit": over_limit_freetext(attrs),
             "filled": _filled_count(attrs, columns, free_columns),
             "hsn": attrs.get(HSN_HEADER),
             "hsn_missing": normalize_hsn(attrs.get(HSN_HEADER)) is None,
@@ -163,6 +167,7 @@ def attributes_form(request: Request, job_id: str):
         "user": user, "job_id": job.id, "columns": columns,
         "free_columns": free_columns,
         "free_hints": freetext_hints(free_columns),
+        "free_limits": freetext_limits(free_columns),
         "vocab": attribute_vocab(template, columns),
         "panels": panels,
         "origin": job.result.get("origin", "generate"),
@@ -374,8 +379,14 @@ async def attributes_save_images(request: Request, job_id: str):
             {"error": f"Couldn't read the image settings: {exc}"})
     out_dir = os.path.join(job_dir, "replacements")
 
-    failed, prepared = [], []
+    failed, prepared, removed = [], [], []
     for slot, header in enumerate(IMAGE_COLUMNS, start=1):
+        # A slot ticked for removal ignores any file chosen for it. Doing both
+        # in one click is a contradiction, and clearing is the safer reading —
+        # the owner still has the file and can upload it again.
+        if str(form.get(f"rm__{ordinal}__{slot}") or "").strip():
+            removed.append({"header": header, "slot": slot})
+            continue
         upload = form.get(f"img__{ordinal}__{slot}")
         if not hasattr(upload, "read"):          # slot left empty
             continue
@@ -388,10 +399,24 @@ async def attributes_save_images(request: Request, job_id: str):
         else:
             prepared.append((path, key, header, slot))
 
-    if not prepared and not failed:
+    if not prepared and not failed and not removed:
         return _templates().TemplateResponse(
             request, "_attr_images_saved.html",
-            {"error": "No image files were chosen."})
+            {"error": "No image files were chosen, and nothing was marked for removal."})
+
+    if removed:
+        # Written before the uploads so a removal still lands when the S3 leg
+        # fails; the two are independent and clearing a cell needs no hosting.
+        try:
+            with _WRITE_LOCK:
+                write_attributes(xlsx, read_template(TEMPLATE),
+                                 [{"ordinal": ordinal, "sku": sku,
+                                   "values": {r["header"]: None for r in removed}}])
+                if job.result.get("origin") == "upload":
+                    job.result["edited"] = True
+        except (AttributeValueError, SkuMismatchError) as exc:
+            return _templates().TemplateResponse(
+                request, "_attr_images_saved.html", {"error": str(exc)})
 
     saved = []
     if prepared:
@@ -423,6 +448,6 @@ async def attributes_save_images(request: Request, job_id: str):
 
     return _templates().TemplateResponse(
         request, "_attr_images_saved.html",
-        {"saved": saved, "failed": failed, "ordinal": ordinal,
+        {"saved": saved, "failed": failed, "removed": removed, "ordinal": ordinal,
          "origin": job.result.get("origin", "generate"),
          "edited": job.result.get("edited", False), "job_id": job.id})

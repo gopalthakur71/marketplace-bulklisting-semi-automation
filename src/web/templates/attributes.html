@@ -26,6 +26,14 @@
      too. A plain div lets hx-include decide — all panels for the bulk button,
      one panel for a per-panel button. #}
   <p><span id="hsn-gap-banner">{% include "_hsn_gap.html" %}</span></p>
+  {# Email-inbox style: the header box drives every SKU checkbox below, and the
+     download button reads them. All of it is progressive — with JS off the
+     panels still save; only the selection extras go quiet. #}
+  <div class="sku-select-bar" id="sku-select-bar" data-job="{{ job_id }}">
+    <label class="hint"><input type="checkbox" id="sku-pick-all"> Select all</label>
+    <button class="btn" type="button" id="download-selected" hidden>
+      ⬇ Download selected (<span id="sku-pick-count">0</span>)</button>
+  </div>
   <div id="attr-form">
     {% for p in panels %}{% include "_attr_panel.html" %}{% endfor %}
     <button class="btn" type="button"
@@ -37,4 +45,5 @@
   <div id="attr-save-out"></div>
   {% endif %}
 </div>
+<script src="/static/attributes.js?v={{ asset_v('attributes.js') }}" defer></script>
 {% endblock %}

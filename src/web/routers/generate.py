@@ -5,7 +5,8 @@ import os
 import re
 import shutil
 
-from fastapi import APIRouter, Request, UploadFile, File, HTTPException, Form
+from fastapi import (APIRouter, File, Form, HTTPException, Query, Request,
+                     UploadFile)
 from fastapi.responses import FileResponse, HTMLResponse
 
 from src.myntra.groupid_ledger import (
@@ -270,7 +271,51 @@ def download(request: Request, job_id: str):
     job = store.get(job_id)
     if not job or not job.result:
         raise HTTPException(status_code=404, detail="not ready")
-    return FileResponse(job.result["filled"], filename="myntra_filled.xlsx")
+    return FileResponse(job.result["filled"], filename=_download_name(job))
+
+
+def _download_name(job):
+    """The name the browser saves the full export under. Unchanged for a built
+    sheet; an uploaded one keeps the owner's own filename so a folder of
+    downloads stays tellable apart."""
+    name = str(job.result.get("filename") or "").strip()
+    if job.result.get("origin") == "upload" and name.lower().endswith(".xlsx"):
+        return os.path.basename(name)
+    return "myntra_filled.xlsx"
+
+
+@router.get("/generate/download/{job_id}/selected")
+def download_selected(request: Request, job_id: str,
+                      sku: list[str] = Query(default=[])):
+    """Download only the ticked SKUs, in the same schema as the full export.
+
+    A GET with repeated ?sku= params rather than a POST: the checkboxes live
+    inside the attribute panels, which deliberately are not a <form> (see
+    attributes.html), and a browser download has to be a real navigation for the
+    Content-Disposition filename to take effect."""
+    get_user(request)
+    from src.myntra.attribute_entry import NoRowsSelectedError, write_subset
+    from src.myntra.template_reader import read_template
+    from src.web.routers.attributes import TEMPLATE
+
+    job = store.get(_safe_job_id(job_id))
+    if not job or not job.result:
+        raise HTTPException(status_code=404, detail="not ready")
+    if not sku:
+        raise HTTPException(status_code=400, detail="no products selected")
+
+    out_dir = os.path.join(RUNTIME, job.id, "selected")
+    os.makedirs(out_dir, exist_ok=True)
+    # Rebuilt on every request rather than cached: the sheet is edited in place
+    # between downloads, and a stale copy would hand back the pre-edit values.
+    dst = os.path.join(out_dir, "selected.xlsx")
+    try:
+        kept = write_subset(job.result["filled"], dst, read_template(TEMPLATE), sku)
+    except NoRowsSelectedError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+
+    stem = os.path.splitext(_download_name(job))[0]
+    return FileResponse(dst, filename=f"{stem}_selected_{len(kept)}.xlsx")
 
 
 @router.post("/generate/confirm/{job_id}", response_class=HTMLResponse)
