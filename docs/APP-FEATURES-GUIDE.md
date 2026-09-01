@@ -308,6 +308,31 @@ Preview is just a second door into it, for a file you already have sitting on yo
 
 Use it as a last look: if the title reads wrong, the fix is to change an *attribute*, not a name.
 
+### Downloading only some of the products
+
+Each product row has a **checkbox** to the left of its code, and there is a **Select all** box in a
+strip above the list, the way an email inbox works. Ticking a box does not open the product — you
+can pick several without expanding anything. Tick some but not all and the Select-all box shows a
+dash, so you can see at a glance that the selection is partial.
+
+Once at least one product is ticked, a **⬇ Download selected (N)** button appears next to the
+usual download, with the live count in it. It gives you an `.xlsx` in exactly the same format as
+the full download — same columns, same order — containing only the products you ticked, with
+whatever you have edited in the app included. The file is named after the original with
+`_selected_<N>` on the end.
+
+The ordinary **Download xlsx** button is unchanged and still gives you everything.
+
+### The 30-character limit on List View Name
+
+Myntra rejects the **whole product** if List View Name is longer than 30 characters, so the box
+stops you at 30 and shows a live `NN / 30` counter as you type. Spaces at either end don't count,
+because they are trimmed before the name reaches the file.
+
+One case the typing limit can't catch: a file **you upload** may already contain a longer name
+written elsewhere. That shows in red with the exact length, and the app refuses to save it until
+you shorten it — so a name Myntra would reject can never be written by this screen.
+
 ### Replacing images
 
 Each product's panel has a picture-swap box for every image slot Myntra takes — Front Image, Side
@@ -321,6 +346,26 @@ through. You don't lose the rest of the batch to one bad file.
 
 If the app isn't set up to host images publicly, it tells you plainly and saves nothing for that
 photo, rather than writing a link Myntra could never actually open.
+
+### Removing an image, and putting it back
+
+Every slot that holds a photo has a **Remove** button beside it. Press it and that picture is
+cleared from the sheet straight away — no need to press "Upload new images" afterwards; that
+button is only for files you have chosen. The thumbnail goes to "empty" and the slot is ready for
+a new file whenever you want one.
+
+Where the Remove button was, you then get **↺ Undo**. Press that and the same picture goes back
+into the sheet, and the slot returns to offering Remove. Two things to expect from it:
+
+- **It is a one-step undo, for this session only.** Once you have used it, it's gone (there is no
+  undo of an undo), and like everything else on this screen it does not survive the app being
+  restarted. If the app has forgotten, it says so and asks you to choose the file again rather
+  than quietly doing nothing.
+- **A slot the app never hosted publicly offers no Undo** — there is no web address to hand back,
+  so it just tells you to choose the file again.
+
+There is deliberately **no minimum number of images** and no confirmation dialog: Remove does what
+it says the moment you press it. If you clear one by accident, Undo is right there.
 
 ### Clear, and what survives
 

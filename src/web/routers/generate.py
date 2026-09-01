@@ -271,17 +271,20 @@ def download(request: Request, job_id: str):
     job = store.get(job_id)
     if not job or not job.result:
         raise HTTPException(status_code=404, detail="not ready")
-    return FileResponse(job.result["filled"], filename=_download_name(job))
+    return FileResponse(job.result["filled"], filename="myntra_filled.xlsx")
 
 
-def _download_name(job):
-    """The name the browser saves the full export under. Unchanged for a built
-    sheet; an uploaded one keeps the owner's own filename so a folder of
-    downloads stays tellable apart."""
+def _export_stem(job):
+    """The stem the filtered export is named after: the owner's own filename when
+    the sheet was uploaded, else the built sheet's name.
+
+    Used ONLY by the selected download. The full download's name is deliberately
+    left as it was — the change spec calls that fallback untouched, and renaming
+    it would move the goalposts on a file the owner already knows by sight."""
     name = str(job.result.get("filename") or "").strip()
     if job.result.get("origin") == "upload" and name.lower().endswith(".xlsx"):
-        return os.path.basename(name)
-    return "myntra_filled.xlsx"
+        return os.path.splitext(os.path.basename(name))[0]
+    return "myntra_filled"
 
 
 @router.get("/generate/download/{job_id}/selected")
@@ -314,8 +317,8 @@ def download_selected(request: Request, job_id: str,
     except NoRowsSelectedError as exc:
         raise HTTPException(status_code=409, detail=str(exc))
 
-    stem = os.path.splitext(_download_name(job))[0]
-    return FileResponse(dst, filename=f"{stem}_selected_{len(kept)}.xlsx")
+    return FileResponse(
+        dst, filename=f"{_export_stem(job)}_selected_{len(kept)}.xlsx")
 
 
 @router.post("/generate/confirm/{job_id}", response_class=HTMLResponse)
