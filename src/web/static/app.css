@@ -91,7 +91,13 @@ input[type=text]{background:var(--bg);border:1px solid var(--marigold);color:var
 .attr-slot .mono { min-width: 11rem; }
 .slot-thumb { width: 48px; height: 48px; object-fit: cover; border-radius: 4px; }
 .slot-remove:empty { display: none; }
-.slot-remove label { display: flex; align-items: center; gap: .3rem; margin: 0; }
+/* Quieter than the marigold primary buttons: removing is a per-slot correction,
+   not the action the panel is for, and seven loud buttons down the column would
+   pull the eye away from Upload new images. */
+.slot-remove-btn{background:transparent;color:var(--mut);border:1px solid var(--line);
+  border-radius:6px;padding:4px 10px;font-size:12px;cursor:pointer}
+.slot-remove-btn:hover{color:var(--red);border-color:var(--red)}
+.slot-remove-btn[disabled]{opacity:.6;cursor:progress}
 /* Selection bar above the SKU list: same visual weight as a panel header, so it
    reads as a control strip rather than another product row. */
 .sku-select-bar{display:flex;gap:12px;align-items:center;padding:8px 10px;margin:10px 0;

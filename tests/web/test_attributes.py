@@ -1166,8 +1166,25 @@ def test_a_filled_slot_offers_remove_and_an_empty_one_does_not(tmp_path, monkeyp
                        "values": {"Front Image": "https://cdn.example/f.jpg"}}])
 
     r = _client(tmp_path).get(f"/generate/attributes/{job.id}")
-    assert 'name="rm__0__1"' in r.text            # Front Image is filled
-    assert 'name="rm__0__7"' not in r.text        # Additional Image 2 is empty
+    assert '"rm__0__1": "1"' in r.text            # Front Image is filled
+    assert '"rm__0__7"' not in r.text             # Additional Image 2 is empty
+
+
+def test_remove_is_a_button_that_posts_on_its_own_click(tmp_path, monkeypatch):
+    """A tick that only took effect via "Upload new images" read as broken — the
+    control has to act when it is pressed."""
+    job = _job(tmp_path, monkeypatch, skus=("S1",))
+    from src.myntra.attribute_entry import write_attributes
+    write_attributes(job.result["filled"], read_template(V13),
+                     [{"ordinal": 0, "sku": "S1",
+                       "values": {"Front Image": "https://cdn.example/f.jpg"}}])
+
+    r = _client(tmp_path).get(f"/generate/attributes/{job.id}")
+    assert "slot-remove-btn" in r.text
+    assert 'type="checkbox"\n             name="rm__' not in r.text
+    # Only the hidden SKU field travels with it: including the panel would re-post
+    # every file input alongside the removal.
+    assert "hx-include=\"[name='sku__0']\"" in r.text
 
 
 def test_removing_an_image_clears_the_column_in_the_sheet(tmp_path, monkeypatch):
