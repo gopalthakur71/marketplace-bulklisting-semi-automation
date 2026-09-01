@@ -98,6 +98,11 @@ input[type=text]{background:var(--bg);border:1px solid var(--marigold);color:var
   border-radius:6px;padding:4px 10px;font-size:12px;cursor:pointer}
 .slot-remove-btn:hover{color:var(--red);border-color:var(--red)}
 .slot-remove-btn[disabled]{opacity:.6;cursor:progress}
+/* Undo is a way back, not a second destructive action — so it hovers marigold
+   rather than red, and reads as the safe one of the pair. */
+.slot-undo-btn{color:var(--marigold);border-color:var(--marigold)}
+.slot-undo-btn:hover{color:var(--marigold);border-color:var(--marigold);
+  background:rgba(232,163,61,.12)}
 /* Selection bar above the SKU list: same visual weight as a panel header, so it
    reads as a control strip rather than another product row. */
 .sku-select-bar{display:flex;gap:12px;align-items:center;padding:8px 10px;margin:10px 0;

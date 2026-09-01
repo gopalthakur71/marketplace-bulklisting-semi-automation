@@ -15,21 +15,51 @@
   {% with slot = s.slot, url = s.url, header = s.header, oob = True %}
     {% include "_slot_thumb.html" %}
   {% endwith %}
+  {# A slot that was empty now holds a photo, so it gains a Remove it did not
+     have when the panel was rendered. #}
+  {% with slot = s.slot, url = s.url, undo = None, oob = True %}
+    {% include "_slot_actions.html" %}
+  {% endwith %}
 {% endfor %}
 {% endif %}
 {% if removed %}
 <p class="ok mono">✅ Cleared from the sheet:</p>
 <ul class="mono">{% for r in removed %}<li>{{ r.header }}</li>{% endfor %}</ul>
+{# Only promise Undo when one is actually offered. A slot cleared of a bare local
+   basename (hosting off) has no URL to hand back, and a hint naming a button that
+   is not there reads as the button being broken. #}
+{% if removed | selectattr("undo") | list %}
+<p class="hint">The slot is empty in the file you download. Press <strong>↺ Undo</strong>
+  beside it to put the same picture back, or choose a new file for it.</p>
+{% else %}
 <p class="hint">The slot is empty in the file you download — choose a file for it
   whenever you want to put a picture back.</p>
+{% endif %}
 {# Same reason as the replace path: without these the panel keeps showing the
-   photo that was just removed, contradicting the message above. The Remove tick
-   goes with it, since an empty slot has nothing left to clear. #}
+   photo that was just removed, contradicting the message above. The action beside
+   it becomes Undo — an empty slot has nothing left to clear. #}
 {% for r in removed %}
   {% with slot = r.slot, url = None, header = r.header, oob = True %}
     {% include "_slot_thumb.html" %}
   {% endwith %}
-  <span class="slot-remove" id="slot-rm-{{ ordinal }}-{{ r.slot }}" hx-swap-oob="true"></span>
+  {% with slot = r.slot, url = None, undo = r.undo, oob = True %}
+    {% include "_slot_actions.html" %}
+  {% endwith %}
+{% endfor %}
+{% endif %}
+{% if restored %}
+<p class="ok mono">✅ Put back into the sheet:</p>
+<ul class="mono">
+  {% for r in restored %}<li>{{ r.header }} — <a href="{{ r.url }}" target="_blank" rel="noopener">{{ r.url }}</a></li>{% endfor %}
+</ul>
+{# The slot is filled again, so it goes back to offering Remove. #}
+{% for r in restored %}
+  {% with slot = r.slot, url = r.url, header = r.header, oob = True %}
+    {% include "_slot_thumb.html" %}
+  {% endwith %}
+  {% with slot = r.slot, url = r.url, undo = None, oob = True %}
+    {% include "_slot_actions.html" %}
+  {% endwith %}
 {% endfor %}
 {% endif %}
 {% for f in failed %}

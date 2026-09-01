@@ -405,11 +405,17 @@ async def attributes_save_images(request: Request, job_id: str):
             {"error": "No image files were chosen, and nothing was marked for removal."})
 
     if removed:
+        # Read what is there before clearing it: Undo restores from this, held
+        # against the job rather than round-tripped through the form, so nothing
+        # the browser posts can write an arbitrary string into an image column.
+        template = read_template(TEMPLATE)
+        rows = read_filled_rows(xlsx, template)
+        before = rows[ordinal] if 0 <= ordinal < len(rows) else {}
         # Written before the uploads so a removal still lands when the S3 leg
         # fails; the two are independent and clearing a cell needs no hosting.
         try:
             with _WRITE_LOCK:
-                write_attributes(xlsx, read_template(TEMPLATE),
+                write_attributes(xlsx, template,
                                  [{"ordinal": ordinal, "sku": sku,
                                    "values": {r["header"]: None for r in removed}}])
                 if job.result.get("origin") == "upload":
@@ -417,6 +423,14 @@ async def attributes_save_images(request: Request, job_id: str):
         except (AttributeValueError, SkuMismatchError) as exc:
             return _templates().TemplateResponse(
                 request, "_attr_images_saved.html", {"error": str(exc)})
+        undone = job.result.setdefault("removed_images", {})
+        for r in removed:
+            was = str(before.get(r["header"]) or "").strip()
+            # Only a real URL is worth offering back. Clearing a slot that held a
+            # bare local basename (hosting off) has nothing to restore.
+            r["undo"] = was if was.startswith(("http://", "https://")) else None
+            if r["undo"]:
+                undone[f"{ordinal}:{r['slot']}"] = r["undo"]
 
     saved = []
     if prepared:
@@ -451,3 +465,58 @@ async def attributes_save_images(request: Request, job_id: str):
         {"saved": saved, "failed": failed, "removed": removed, "ordinal": ordinal,
          "origin": job.result.get("origin", "generate"),
          "edited": job.result.get("edited", False), "job_id": job.id})
+
+
+@router.post("/generate/attributes/{job_id}/images/undo", response_class=HTMLResponse)
+async def attributes_undo_image(request: Request, job_id: str):
+    """Put back the photo a Remove just cleared.
+
+    The URL comes from what the job remembered at removal time, never from the
+    post: the form supplies only which slot to restore, so this route cannot be
+    used to write an arbitrary value into an image column.
+
+    That memory dies with the process, like every other edit on this screen — so
+    an undo offered before a restart is simply gone afterwards, and says so
+    rather than silently doing nothing."""
+    get_user(request)
+    job, _job_dir, xlsx, _csv = job_files(job_id)
+    form = await request.form()
+    ordinal = _requested_ordinal(form)
+    try:
+        slot = int(str(form.get("slot")))
+    except (TypeError, ValueError):
+        slot = None
+    if ordinal is None or slot is None or not (1 <= slot <= len(IMAGE_COLUMNS)):
+        return _templates().TemplateResponse(
+            request, "_attr_images_saved.html",
+            {"error": "Nothing to undo — please reload the screen and try again."})
+
+    url = (job.result.get("removed_images") or {}).get(f"{ordinal}:{slot}")
+    if not url:
+        return _templates().TemplateResponse(
+            request, "_attr_images_saved.html",
+            {"error": "That photo is no longer available to restore — "
+                      "choose the file again for this slot."})
+
+    header = IMAGE_COLUMNS[slot - 1]
+    sku = str(form.get(f"sku__{ordinal}") or "").strip()
+    try:
+        with _WRITE_LOCK:
+            write_attributes(xlsx, read_template(TEMPLATE),
+                             [{"ordinal": ordinal, "sku": sku,
+                               "values": {header: url}}])
+            if job.result.get("origin") == "upload":
+                job.result["edited"] = True
+    except (AttributeValueError, SkuMismatchError) as exc:
+        return _templates().TemplateResponse(
+            request, "_attr_images_saved.html", {"error": str(exc)})
+
+    # Consumed: the slot holds the photo again, so the next click on it should be
+    # a fresh Remove rather than an undo of an undo.
+    (job.result.get("removed_images") or {}).pop(f"{ordinal}:{slot}", None)
+    return _templates().TemplateResponse(
+        request, "_attr_images_saved.html",
+        {"restored": [{"header": header, "url": url, "slot": slot}],
+         "ordinal": ordinal, "job_id": job.id,
+         "origin": job.result.get("origin", "generate"),
+         "edited": job.result.get("edited", False)})

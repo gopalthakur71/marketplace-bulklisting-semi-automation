@@ -1277,3 +1277,125 @@ def test_a_post_with_neither_file_nor_removal_says_so(tmp_path, monkeypatch):
     r = _client(tmp_path).post(f"/generate/attributes/{job.id}/images",
                                data={"ordinal": "0", "sku__0": "S1"})
     assert "nothing was marked for removal" in r.text
+# --- Undo a removal ----------------------------------------------------------
+
+def _with_front(job, url="https://cdn.example/f.jpg"):
+    from src.myntra.attribute_entry import write_attributes
+    write_attributes(job.result["filled"], read_template(V13),
+                     [{"ordinal": 0, "sku": "S1", "values": {"Front Image": url}}])
+
+
+def _front(job):
+    from src.myntra.preview import read_filled_rows
+    return read_filled_rows(job.result["filled"], read_template(V13))[0]["Front Image"]
+
+
+def test_removing_offers_undo_in_place_of_remove(tmp_path, monkeypatch):
+    """The slot is empty now, so there is nothing left to remove — the action
+    beside it becomes the way back."""
+    job = _job(tmp_path, monkeypatch, skus=("S1",))
+    _with_front(job)
+    r = _client(tmp_path).post(f"/generate/attributes/{job.id}/images",
+                               data={"ordinal": "0", "sku__0": "S1", "rm__0__1": "1"})
+    assert "Undo" in r.text
+    assert 'id="slot-rm-0-1"' in r.text and 'hx-swap-oob="true"' in r.text
+
+
+def test_undo_puts_the_same_url_back(tmp_path, monkeypatch):
+    job = _job(tmp_path, monkeypatch, skus=("S1",))
+    _with_front(job)
+    client = _client(tmp_path)
+    client.post(f"/generate/attributes/{job.id}/images",
+                data={"ordinal": "0", "sku__0": "S1", "rm__0__1": "1"})
+    assert not _front(job)
+
+    r = client.post(f"/generate/attributes/{job.id}/images/undo",
+                    data={"ordinal": "0", "slot": "1", "sku__0": "S1"})
+    assert r.status_code == 200
+    assert _front(job) == "https://cdn.example/f.jpg"
+
+
+def test_undo_restores_the_remove_button(tmp_path, monkeypatch):
+    """The slot holds a photo again, so the next click on it must be a fresh
+    Remove rather than an undo of an undo."""
+    job = _job(tmp_path, monkeypatch, skus=("S1",))
+    _with_front(job)
+    client = _client(tmp_path)
+    client.post(f"/generate/attributes/{job.id}/images",
+                data={"ordinal": "0", "sku__0": "S1", "rm__0__1": "1"})
+    r = client.post(f"/generate/attributes/{job.id}/images/undo",
+                    data={"ordinal": "0", "slot": "1", "sku__0": "S1"})
+    assert '"rm__0__1": "1"' in r.text          # Remove is back
+    assert "Undo" not in r.text
+
+
+def test_undo_twice_says_there_is_nothing_left_to_restore(tmp_path, monkeypatch):
+    job = _job(tmp_path, monkeypatch, skus=("S1",))
+    _with_front(job)
+    client = _client(tmp_path)
+    client.post(f"/generate/attributes/{job.id}/images",
+                data={"ordinal": "0", "sku__0": "S1", "rm__0__1": "1"})
+    client.post(f"/generate/attributes/{job.id}/images/undo",
+                data={"ordinal": "0", "slot": "1", "sku__0": "S1"})
+    r = client.post(f"/generate/attributes/{job.id}/images/undo",
+                    data={"ordinal": "0", "slot": "1", "sku__0": "S1"})
+    assert "no longer available to restore" in r.text
+    assert _front(job) == "https://cdn.example/f.jpg"     # left as it was
+
+
+def test_undo_for_a_slot_that_was_never_removed_is_refused(tmp_path, monkeypatch):
+    job = _job(tmp_path, monkeypatch, skus=("S1",))
+    _with_front(job)
+    r = _client(tmp_path).post(f"/generate/attributes/{job.id}/images/undo",
+                               data={"ordinal": "0", "slot": "3", "sku__0": "S1"})
+    assert "no longer available to restore" in r.text
+
+
+def test_undo_ignores_a_url_supplied_by_the_form(tmp_path, monkeypatch):
+    """The restored URL comes from what the job remembered, never from the post —
+    otherwise the form could write any string into an image column."""
+    job = _job(tmp_path, monkeypatch, skus=("S1",))
+    _with_front(job)
+    client = _client(tmp_path)
+    client.post(f"/generate/attributes/{job.id}/images",
+                data={"ordinal": "0", "sku__0": "S1", "rm__0__1": "1"})
+    client.post(f"/generate/attributes/{job.id}/images/undo",
+                data={"ordinal": "0", "slot": "1", "sku__0": "S1",
+                      "url": "https://evil.example/x.jpg",
+                      "Front Image": "https://evil.example/x.jpg"})
+    assert _front(job) == "https://cdn.example/f.jpg"
+
+
+def test_undo_rejects_a_slot_outside_the_myntra_columns(tmp_path, monkeypatch):
+    job = _job(tmp_path, monkeypatch, skus=("S1",))
+    r = _client(tmp_path).post(f"/generate/attributes/{job.id}/images/undo",
+                               data={"ordinal": "0", "slot": "99", "sku__0": "S1"})
+    assert "Nothing to undo" in r.text
+
+
+def test_a_slot_cleared_of_a_non_url_offers_no_undo(tmp_path, monkeypatch):
+    """With hosting off the cell holds a bare basename, which is not something
+    that can be handed back as a picture."""
+    job = _job(tmp_path, monkeypatch, skus=("S1",))
+    _with_front(job, url="S1_1.jpg")
+    r = _client(tmp_path).post(f"/generate/attributes/{job.id}/images",
+                               data={"ordinal": "0", "sku__0": "S1", "rm__0__1": "1"})
+    assert "Undo" not in r.text
+
+
+def test_uploading_into_an_empty_slot_gives_it_a_remove_button(tmp_path, monkeypatch):
+    """The panel rendered that slot with no action at all; after a photo lands
+    there it has something to clear."""
+    job = _job(tmp_path, monkeypatch, skus=("S1",))
+    monkeypatch.setattr(attrs_router, "load_specs", lambda: {
+        "min_width": 700, "min_height": 700, "max_bytes": 10485760, "quality": 90,
+        "public_base_url": "https://cdn.example/myntra", "s3_bucket": "b",
+        "s3_prefix": "myntra", "s3_upload": True})
+    monkeypatch.setattr(attrs_router, "host",
+                        lambda prepared, specs, out_dir: [
+                            f"https://cdn.example/myntra/{k}" for _, k in prepared])
+    r = _client(tmp_path).post(
+        f"/generate/attributes/{job.id}/images",
+        data={"ordinal": "0", "sku__0": "S1"},
+        files={"img__0__5": ("new.png", _png_bytes(800, 800), "image/png")})
+    assert '"rm__0__5": "1"' in r.text

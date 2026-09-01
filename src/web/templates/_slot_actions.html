@@ -1,0 +1,27 @@
+{# The action offered for one image slot. Rendered inline on the panel and again
+   as an out-of-band swap after a remove or an undo, so the button always matches
+   what the slot now holds — a filled slot can be cleared, a just-cleared one can
+   be put back.
+
+   Undo takes only the ordinal and slot: the URL it restores is held server-side
+   against the job, so nothing the browser posts can write an arbitrary string
+   into an image column. #}
+<span class="slot-remove" id="slot-rm-{{ ordinal }}-{{ slot }}"{% if oob %} hx-swap-oob="true"{% endif %}>
+  {% if undo %}
+  <button class="btn slot-remove-btn slot-undo-btn" type="button"
+          hx-post="/generate/attributes/{{ job_id }}/images/undo"
+          hx-include="[name='sku__{{ ordinal }}']"
+          hx-vals='{"ordinal": {{ ordinal }}, "slot": {{ slot }}}'
+          hx-target="#img-out-{{ ordinal }}"
+          hx-swap="innerHTML"
+          hx-disabled-elt="this">↺ Undo</button>
+  {% elif url %}
+  <button class="btn slot-remove-btn" type="button"
+          hx-post="/generate/attributes/{{ job_id }}/images"
+          hx-include="[name='sku__{{ ordinal }}']"
+          hx-vals='{"ordinal": {{ ordinal }}, "rm__{{ ordinal }}__{{ slot }}": "1"}'
+          hx-target="#img-out-{{ ordinal }}"
+          hx-swap="innerHTML"
+          hx-disabled-elt="this">Remove</button>
+  {% endif %}
+</span>
