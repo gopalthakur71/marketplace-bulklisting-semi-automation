@@ -17,3 +17,10 @@ _tpl/
 src/web/runtime/*
 !src/web/runtime/.gitkeep
 .state/
+
+# Terraform: state is never committed (it holds secrets); the lock file IS committed
+*.tfstate
+*.tfstate.*
+.terraform/
+*.tfplan
+crash.log
