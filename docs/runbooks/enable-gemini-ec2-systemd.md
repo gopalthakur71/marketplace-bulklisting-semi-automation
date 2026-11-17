@@ -1,5 +1,7 @@
 # Runbook — Enable Gemini on the EC2 box (systemd unit)
 
+> **Superseded 2026-11-17 (history):** the systemd unit (including `EXPLAIN_WITH_GEMINI` / `GEMINI_MODEL`) is now **written by Ansible**: edit `infra/ansible/group_vars/all.yml` and re-run `ansible-playbook site.yml`. Hand edits on the server are overwritten and lost on rebuild. Current operation: [`infra-terraform-ansible.md`](infra-terraform-ansible.md) · resource map: [`../infra-resources.md`](../infra-resources.md).
+
 **Purpose.** Part 2 of turning on the Fix-Error flow's Gemini explanations in production. Part 1
 (`add-gemini-api-key-ssm.md`) stored the API key in SSM. This part sets the two **env-only** switches
 that are NOT in SSM — they live in the `docker run` line of the systemd unit on the EC2 box:

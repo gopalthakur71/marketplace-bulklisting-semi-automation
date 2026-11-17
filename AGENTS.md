@@ -21,26 +21,39 @@ which is why the deploy/AWS machinery is richer than a one-off script would need
 | 1. Core fill pipeline | `src/core/` + `src/myntra/` + `config/myntra/` | Shopify CSV → mapped/validated Myntra `.xlsx` + images → S3. Entry: `run.py`. `src/myntra/image_replace.py` handles a single owner-uploaded replacement image (prepare + host), separate from the build-time image path in `src/core/images.py`. |
 | 2. Error-correction backend | `src/myntra/{groupid_ledger,hsn_kb,sku_registry,error_reader,corrector}.py` | styleGroupId ledger; HSN knowledge base (learn HSN once per category\|fabric signature); per-SKU generation registry (duplicate-upload guard); read+classify Myntra rejection files; regenerate a corrected sheet. |
 | 3. Web app (FastAPI) | `src/web/` | "Marigold Ops" UI: Flow A *Generate*, Flow B *Fix*, Flow C *Preview* (upload a filled or corrected sheet — the app **adopts** it as a job and opens it in Flow D for editing, rather than showing read-only cards), Flow D *Fill attributes* (choose the 12 seller-decided attributes in-app with a live listing preview, edit tags/names/HSN, and **replace individual product photos per slot**, instead of doing all of that in Excel). Calls layers 1–2; no business logic of its own. |
-| 4. Cloud / CI-CD / deploy | `Dockerfile`, `.github/workflows/ci-cd.yml`, `aws/`, `S3/`, `docs/runbooks/` | Image build, GitHub Actions → ECR via OIDC, **auto-deploy to EC2 via SSM**, Cognito/SSM/Secrets. |
+| 4. Cloud / CI-CD / deploy | `Dockerfile`, `.github/workflows/ci-cd.yml`, **`infra/terraform/`**, **`infra/ansible/`**, `docs/runbooks/` | Image build, GitHub Actions → ECR via OIDC, **auto-deploy to EC2 via SSM**. **Terraform owns every AWS resource; Ansible owns the server's setup.** (`aws/` and `S3/` hold the original hand-applied JSON policies, kept for history; the live versions are in `infra/terraform/`.) |
 
 **Full map with data flow, every module, and integration boundaries:**
 [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — start there for "what comes from where".
 
-## Deployment status (2026-07-02) — LIVE
+## Deployment status (2026-11-17) — infrastructure as code, server on demand
 
-The app runs on a start/stop **EC2 t3.micro** (`listing-app`), image pulled from ECR. **Real
-Cognito auth is enforced** (hosted-UI login → `/auth/callback` → `id_token` cookie). Because
-Cognito rejects plain-HTTP callbacks on any non-`localhost` host and there is **no TLS yet**,
-the app is reached through an **SSH tunnel to localhost**:
-`ssh -i <key>.pem -L 8000:localhost:80 ec2-user@<EC2_IP>` → browse `http://localhost:8000/`.
-**CI/CD is full CD:** push to `main` → tests → build/push `:latest` → the `deploy` job restarts
-the box via **SSM Run Command** (targets the `Name=listing-app` tag). Every AWS/GitHub resource
-is catalogued in [`docs/infra-resources.md`](docs/infra-resources.md). Operate/rebuild via
-[`docs/runbooks/web-ec2-deploy-console.md`](docs/runbooks/web-ec2-deploy-console.md). The
-instance-only config a deploy does **not** reproduce — the systemd unit, Docker log rotation,
-the journald cap, and the 8 GB disk budget — is captured in
-[`docs/runbooks/ec2-box-configuration.md`](docs/runbooks/ec2-box-configuration.md). TLS + a
-public URL (e.g. CloudFront) is intentionally **deferred** — do not open the SG to `0.0.0.0/0`.
+**All infrastructure is code.** Terraform ([`infra/terraform/`](infra/terraform/)) owns every
+AWS resource (imported from the console 2026-11-17 with zero changes); Ansible
+([`infra/ansible/`](infra/ansible/), run from WSL over SSM) owns the server's setup: the
+systemd unit, Docker log rotation and the journald cap.
+
+**The EC2 server is disposable and usually doesn't exist.** `terraform apply -var
+app_running=true` builds a fresh t3.micro (Amazon Linux 2023, no SSH key), `ansible-playbook
+site.yml` sets it up, and `app_running=false` deletes it, so idle cost is ≈ $0.50/mo. Nothing
+lives on the box: data is in S3, config/secrets in SSM, the image in ECR. **Never `terraform
+destroy`**: it targets the data bucket and IAM too. **Never configure the box by hand**: edit
+Ansible instead. Step-by-step: [`docs/runbooks/infra-terraform-ansible.md`](docs/runbooks/infra-terraform-ansible.md).
+Why: [`docs/decisions/2026-11-17-terraform-ansible-disposable-server.md`](docs/decisions/2026-11-17-terraform-ansible-disposable-server.md).
+
+**Access** is an **SSM port forward** to `http://localhost:8000` (the command is the
+`ssm_port_forward_command` Terraform output). No SSH. **Cognito login is still enforced**
+(hosted UI → `/auth/callback`; its callback is `localhost:8000`, so it works through the
+forward). **CI/CD is full CD:** push to `main` → tests → build/push `:latest` → the `deploy`
+job restarts the box via **SSM Run Command** (targets the `Name=listing-app` tag, so exactly one
+instance may carry it). While the server is off, the deploy job fails harmlessly, and the next
+"on" pulls `:latest`.
+
+**Pending (spec [`docs/superpowers/specs/2026-11-13-terraform-ansible-iac-design.md`](docs/superpowers/specs/2026-11-13-terraform-ansible-iac-design.md)):**
+phase 4 deletes the last two inbound SG rules and the old key pair; phase 5 removes Cognito
+(`AUTH_DISABLED=1`, with IAM as the gate); also agreed: ECR keep 3 images, and a Spot instance one size up.
+Every resource is catalogued in [`docs/infra-resources.md`](docs/infra-resources.md). TLS + a
+public URL stay **deferred**: never open the SG to `0.0.0.0/0`.
 
 ## How to run / test
 
@@ -105,7 +118,9 @@ CSS + vendored htmx + vendored fonts (no runtime CDN).
 | Usage + the Myntra upload rules (pricing, HSN, colours) | [`README.md`](README.md) |
 | A plain-English tour of every feature / every technology (non-technical) | [`docs/APP-FEATURES-GUIDE.md`](docs/APP-FEATURES-GUIDE.md), [`docs/TECH-EXPLAINED-FOR-BEGINNERS.md`](docs/TECH-EXPLAINED-FOR-BEGINNERS.md) |
 | **Why** something is built the way it is (design decisions) | [`docs/decisions/`](docs/decisions/) |
-| How to set up / operate AWS (Cognito, SSM/Secrets, CI/CD, EC2) | [`docs/runbooks/`](docs/runbooks/) |
+| How to turn the server on/off, open the app, change its setup | [`docs/runbooks/infra-terraform-ansible.md`](docs/runbooks/infra-terraform-ansible.md) |
+| Every AWS/GitHub resource and which `.tf` file owns it | [`docs/infra-resources.md`](docs/infra-resources.md) |
+| Original console setup (history; superseded by `infra/`) | [`docs/runbooks/`](docs/runbooks/) (`*-console.md`) |
 | Deep design specs + implementation plans | [`docs/superpowers/specs/`](docs/superpowers/specs/), [`docs/superpowers/plans/`](docs/superpowers/plans/) |
 | Chronological history + the full upload-error debugging story | [`docs/journal/`](docs/journal/) |
 

@@ -116,18 +116,49 @@ This is the part that gets the app from your laptop onto the internet. Three pie
 - **ECR** (Elastic Container Registry) is Amazon's **warehouse for those containers**. Every time
   the app is updated, a fresh container is built and stored in ECR, tagged `latest`.
 
-- **EC2** (Elastic Compute Cloud) is a **rented Amazon computer** that's always reachable from the
-  internet. It pulls the `latest` container from ECR and runs it. This is the computer your live
-  app actually runs on. To save money it's a tiny machine (`t3.micro`) and is often **switched off
-  when not in use** — idle it costs under a dollar a month.
+- **EC2** (Elastic Compute Cloud) is a **rented Amazon computer**. It pulls the `latest`
+  container from ECR and runs it; this is the computer your live app runs on. To save money it's
+  a small machine (`t3.micro`), and it **only exists while you're using the app**: it's built
+  fresh when you need it and deleted when you're done (see §7b). When it doesn't exist, it costs
+  nothing.
 
 **Analogy:** Docker is packing your app into a shipping container; ECR is the port warehouse where
 containers are stored; EC2 is the truck that picks up the latest container and drives it around so
 customers can reach it.
 
-> **One quirk to remember:** every time you stop and start the EC2 computer, its public internet
-> address (IP) changes. That's why you reach it through an "SSH tunnel" (a secure private
-> connection) rather than a fixed web address — there's no proper web domain/HTTPS set up yet.
+> **How you reach it:** not through a public web address. There's no web domain or HTTPS, and
+> nothing is open to the internet. Instead an **SSM port forward** (a private, AWS-authenticated
+> connection) links the server to your own laptop, and you open `http://localhost:8000` in your
+> browser.
+
+---
+
+## 7b. Building the server from a recipe: Terraform and Ansible
+
+Originally every piece of the Amazon setup was made by clicking around the AWS website, and the
+server's settings existed only on that one server. If it broke, rebuilding it meant remembering
+dozens of steps. Now it's all written down as code:
+
+- **Terraform** is a **blueprint for the Amazon side**: the server, the storage buckets, the
+  permissions, the settings store. You describe what should exist, and Terraform makes Amazon
+  match the description. It shows you a **plan** first ("I will create 1 thing, delete 0") and
+  waits for your `yes`.
+- **Ansible** is a **setup checklist for the server itself**: install Docker, cap how big the
+  log files can grow, install the app's start-up instructions, then check the app answers. Run it
+  twice and it only does what's missing, so it's always safe to re-run.
+
+Together they let the server be **disposable**:
+
+1. **Turn on:** Terraform builds a brand-new server (about 1 minute).
+2. **Set up:** Ansible configures it and starts the app (about 3–6 minutes).
+3. **Use** the app.
+4. **Turn off:** Terraform deletes the server. Your products, images and settings are safe:
+   they live in S3 and SSM, never on the server.
+
+**Analogy:** instead of owning a food truck that sits in a paid parking spot all month, you have
+the **exact plans for the truck** (Terraform) and the **kitchen fit-out checklist** (Ansible).
+On the day you need it, a fresh truck is built and fitted in minutes; when you're done, it goes
+back and you pay nothing for the days you didn't use it.
 
 ---
 
@@ -144,15 +175,16 @@ customers can reach it.
   1. **Tests** — runs 170+ automated checks to make sure nothing broke.
   2. **Builds & stores** — if tests pass, it packs a fresh Docker container and pushes it to ECR.
   3. **Deploys** — tells the EC2 computer to restart on the new container (only works if the
-     computer is currently switched on).
+     server currently exists, i.e. it's turned on).
 
 **Analogy:** GitHub is the master logbook of every recipe change. GitHub Actions is an automatic
 quality inspector + delivery service: it taste-tests every change, and if it passes, boxes it and
 ships it to the restaurant — no manual work from you.
 
-> **Why "deploy" sometimes fails:** if the EC2 computer is switched off, step 3 has nothing to
-> restart, so it errors. That's harmless — the new container is safely in ECR, and simply
-> **switching the computer on later loads the latest version automatically** (booting = deploying).
+> **Why "deploy" usually fails:** most of the time the server is turned off (deleted), so step 3
+> has nothing to restart and shows a red ❌. That's harmless: the new container is safely in ECR,
+> and the **next time you turn the server on it loads the latest version automatically**
+> (starting = deploying).
 
 ---
 
@@ -188,8 +220,9 @@ Here's what actually happens, end to end, when the app is updated and you use it
 1. A change is made to the Python code → saved to **Git** → pushed to **GitHub**.
 2. **GitHub Actions** runs the **tests**. If green, it builds a **Docker** container and stores it
    in **ECR**, then tells **EC2** to restart on it.
-3. The **EC2** computer runs the container. **uvicorn** serves the **FastAPI** website.
-4. You open the link, **Cognito** logs you in.
+3. When you want to work, **Terraform** builds the **EC2** server and **Ansible** sets it up. The
+   server runs the container, and **uvicorn** serves the **FastAPI** website.
+4. You open `localhost:8000` through the SSM port forward, and **Cognito** logs you in.
 5. You upload a Shopify file. **Python** (layers 1–2) reads it, uploads photos to **S3**, reads
    settings/secrets from **SSM**, and builds your Myntra sheet.
 6. **htmx** shows you live progress; you download the finished `.xlsx`.
@@ -211,10 +244,12 @@ is doing and why it's there.
 | **Cognito** | Amazon's login/password service. |
 | **Docker** | Packs the app into a portable sealed container. |
 | **ECR** | Amazon's warehouse for those containers. |
-| **EC2** | The rented Amazon computer that runs the live app. |
+| **EC2** | The rented Amazon computer that runs the app, built on demand and deleted after use. |
+| **Terraform** | The blueprint that creates (and deletes) everything on Amazon from code. |
+| **Ansible** | The checklist that sets up the server: Docker, log limits, the app. |
 | **Git / GitHub** | The change-history time machine, stored online. |
 | **GitHub Actions / CI-CD** | The robot that tests, builds and ships changes automatically. |
 | **SSM Parameter Store** | Secure cloud cabinet for settings and the one secret. |
 | **YAML** | Simple settings-file format used to change behaviour without code. |
 | **HSN / styleGroupId** | Myntra's tax code / unique product-group number the app manages. |
-| **SSH tunnel** | A secure private connection used to reach the app (no web domain yet). |
+| **SSM port forward** | A private, AWS-authenticated link from the server to your laptop, used to open the app (no web domain, nothing public). |

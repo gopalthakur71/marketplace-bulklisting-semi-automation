@@ -1,6 +1,22 @@
 # Infrastructure as Code — Terraform + Ansible (design)
 
-**Date:** 2026-11-13 · **Status:** draft for review · **Owner:** Gopal
+**Date:** 2026-11-13 · **Status:** phases 1–3 **done** (2026-11-17), 4–5 pending · **Owner:** Gopal
+
+> **Progress & how the build differed from this plan (2026-11-17):**
+> - **Phase 1–2 done.** 27 console resources imported with zero changes, plus a 9th SSM parameter
+>   (`gemini_api_key`) that the docs had missed. The SG was found **open to `0.0.0.0/0` on 22 and
+>   80**; those rules were removed right after import (not deferred to phase 4).
+> - **Phase 3 done, with a change of plan:** instead of a long-lived replacement box, the server is
+>   **disposable**. `var.app_running` (no default) creates/deletes `aws_instance.server`, and the
+>   console box was deleted at cutover (`moved` block next → server[0]). "Terminate the old box
+>   after a few days" became "delete it once the new one passed its health check".
+> - **Ansible SSM connection is `community.aws.aws_ssm` 9.x**, not `amazon.aws.aws_ssm` (that needs
+>   amazon.aws 10 / ansible-core 2.17; Ubuntu ships 2.16).
+> - **The transfer bucket needs no EC2-role grant.** The plugin hands the box presigned URLs.
+> - **New unit setting `TimeoutStartSec=600`**: the default 90 s killed the first image pull on a
+>   fresh box (a latent bug in the original unit).
+> - Operating runbook: [`docs/runbooks/infra-terraform-ansible.md`](../../runbooks/infra-terraform-ansible.md);
+>   ADR: [`docs/decisions/2026-11-17-terraform-ansible-disposable-server.md`](../../decisions/2026-11-17-terraform-ansible-disposable-server.md).
 
 ## Goal
 

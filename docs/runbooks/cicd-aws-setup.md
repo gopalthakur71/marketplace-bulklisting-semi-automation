@@ -1,5 +1,7 @@
 # Runbook — CI/CD AWS setup (GitHub Actions → ECR)
 
+> **Superseded 2026-11-17 (history):** the OIDC provider, the `github-actions-ecr-push` role and its policies, and the ECR repo + lifecycle are now **managed by Terraform** (`infra/terraform/iam.tf`, `ecr.tf`). Change them there, not with these CLI commands. Current operation: [`infra-terraform-ansible.md`](infra-terraform-ansible.md) · resource map: [`../infra-resources.md`](../infra-resources.md).
+
 One-time setup so the `ci-cd` workflow can push images. Run these in **your**
 AWS account (`ap-south-1`) with admin credentials. Policy JSON lives in
 `aws/cicd/`. Replace `<ACCOUNT_ID>` with your 12-digit AWS account id first:

@@ -1,5 +1,7 @@
 # Runbook — SSM Parameter Store Setup via the **Console**
 
+> **Superseded 2026-11-17 (history):** the `/marketplace-listing/*` parameters are now **managed by Terraform** (`infra/terraform/ssm.tf`); SecureString *values* are still set outside code. Secrets Manager was retired 2026-07-02. Current operation: [`infra-terraform-ansible.md`](infra-terraform-ansible.md) · resource map: [`../infra-resources.md`](../infra-resources.md).
+
 Same outcome as the CLI runbook, done through the AWS web console. This sets up the configuration
 parameters (including the Cognito client secret as a **SecureString**) that the Marigold Ops web app
 reads on startup when environment variables are not set. The settings loader falls back per-field:

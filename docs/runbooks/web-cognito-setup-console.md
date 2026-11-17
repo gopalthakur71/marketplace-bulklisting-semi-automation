@@ -1,5 +1,7 @@
 # Runbook — Cognito Authentication Setup via the **Console**
 
+> **Superseded 2026-11-17 (history):** the user pool, app client and domain are now **managed by Terraform** (`infra/terraform/cognito.tf`), and Cognito is **scheduled for removal** (phase 5 of the IaC spec). Current operation: [`infra-terraform-ansible.md`](infra-terraform-ansible.md) · resource map: [`../infra-resources.md`](../infra-resources.md).
+
 Same outcome as the CLI runbook, done through the AWS web console. This sets up user authentication for the Marigold Ops web app. Do the steps in order.
 
 **Values used throughout (don't substitute — these are this project's):**

@@ -1,5 +1,7 @@
 # Runbook — Add the Gemini API key to SSM (production)
 
+> **Updated 2026-11-17:** the `/marketplace-listing/gemini_api_key` parameter is now **adopted by Terraform** (`infra/terraform/ssm.tf`, value ignored). Setting or rotating the key's *value* as described here is still valid. Current operation: [`infra-terraform-ansible.md`](infra-terraform-ansible.md) · resource map: [`../infra-resources.md`](../infra-resources.md).
+
 **Purpose.** The Fix-Error flow calls Gemini to explain cryptic Myntra errors in plain English. In
 production the app reads its config from **SSM Parameter Store** (region `ap-south-1`). This runbook
 adds one new parameter — the Gemini API key — as a **SecureString**, exactly the same pattern as the

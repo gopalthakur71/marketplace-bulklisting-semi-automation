@@ -1,79 +1,75 @@
 # Infrastructure Cost Breakdown — AWS
 
-> What every AWS resource in this project costs, and what your monthly bill actually depends on.
-> Companion to [`docs/infra-resources.md`](infra-resources.md) (the resource map). Snapshot:
-> **2026-07-02**, region **ap-south-1 (Mumbai)**. Prices are approximate on-demand rates and drift
-> over time — treat as ballpark, confirm live figures in the **Billing → Cost Explorer** console.
+> What every AWS resource in this project costs, and what your monthly bill depends on.
+> Companion to [`infra-resources.md`](infra-resources.md) (the resource map). Snapshot:
+> **2026-11-17**, region **ap-south-1 (Mumbai)**. Prices are approximate on-demand rates and
+> drift over time; confirm live figures in **Billing → Cost Explorer**.
 >
-> **Account context:** this account is **past its 12-month Free Tier**, so EC2 compute is billed at
-> on-demand rates. (The "Free tier eligible" badge on `t3.micro` in the console is a static label on
-> the instance type, *not* an account-specific entitlement.)
+> **Account context:** this account is **past its 12-month Free Tier**, so EC2 is billed at
+> normal rates.
 
 ## TL;DR
 
-**The bill is dominated by one lever: how many hours the EC2 box is running.** Everything else is a
-dollar or less per month. With the start/stop habit (run it to list, then stop it), expect
-**≈ $1–3/month**. Left on 24×7, **≈ $12/month**.
+**You pay for the server only while it exists.** Since 2026-11-17 the EC2 server is created
+when you need it and **deleted** when you're done (`terraform apply -var app_running=true|false`;
+see [`runbooks/infra-terraform-ansible.md`](runbooks/infra-terraform-ansible.md)). When it's off
+there is **no instance, no disk and no public IP**, so the idle bill is just storage:
+**≈ $0.50/month**.
 
 | Scenario | Approx / month |
 |---|---|
-| **Box stopped most of the time** (start on demand, e.g. ~20 h/mo) | **~$1.5** |
-| Moderate use (~50 h/mo running) | ~$2 |
-| Heavy use (~100 h/mo running) | ~$2.7 |
-| **Left running 24×7** | **~$12** |
+| **Not used at all** (server off all month) | **~$0.50** |
+| A few sessions (~10 h/mo) | ~$0.70 |
+| Regular use (~30 h/mo) | ~$1.00 |
+| Left on 24×7 (don't) | ~$12 |
 
 ---
 
 ## Per-resource costs
 
-### Billed while the box is RUNNING (the variable part)
-| Resource | Rate (ap-south-1) | 24×7/mo | Notes |
-|---|---|---|---|
-| **EC2 `t3.micro`** compute | ~**$0.0112/hr** | ~$8.2 | Only billed while the instance is *running*. Stopped = $0 compute. |
-| **Public IPv4 address** | ~**$0.005/hr** | ~$3.6 | AWS charges for in-use public IPv4 (since 2024). Released when the box stops → $0 while stopped. |
-| → **combined running rate** | ~**$0.0162/hr** | ~$11.8 | This is what each hour of uptime costs. |
+### Billed only while the server EXISTS (the variable part)
+| Resource | Rate (ap-south-1) | Notes |
+|---|---|---|
+| **EC2 `t3.micro`** compute (on-demand) | ~**$0.0112/hr** | A Spot instance (planned) would be cheaper per hour, even one size up. |
+| **Public IPv4 address** | ~**$0.005/hr** | Released when the server is deleted. |
+| **EBS root volume** (8 GB gp3) | ~$0.0912/GB-mo, so ~$0.0010/hr | Deleted with the server. (A *stopped* server would still pay ~$0.70/mo for this, which is why the box is deleted, not stopped.) |
+| → **combined** | ~**$0.017/hr** | What each hour of use costs. |
 
-### Billed always (the fixed baseline, ~$0.85/mo)
+### Billed always (the idle baseline, ~$0.50/mo)
 | Resource | Rate | ~/mo | Notes |
 |---|---|---|---|
-| **EBS root volume** (~8 GB gp3) | ~$0.0912/GB-mo | ~**$0.70** | Charged even while the instance is stopped — it's the disk. |
-| **ECR image storage** (~1–2 GB) | $0.10/GB-mo | ~**$0.10–0.20** | `:latest` + a few `:<sha>` tags; lifecycle policy keeps the last 10. |
-| **S3 storage** (`ijorethnicpartners`) | $0.025/GB-mo | **cents** | Product JPGs + the ledger. 2 GB ≈ $0.05/mo. Scales with image count. |
+| **ECR image storage** | $0.10/GB-mo | ~**$0.30–0.50** | Up to 10 images of ~540 MB (lifecycle rule). **Planned: keep 3**, roughly a third of this. |
+| **S3 `ijorethnicpartners`** | $0.025/GB-mo | **cents** | Product JPGs + the app's state files. Scales with image count. |
+| **S3 Terraform state bucket** | — | **< 1 cent** | A few KB, versioned. |
+| **S3 Ansible transfer bucket** | — | **$0** | Empty between runs; objects expire after a day. |
 
 ### Effectively free (at this scale)
 | Resource | Why free |
 |---|---|
-| **SSM Parameter Store** (8 params, incl. the SecureString) | Standard parameters are free. The SecureString uses the AWS-managed `aws/ssm` KMS key — no key fee; the few decrypt calls per app start are negligible ($0.03 / 10k requests). |
-| **Cognito** (user pool, hosted UI) | Free tier covers 50,000 monthly active users; this is single-user. The hosted-UI domain's CloudFront is AWS-managed and not billed to you. |
-| **IAM** (roles, OIDC provider, policies) | No charge. |
-| **SSM Run Command** (CI deploy job) | No charge. |
-| **S3 requests + data transfer** | PUT $0.005/1k, GET $0.0004/1k, first 100 GB/mo egress free — all cents at this volume. |
-| **GitHub Actions** | Public/allowance minutes on the plan; the pipeline is a few minutes per push. |
+| **SSM Parameter Store** (9 params, 2 SecureStrings) | Standard parameters are free; the SecureStrings use the free AWS-managed `aws/ssm` key. |
+| **SSM Session Manager / Run Command** (port forward, Ansible, CI deploys) | No charge. |
+| **Cognito** | Free tier covers far more than one user. Being removed in phase 5 anyway. |
+| **IAM, security group, OIDC provider** | No charge. |
+| **S3 requests + data transfer** | Cents at this volume; first 100 GB/mo egress free. |
+| **GitHub Actions** | A few minutes per push. |
 
 ---
 
 ## What used to cost more (removed)
-- **Secrets Manager** — retired 2026-07-02. It charged **~$0.40/mo per secret**; the Cognito client
-  secret is now a free SSM **SecureString**. (See [`decisions/2026-06-30-config-ssm-secrets-rationale.md`](decisions/2026-06-30-config-ssm-secrets-rationale.md).)
+- **A stopped-but-kept EC2 box** (until 2026-11-17): its 8 GB disk billed ~$0.70/mo even when
+  unused, plus ~$11.8/mo whenever it was left running. Replaced by create-on-demand.
+- **Secrets Manager** (retired 2026-07-02): ~$0.40/mo per secret; the Cognito client secret is a
+  free SSM SecureString instead. See [`decisions/2026-06-30-config-ssm-secrets-rationale.md`](decisions/2026-06-30-config-ssm-secrets-rationale.md).
 
-## What would push the bill UP (cost levers)
-1. **Leaving the box running 24×7** — the single biggest factor (~$11.8/mo of the ~$12 total).
-2. **TLS + public URL (deferred):** a CloudFront distribution is usage-billed (cents for one user,
-   but real if traffic grows), and an **Elastic IP** costs ~$3.6/mo *while the box is stopped*
-   (in-use EIPs on a running box are free). This is why it was parked.
-3. **A bigger instance** (t3.small/medium) if the pipeline needs more RAM/CPU — 2–4× the compute rate.
-4. **Large image volume in S3** — storage + egress grow with tens of thousands of product images
-   (still cheap: ~$0.025/GB-mo storage, first 100 GB/mo egress free).
+## What would push the bill UP
+1. **Forgetting to turn the server off.** That's the only way to a real bill (~$12/mo 24×7).
+   `terraform output` shows whether `instance_id` exists.
+2. **A bigger on-demand instance.** A t3.small/medium is 2–4× the hourly rate; Spot offsets that.
+3. **TLS + a public URL** (deferred): CloudFront is usage-billed, and an Elastic IP is billed
+   while not attached to a running instance.
+4. **Large image volume in S3**, which grows slowly (~$0.025/GB-mo).
 
-## How to keep it low
-- **Stop the instance when you're not actively listing.** That zeroes the ~$0.0162/hr running cost;
-  you keep only the ~$0.85/mo fixed baseline.
-- Don't allocate an Elastic IP unless you commit to always-on.
-- The ECR lifecycle policy (keep last 10 images) already caps registry growth.
-
-## How to monitor / stay safe
-- **Billing → Cost Explorer** — actual spend by service, filterable by day/service.
-- **Billing → Free Tier** — shows what, if anything, you're still drawing from a free allowance.
-- **Recommended:** set a **Budget alert** (Billing → Budgets) at, say, **$5/month** so a forgotten
-  running box emails you before it becomes a surprise. This is the single best safeguard against the
-  "left it on 24×7" scenario.
+## How to monitor
+- **Billing → Cost Explorer**: actual spend by service. An instance's hours appear about a day later.
+- **Recommended:** a **Budget alert** (Billing → Budgets) at about **$3/month**, so a server left on
+  emails you before it becomes a surprise.

@@ -26,9 +26,10 @@ for *why* decisions were made see [decisions/](decisions/).
 | Rejection file not classified / wrong fix bucket | `src/myntra/error_reader.py` + `config/myntra/error_rules.yaml` |
 | Web app returns 401 / login issues | `src/web/auth.py` + Cognito settings; locally set `AUTH_DISABLED=1` |
 | Generate job stuck / disappears | `src/web/jobs.py` (**in-memory, lost on restart**) + `src/web/routers/generate.py` |
-| Config not loading on the server | `src/web/settings.py` (per-field env→SSM/Secrets) + EC2 instance role perms |
-| CI build/push fails | `.github/workflows/ci-cd.yml` + `aws/cicd/*` (OIDC role/trust) |
-| Deploy / EC2 issues | `docs/runbooks/web-ec2-deploy-console.md` |
+| Config not loading on the server | `src/web/settings.py` (per-field env→SSM) + `infra/terraform/iam.tf` (instance role perms) + `ssm.tf` |
+| CI build/push fails | `.github/workflows/ci-cd.yml` + `infra/terraform/iam.tf` (OIDC provider, role, trust) |
+| CI deploy job fails | Usually the server is **off** (harmless). Otherwise `iam.tf` (`ssm-deploy`) + the `Name=listing-app` tag |
+| Server won't come up / app not healthy | `docs/runbooks/infra-terraform-ansible.md` § Troubleshooting; unit in `infra/ansible/roles/listing_app/` |
 
 ---
 
@@ -49,7 +50,7 @@ for *why* decisions were made see [decisions/](decisions/).
         └──────────────┬───────────────────────┘   └──────────────────────────────────────────┘
                        │ images → S3, ledger → S3
         ┌──────────────▼───────────────────────── Layer 4: Cloud / CI-CD / deploy ───────────┐
-        │ Dockerfile → GitHub Actions (OIDC) → ECR → EC2 (instance role) ; Cognito ; SSM/Secrets│
+        │ Dockerfile → GitHub Actions (OIDC) → ECR → EC2 on demand ; SSM ; Terraform + Ansible │
         └───────────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -91,9 +92,11 @@ input/                         # Shopify export (git-ignored)
 output/                        # generated sheets/images/report (git-ignored)
 errors/myntra/                 # captured rejection files (git-ignored)
 
-aws/cicd/                      # OIDC trust + ECR push/lifecycle policies (CI identity)
-S3/                            # IAM + bucket policies for image hosting (app→S3 identity)
-.github/workflows/ci-cd.yml    # test gate → build → push image to ECR
+infra/terraform/               # ALL AWS resources (state in S3; see docs/infra-resources.md)
+infra/ansible/                 # the server's setup: docker, journald, listing_app unit (over SSM)
+infra/bootstrap-state-bucket.sh  # one-time: the Terraform state bucket (made by hand)
+aws/cicd/, S3/                 # original hand-applied JSON policies — HISTORY; live ones are in infra/terraform
+.github/workflows/ci-cd.yml    # test gate → build → push image to ECR → deploy via SSM
 
 docs/
   ARCHITECTURE.md (this file)  decisions/ (ADRs / why)  runbooks/ (ops)
@@ -493,22 +496,23 @@ run.py`; `EXPOSE 8080`; `CMD uvicorn src.web.main:app --host 0.0.0.0 --port 8080
 
 ### Pipeline — `.github/workflows/ci-cd.yml`
 
-Two jobs. **`test`** (on push + PR + dispatch): pytest gate. **`build-and-push`**
+Three jobs. **`test`** (on push + PR + dispatch): pytest gate. **`build-and-push`**
 (`needs: test`, and `if` event ≠ pull_request **and** ref = `refs/heads/main`): assume the AWS
 role via **GitHub OIDC** (no stored keys), ECR login, build, push `:<git-sha>` + `:latest`.
-Least-privilege permissions: default `contents: read`; `id-token: write` granted **only** to
-`build-and-push`, never to the PR-running `test` job. Repo secret `AWS_ACCOUNT_ID` is just the
-account number. **This is CI + image-publish (Continuous Delivery of an artifact), not deploy.**
+**`deploy`** (`needs: build-and-push`): finds the running instance tagged `Name=listing-app` and
+sends it `docker image prune -f` + `systemctl restart listing-app` via **SSM Run Command**
+(restart == deploy, because the unit re-pulls `:latest`). When the server is off there is no such
+instance and the job fails, harmlessly. Least-privilege permissions: default `contents: read`;
+`id-token: write` only on the AWS jobs, never on the PR-running `test` job. Repo secret
+`AWS_ACCOUNT_ID` is just the account number.
 
-### AWS policy files
+### Infrastructure as code — `infra/`
 
-| File | Identity / purpose |
+| Path | Owns |
 |---|---|
-| `aws/cicd/oidc-trust-policy.json` | Trust scoped to `repo:gopalthakur71/…:ref:refs/heads/main`. |
-| `aws/cicd/ecr-push-permissions.json` | `GetAuthorizationToken` (`*`) + push actions scoped to the `marketplace-bulklisting` repo ARN. |
-| `aws/cicd/ecr-lifecycle-policy.json` | Keep last 10 images. |
-| `S3/iam-policy-s3-image-upload.json` | App→S3 upload (PutObject/GetObject on `ijorethnicpartners/myntra/*`). |
-| `S3/s3-bucket-policy-ijor-public-read.json` | Anonymous read on `myntra/*` only (rest private). |
+| `infra/terraform/` | Every AWS resource: `ec2.tf` (the on-demand server, `var.app_running`), `network.tf` (SG), `iam.tf` (EC2 role + GitHub OIDC/deploy role), `ecr.tf`, `s3.tf` (`ijorethnicpartners`, `prevent_destroy`), `ssm.tf` (9 params; SecureString values ignored, never in code), `cognito.tf` (until phase 5), `ansible_transfer.tf`, `imports.tf` (audit trail of what was adopted from the console). State: S3 `ijor-tfstate-048589483919`, S3-native lock. |
+| `infra/ansible/` | The server's setup over SSM (`community.aws.aws_ssm`; dynamic inventory by `Name` tag): roles `docker` (install + validated `daemon.json` log rotation), `journald` (cap drop-in), `listing_app` (systemd unit template, start, health check). Env vars and `auth_disabled` live in `group_vars/all.yml`. |
+| `aws/cicd/*.json`, `S3/*.json` | The policies as first hand-applied in the console. **History only**; the live definitions are in `infra/terraform/`. |
 
 ### Three separate AWS identities (don't conflate)
 
@@ -520,18 +524,22 @@ account number. **This is CI + image-publish (Continuous Delivery of an artifact
 
 ### Runtime config & secrets
 
-All runtime config = **SSM Parameter Store** under `/marketplace-listing/*` (8 params: 3 S3 + 4
-Cognito + the Cognito client secret as a **SecureString**). **No Secrets Manager** — it was
+All runtime config = **SSM Parameter Store** under `/marketplace-listing/*` (9 params: 3 S3 + 4
+Cognito + two **SecureStrings**, the Cognito client secret and the Gemini API key). Defined in
+`infra/terraform/ssm.tf`; the secret values are set outside code. **No Secrets Manager**: it was
 retired 2026-07-02 (SSM SecureString is free and read the same way, with `WithDecryption=True`).
 Rationale in [decisions/2026-06-30-config-ssm-secrets-rationale.md](decisions/2026-06-30-config-ssm-secrets-rationale.md).
 
 ### Deploy
 
-Start/stop EC2 t3.micro; a systemd unit pulls `:latest` on boot (**boot = deploy**), and CI's
-`deploy` job restarts it via SSM Run Command on every push to `main` (full CD). Real Cognito auth
-is **live** (reached via SSH tunnel to localhost; no TLS yet). Step-by-step console runbook:
-[runbooks/web-ec2-deploy-console.md](runbooks/web-ec2-deploy-console.md); full resource map:
-[infra-resources.md](infra-resources.md).
+**The server is disposable.** `terraform apply -var app_running=true` builds a fresh EC2
+t3.micro (Amazon Linux 2023, no SSH key); `ansible-playbook site.yml` installs Docker and the
+systemd unit, which pulls `:latest` on start (**start = deploy**); `app_running=false` deletes the
+box. While it's on, CI's `deploy` job restarts it via SSM Run Command on every push to `main`
+(full CD). Access is an **SSM port forward** to `localhost:8000`; Cognito login is still live
+(removal planned). Operate: [runbooks/infra-terraform-ansible.md](runbooks/infra-terraform-ansible.md);
+why: [decisions/2026-11-17-terraform-ansible-disposable-server.md](decisions/2026-11-17-terraform-ansible-disposable-server.md);
+resource map: [infra-resources.md](infra-resources.md).
 
 ---
 
@@ -547,8 +555,9 @@ This is the section to read when something *outside* the code changes.
 | **Myntra's generated title/description** | `src/myntra/preview.py` | Myntra derives them from the attributes and ignores what we submit. The reconstruction is deliberately labelled approximate — do not try to pixel-match it. Both preview surfaces go through `build_card`, so change it in one place. |
 | **S3 (images + ledger)** | `src/core/s3_upload.py`, `groupid_ledger.S3JsonStore`, `src/myntra/image_replace.py` (replacement leg) | Bucket `ijorethnicpartners`, region `ap-south-1`, image prefix `myntra/`, ledger key `state/myntra_groupid.json`. Images must be `.jpg` and public-read. Replacement images key as `{sku}/{slot}-{hash}.jpg` (content-addressed, not `{sku}/{n}.jpg`) — see §3. **Unverified:** the replacement upload leg has not yet been exercised against real AWS credentials, only against a fake/injected boto3 client in tests. |
 | **Cognito (auth)** | `src/web/auth.py`, `settings.py`, `oauth.py`, `auth_routes.py` | Pool/client/domain + client secret (SecureString) in SSM; JWT validated by JWKS with `verify_at_hash: False` (Cognito id_tokens carry `at_hash`). Hosted-UI login round-trip (/login → /auth/callback → /logout) is **live**. |
-| **ECR (image registry)** | `ci-cd.yml`, deploy systemd | Repo `marketplace-bulklisting`, `:latest` pulled on boot; CI `deploy` job restarts via SSM. |
-| **SSM Parameter Store (config)** | `src/web/settings.py` | Per-field env→SSM fallback; prefix `/marketplace-listing/`; read on EC2 via instance role. Secret is a SecureString. No Secrets Manager. |
+| **ECR (image registry)** | `ci-cd.yml`, the Ansible-managed unit | Repo `marketplace-bulklisting`, `:latest` pulled on every start; CI `deploy` job restarts via SSM. |
+| **SSM Parameter Store (config)** | `src/web/settings.py` | Per-field env→SSM fallback; prefix `/marketplace-listing/`; read on EC2 via instance role. Secrets are SecureStrings. No Secrets Manager. |
+| **AWS infrastructure** | `infra/terraform/`, `infra/ansible/` | Change AWS resources or the server's setup only here, never in the console or on the box. Read every `terraform plan`; a destroy/replace on anything but `aws_instance.server[0]` is a stop sign. |
 
 ---
 
@@ -600,7 +609,9 @@ see `docs/journal/` for the standing guidance.
 | `APP-FEATURES-GUIDE.md` | Plain-English tour of **every user-facing feature** (non-technical). |
 | `TECH-EXPLAINED-FOR-BEGINNERS.md` | Plain-English tour of **every technology** used (zero prior tech knowledge). |
 | `decisions/` | ADRs — *why* (e.g. SSM/Secrets rationale). |
-| `runbooks/` | Ops click-throughs: CI/CD, Cognito, SSM/Secrets, EC2 deploy. |
+| `runbooks/infra-terraform-ansible.md` | **Operate the server**: on/off, open the app, change setup, troubleshoot. |
+| `infra-resources.md`, `infra-costs.md` | Every AWS/GitHub resource (+ owning `.tf` file); what it costs. |
+| `runbooks/` (others) | Original console click-throughs (history; superseded by `infra/`) + the AWS CLI reference. |
 | `superpowers/specs/`, `superpowers/plans/` | Deep design + implementation plans. |
 | `journal/` | Day-by-day history incl. the full upload-error debugging chronology. |
 

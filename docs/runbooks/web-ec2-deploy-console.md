@@ -1,5 +1,7 @@
 # Runbook — Deploy the Marigold Ops web app to EC2 via the **Console**
 
+> **Superseded 2026-11-17 (history):** the EC2 server is now **created and deleted by Terraform** (`infra/terraform/ec2.tf`) and **set up by Ansible** (`infra/ansible/`). The console instance described here (`i-0add667d4cec224c6`) was deleted on 2026-11-17, and the user-data/SSH-tunnel steps no longer apply. Current operation: [`infra-terraform-ansible.md`](infra-terraform-ansible.md) · resource map: [`../infra-resources.md`](../infra-resources.md).
+
 Phase 4: take the image that CI already publishes to ECR and run it on a **start/stop
 EC2 t3.micro**, with all AWS access via an **instance role** (no keys in the container).
 Done through the AWS web console. Do the steps in order.

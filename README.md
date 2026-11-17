@@ -13,15 +13,16 @@ The project ships in two layers, both live:
   writes the upload sheet.
 - **The web app** (`src/web`, "Marigold Ops") — a FastAPI + htmx UI wrapping the
   pipeline so non-technical teammates can **Generate** upload sheets and **Fix** rows
-  Myntra rejected, without touching code, Python, or AWS. Deployed on EC2 behind
-  Cognito login, shipped by a GitHub Actions → ECR CI/CD pipeline.
+  Myntra rejected, without touching code, Python, or AWS. Runs on an on-demand EC2
+  server built by **Terraform + Ansible**, shipped by a GitHub Actions → ECR CI/CD pipeline.
 
 > **Status:** generated files are **accepted by Myntra end-to-end** — a batch uploaded
 > via this pipeline reached `CATALOGING_IN_PROGRESS` (SKUs created). Every upload error
 > encountered has been diagnosed and fixed (see
-> [Myntra upload requirements](#myntra-upload-requirements-hard-won)). The web app is
-> **deployed to production** on EC2 with Cognito auth and Gemini-backed error
-> explanation enabled. **222 tests pass.**
+> [Myntra upload requirements](#myntra-upload-requirements-hard-won)). The web app runs
+> on AWS with Cognito auth and Gemini-backed error explanation enabled; its server is
+> **created on demand and deleted after use** (all infrastructure is code, under `infra/`).
+> **222 tests pass.**
 
 > **Guiding principle:** the pipeline **guesses nothing.** All column mapping, pricing,
 > and validation is plain code. Any value that doesn't match Myntra's allowed dropdown
@@ -497,7 +498,7 @@ only if this goes multi-tenant/SaaS" are deliberate — see the design specs.
 - **`AUTH_DISABLED=1`** injects a fixed dev user and skips all Cognito work — identical
   code path, only the env differs, so the whole app runs locally with no AWS reachable.
 - **Layered config loader** (`settings.py`): each value resolves **env var first, else
-  SSM Parameter Store** (or Secrets Manager for the Cognito client secret). AWS is
+  SSM Parameter Store** (secrets as SecureStrings). AWS is
   contacted only for values not supplied via env. Credentials come from the default chain
   locally, the **EC2 instance role** in prod (no static keys in the container).
 - **Cookies:** `id_token` is `HttpOnly; SameSite=Lax`; `Secure` is off until TLS is added
@@ -524,8 +525,9 @@ If Myntra changes a column or vocabulary, it's a one-line config edit.
 
 Python 3.12 · **FastAPI** · **uvicorn** · **Jinja2** · **htmx** (vendored) ·
 python-multipart · python-jose (JWT) · pandas · openpyxl · Pillow · PyYAML · requests ·
-boto3 · pytest. AWS: **S3**, **SSM Parameter Store**, **Secrets Manager**, **Cognito**,
-**ECR**, **EC2** (ap-south-1). LLM: **Google Gemini Flash** (explain-only, optional).
+boto3 · pytest. AWS: **S3**, **SSM Parameter Store**, **Cognito**, **ECR**, **EC2**
+(ap-south-1). Infrastructure: **Terraform** (AWS resources) + **Ansible** (server setup, over
+SSM). LLM: **Google Gemini Flash** (explain-only, optional).
 No Node, no Tailwind, no Celery/Redis, no database.
 
 ---
@@ -555,18 +557,21 @@ Docker image and pushes it to a private Amazon ECR repo (`marketplace-bulklistin
 `ap-south-1`). Authentication uses **GitHub OIDC — no AWS keys are stored in GitHub.**
 Pull requests run the test job only.
 
-Deployment target is a **start/stop EC2 t3.micro**: a systemd unit pulls `:latest` from
-ECR on boot and runs the container, so *starting the box = deploying the newest build*.
-The app is **live in production** on EC2 behind Cognito login, IP-restricted (no TLS /
-`0.0.0.0/0` yet — a later chunk), with Gemini enabled (key in SSM, `EXPLAIN_WITH_GEMINI=1`
-in the systemd unit). All AWS access is via the EC2 instance role.
+**All infrastructure is code.** Terraform (`infra/terraform/`) owns every AWS resource;
+Ansible (`infra/ansible/`, run over SSM, no SSH) sets up the server. The EC2 server is
+**disposable**: it exists only while the app is in use (`terraform apply -var
+app_running=true|false`), so the idle bill is about $0.50/month. Its systemd unit pulls
+`:latest` from ECR on every start, so *starting = deploying the newest build*; while it's on,
+CI's `deploy` job restarts it via SSM on each push to `main`. The app is reached through an
+**SSM port forward** to `localhost:8000` (nothing is exposed to the internet), behind Cognito
+login, with Gemini enabled (key in SSM, `EXPLAIN_WITH_GEMINI=1` in the unit). All AWS access
+from the app is via the EC2 instance role.
 
 - Workflow: `.github/workflows/ci-cd.yml`
-- One-time AWS setup: `docs/runbooks/cicd-aws-setup.md`, `cicd-aws-setup-console.md`
-- Deploy / Cognito / SSM+Secrets / Gemini runbooks: `docs/runbooks/web-ec2-deploy-console.md`,
-  `web-cognito-setup-console.md`, `web-ssm-secrets-setup-console.md`,
-  `add-gemini-api-key-ssm.md`, `enable-gemini-ec2-systemd.md`
+- **Run the app (on/off, open, troubleshoot):** `docs/runbooks/infra-terraform-ansible.md`
 - Infra & cost maps: `docs/infra-resources.md`, `docs/infra-costs.md`
+- Why it's built this way: `docs/decisions/2026-11-17-terraform-ansible-disposable-server.md`
+- Original console setup (history): `docs/runbooks/*-console.md`
 
 ---
 
