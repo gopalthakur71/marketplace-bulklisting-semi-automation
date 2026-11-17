@@ -37,3 +37,41 @@ import {
   to = aws_s3_bucket_public_access_block.data
   id = "ijorethnicpartners"
 }
+
+# --- step 3: IAM (EC2 runtime role + GitHub Actions OIDC deploy role) ---
+import {
+  to = aws_iam_role.ec2
+  id = "listing-app-ec2-role"
+}
+import {
+  to = aws_iam_instance_profile.ec2
+  id = "listing-app-ec2-role"
+}
+import {
+  to = aws_iam_policy.runtime
+  id = "arn:aws:iam::048589483919:policy/listing-app-runtime"
+}
+import {
+  to = aws_iam_role_policy_attachment.ec2_runtime
+  id = "listing-app-ec2-role/arn:aws:iam::048589483919:policy/listing-app-runtime"
+}
+import {
+  to = aws_iam_role_policy_attachment.ec2_ssm_core
+  id = "listing-app-ec2-role/arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
+}
+import {
+  to = aws_iam_openid_connect_provider.github
+  id = "arn:aws:iam::048589483919:oidc-provider/token.actions.githubusercontent.com"
+}
+import {
+  to = aws_iam_role.github
+  id = "github-actions-ecr-push"
+}
+import {
+  to = aws_iam_role_policy.github_ecr_push
+  id = "github-actions-ecr-push:ecr-push"
+}
+import {
+  to = aws_iam_role_policy.github_ssm_deploy
+  id = "github-actions-ecr-push:ssm-deploy"
+}
