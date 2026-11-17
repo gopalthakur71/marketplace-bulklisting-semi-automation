@@ -13,7 +13,7 @@ TimeoutStartSec=600
 ExecStartPre=-/usr/bin/docker rm -f listing-app
 ExecStartPre=/bin/bash -lc 'aws ecr get-login-password --region {{ aws_region }} | docker login --username AWS --password-stdin {{ ecr_registry }}'
 ExecStartPre=/usr/bin/docker pull {{ app_image }}
-ExecStart=/usr/bin/docker run --rm --name listing-app -p 80:8080 \
+ExecStart=/usr/bin/docker run --rm --name listing-app -p 127.0.0.1:80:8080 \
 {% for key, val in app_env.items() %}
   -e {{ key }}={{ val }} \
 {% endfor %}

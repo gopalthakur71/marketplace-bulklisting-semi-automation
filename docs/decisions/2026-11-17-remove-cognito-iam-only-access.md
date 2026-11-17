@@ -32,6 +32,10 @@ SSM and in Terraform state, 5 SSM parameters, ~180 lines of auth code plus three
   settings and `python-jose` were all removed. The `AUTH_DISABLED` flag went too, because there's
   nothing left for it to switch. If a public URL ever needs a login, git history has the old
   code, but a new pool would be needed anyway.
+- **Phase 4's network lockdown ships in the same change** (raised by a security review): the
+  security group's last two inbound rules (80 and 22 from the laptop IP) are deleted, and the
+  container binds to `127.0.0.1:80`. Without that, whoever next held the laptop's old ISP IP
+  could reach a login-less app.
 - **Ansible** no longer passes any auth flag, and its health check expects `200` instead of the
   old `302` login redirect.
 - **Terraform** deletes the pool, client, domain and the 5 `cognito_*` SSM parameters. The pool

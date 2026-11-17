@@ -69,8 +69,9 @@ caused three problems:
 
 ## Still to do
 
-- **Phase 4:** use the SSM port forward in the browser; delete the last two inbound rules (zero
-  inbound) and the old `listing-app` key pair.
+- **Phase 4:** zero inbound is **done in code** (pulled into phase 5: with no login, no inbound
+  path may exist). Still to do: the browser check through the SSM port forward, and deleting the
+  old `listing-app` key pair.
 - **Phase 5:** remove Cognito. **Done in code** (2026-11-17); the AWS deletion takes two applies.
   See [`2026-11-17-remove-cognito-iam-only-access.md`](2026-11-17-remove-cognito-iam-only-access.md).
 - **Agreed additions: done in code** (2026-11-17): ECR keeps 3 images, and the server is a

@@ -78,7 +78,7 @@ There is **no fixed instance ID**: every "on" creates a new one. Find the curren
 | Resource | Identifier | Owned by | Notes |
 |---|---|---|---|
 | EC2 instance | Tag `Name=listing-app` (new ID on every build) | `infra/terraform/ec2.tf` (`aws_instance.server`) | **Spot** t3.small by default (`var.use_spot`, `var.instance_type`; one-time request, terminated on interruption; `use_spot=false` = on-demand), Amazon Linux 2023, 8 GB encrypted gp3, IMDSv2 only, CPU credits `standard`. **No SSH key.** Created/deleted by `var.app_running`. Configured by Ansible. The CI deploy job finds it by the `listing-app` tag, so **exactly one instance may carry that tag**. |
-| Security group | `sg-06ceeb9a898378bb0` (`listing-app-sg`) | `infra/terraform/network.tf` | Inbound: port 80 + 22 from one laptop IP (`laptop_cidr`) only. **Both rules are leftovers** (the box has no SSH key and access is via SSM); phase 4 deletes them so there is **zero inbound**. Outbound: all (ECR, SSM, S3). ⚠️ At import (2026-11-17) it also had `0.0.0.0/0` on 22 and 80; those were removed the same day. |
+| Security group | `sg-06ceeb9a898378bb0` (`listing-app-sg`) | `infra/terraform/network.tf` | **Zero inbound** (since phase 4/5): the app has no login, so the network must have no path in. Access is the SSM port forward only, and the container binds to `127.0.0.1:80` on the box. **Never add an ingress rule.** Outbound: all (ECR, SSM, S3). ⚠️ At import (2026-11-17) it also had `0.0.0.0/0` on 22 and 80; those were removed the same day. |
 | ECR repository | `marketplace-bulklisting` | `infra/terraform/ecr.tf` | Tags `:latest` + `:<git-sha>`. Lifecycle: keep the last 3 images. Scan on push. |
 
 ### Identity (three separate roles, least privilege)

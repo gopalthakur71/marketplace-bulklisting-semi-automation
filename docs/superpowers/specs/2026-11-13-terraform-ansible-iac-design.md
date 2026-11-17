@@ -29,6 +29,9 @@
 > - **Deleting the pool takes two applies**, not one: its AWS-side `deletion_protection = ACTIVE`
 >   blocks a destroy. Step A sets it `INACTIVE`, drops `prevent_destroy` and deletes the 5 SSM
 >   params. Step B deletes `cognito.tf` and its import blocks.
+> - **Phase 4's ingress removal was pulled into this change**, and the container binds to
+>   `127.0.0.1:80`. A login-less app must never coexist with an inbound rule. The key pair
+>   deletion is still phase 4.
 > - **Order:** push the code first (so `:latest` has no login), then apply.
 
 ## Goal

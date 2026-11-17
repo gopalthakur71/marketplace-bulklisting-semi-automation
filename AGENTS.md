@@ -50,7 +50,8 @@ instance may carry it). While the server is off, the deploy job fails harmlessly
 "on" pulls `:latest`.
 
 **Pending (spec [`docs/superpowers/specs/2026-11-13-terraform-ansible-iac-design.md`](docs/superpowers/specs/2026-11-13-terraform-ansible-iac-design.md)):**
-phase 4 deletes the last two inbound SG rules and the old key pair. Phase 5 (Cognito) is done in
+phase 4's SG ingress removal (zero inbound) is done in code, pulled forward because the app now has
+no login; only deleting the old key pair remains. Phase 5 (Cognito) is done in
 code; the AWS side is two applies (see `infra/terraform/cognito.tf`). ECR keep-3 and the Spot
 server are in code, applied with that first apply.
 Every resource is catalogued in [`docs/infra-resources.md`](docs/infra-resources.md). TLS + a
