@@ -130,6 +130,24 @@ Handlers: when a docker restart is needed, the `listing_app` restart runs after 
 - `ijorethnicpartners` is `prevent_destroy` permanently. It holds the ledger, HSN KB, SKU
   registry and images.
 
+## Additions agreed 2026-11-17 (do next session)
+
+Usage pattern: the app is used a few 2–3 hour sessions a month, sometimes not for months.
+Goal: pay nothing when it's not in use. Phase 3 already delivers the on/off switch
+(`terraform apply -var app_running=true|false`; the server is deleted when off).
+
+1. **ECR lifecycle: keep 3 images, not 10.** Rollback beyond the last few builds is never
+   needed; even pennies of idle storage aren't worth paying.
+2. **Spot instance, a size up from t3.micro.** For short sessions Spot is far cheaper per
+   hour, and a bigger box makes the ~540 MB first image pull (several minutes on a t3.micro)
+   faster. The box is stateless (data in S3, config in SSM), so an interruption only costs
+   a re-run of `apply` + `ansible-playbook`. Design points to settle when building it:
+   - `instance_market_options` (one-time request, `terminate` on interruption) on
+     `aws_instance.server`.
+   - Size: candidates `t3.small` / `t3.medium` (2–4 GB RAM); check current ap-south-1 Spot
+     prices and interruption rates before choosing.
+   - Fallback when Spot capacity isn't available: a variable to launch on-demand instead.
+
 ## Open items
 
 - State bucket name.
