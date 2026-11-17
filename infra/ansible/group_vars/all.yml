@@ -13,8 +13,7 @@ aws_region: ap-south-1
 ecr_registry: "{{ aws_account_id }}.dkr.ecr.{{ aws_region }}.amazonaws.com"
 app_image: "{{ ecr_registry }}/marketplace-bulklisting:latest"
 
-# false while Cognito is live (health check expects 302 = login redirect); phase 5 → true (200).
-auth_disabled: false
+# No login flag: Cognito was removed (phase 5); the SSM port forward (IAM) is the only gate.
 
 app_env:
   AWS_REGION: "{{ aws_region }}"

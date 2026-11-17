@@ -27,6 +27,11 @@ terraform apply -var app_running=true
 Check that the plan says **`1 to add, 0 to change, 0 to destroy`** (the server), then type `yes`.
 If you forget `-var`, Terraform asks for `app_running`: type `true`.
 
+The server is a **Spot** t3.small by default (much cheaper per hour). If the apply fails with
+`InsufficientInstanceCapacity` or a Spot error, launch on-demand instead:
+`terraform apply -var app_running=true -var use_spot=false`. If AWS reclaims a Spot box
+mid-session the app just stops; run steps 1–2 again (nothing is lost, the box holds no data).
+
 ### 2. Set it up (~3–6 min on a fresh box) — WSL
 Wait about **2 minutes** after step 1 so the new box can register with SSM. Then:
 ```bash
@@ -36,7 +41,7 @@ ansible-playbook site.yml
 ```
 It should end with **`failed=0 unreachable=0`**. The last task, *Health check*, retries every
 10 s while the box downloads the ~540 MB app image; several "FAILED - RETRYING" lines are normal.
-It passes on HTTP `302` (the login redirect) while Cognito is on.
+It passes on HTTP `200` (the home page; the app has no login, the SSM session is the gate).
 
 ### 3. Open the app — Git Bash
 ```bash
@@ -70,7 +75,7 @@ rebuild, and Ansible overwrites managed files on the next run.
 
 | To change… | Edit | Then |
 |---|---|---|
-| App env vars (Gemini model, `AUTH_DISABLED`, …) | `infra/ansible/group_vars/all.yml` | `ansible-playbook site.yml` (restarts the app) |
+| App env vars (Gemini model, …) | `infra/ansible/group_vars/all.yml` | `ansible-playbook site.yml` (restarts the app) |
 | The systemd unit | `infra/ansible/roles/listing_app/templates/listing-app.service.j2` | same |
 | Docker log rotation | `infra/ansible/roles/docker/files/daemon.json` | same (validated before writing, so invalid JSON can't stop Docker) |
 | Journal cap | `infra/ansible/roles/journald/files/size.conf` | same |
@@ -121,4 +126,6 @@ aren't found.
 | `ansible-inventory --graph` shows no host | The box isn't running yet, or hasn't registered with SSM (wait ~2 min after `apply`). |
 | Ansible task `UNREACHABLE … timeout` | An SSM command ran past `ansible_aws_ssm_timeout` (120 s). Re-run the playbook; finished steps are skipped. |
 | Health check fails, `Connection refused` | The app isn't up. Read its logs over SSM: `ansible listing_app -b -m shell -a "systemctl status listing-app --no-pager \| head -15; journalctl -u listing-app --no-pager -n 40; docker ps -a; df -h /; free -m"` |
+| Terraform apply: `InsufficientInstanceCapacity` / Spot request not fulfilled | No Spot capacity for t3.small right now. Re-run with `-var use_spot=false` (on-demand), or try `-var instance_type=t3.medium`. |
+| The app stops mid-session and the instance is gone | AWS reclaimed the Spot instance. Run steps 1–2 again; the next box pulls `:latest` and the data is all in S3. |
 | Unit stuck in `activating (start-pre)` and the pull keeps restarting | systemd's start timeout killed the image pull. The unit sets `TimeoutStartSec=600` for exactly this; if it recurs, the box is too slow or the image grew. |

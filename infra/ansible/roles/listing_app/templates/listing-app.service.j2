@@ -17,9 +17,6 @@ ExecStart=/usr/bin/docker run --rm --name listing-app -p 80:8080 \
 {% for key, val in app_env.items() %}
   -e {{ key }}={{ val }} \
 {% endfor %}
-{% if auth_disabled %}
-  -e AUTH_DISABLED=1 \
-{% endif %}
   {{ app_image }}
 ExecStop=/usr/bin/docker stop listing-app
 Restart=on-failure

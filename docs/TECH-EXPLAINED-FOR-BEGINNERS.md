@@ -93,15 +93,16 @@ can reach.
 
 ---
 
-## 6. Logging in: Amazon Cognito
+## 6. Logging in: your AWS login is the key
 
-**Cognito** is Amazon's ready-made login service. Rather than building password handling from
-scratch (risky), the app hands login off to Cognito, which manages your email/password and proves
-who you are with a secure digital token. When testing on your own computer, this can be turned
-off so you skip straight in.
+The app has **no password screen of its own**. It isn't on the open internet at all: the only way
+in is a private tunnel from your computer (the "SSM port forward", see §7b), and opening that
+tunnel needs your AWS login. So whoever can open the tunnel is already you. (It used to have a
+separate login service, Amazon **Cognito**; with one user and the tunnel in place it was a
+second lock on the same door, so it was removed in November 2026.)
 
-**Analogy:** Cognito is the security desk that checks IDs and issues visitor badges, so the app
-itself never has to store or guard passwords.
+**Analogy:** the app sits in a locked room whose only door needs your personal key card. There's
+no need for a second guard inside checking IDs.
 
 ---
 
@@ -118,7 +119,8 @@ This is the part that gets the app from your laptop onto the internet. Three pie
 
 - **EC2** (Elastic Compute Cloud) is a **rented Amazon computer**. It pulls the `latest`
   container from ECR and runs it; this is the computer your live app runs on. To save money it's
-  a small machine (`t3.micro`), and it **only exists while you're using the app**: it's built
+  a small machine (`t3.small`) rented as **Spot** (Amazon's spare capacity, sold cheap but which
+  Amazon can take back), and it **only exists while you're using the app**: it's built
   fresh when you need it and deleted when you're done (see §7b). When it doesn't exist, it costs
   nothing.
 
@@ -190,8 +192,8 @@ ships it to the restaurant — no manual work from you.
 
 ## 9. Keeping secrets and settings: SSM Parameter Store
 
-The app needs settings that shouldn't be baked into the code — your S3 bucket name, Cognito
-details, and one genuine **secret** (the Cognito client password). These live in **AWS SSM
+The app needs settings that shouldn't be baked into the code — your S3 bucket name and
+region, and one genuine **secret** (the Gemini API key used to explain Myntra errors). These live in **AWS SSM
 Parameter Store**, a small secure cloud key-value list. The secret is stored **encrypted**. The
 live app reads these at startup so nothing sensitive is ever written in the code or the container.
 
@@ -222,7 +224,7 @@ Here's what actually happens, end to end, when the app is updated and you use it
    in **ECR**, then tells **EC2** to restart on it.
 3. When you want to work, **Terraform** builds the **EC2** server and **Ansible** sets it up. The
    server runs the container, and **uvicorn** serves the **FastAPI** website.
-4. You open `localhost:8000` through the SSM port forward, and **Cognito** logs you in.
+4. You open `localhost:8000` through the SSM port forward, and you're straight in (your AWS login was the check).
 5. You upload a Shopify file. **Python** (layers 1–2) reads it, uploads photos to **S3**, reads
    settings/secrets from **SSM**, and builds your Myntra sheet.
 6. **htmx** shows you live progress; you download the finished `.xlsx`.
@@ -241,7 +243,6 @@ is doing and why it's there.
 | **uvicorn** | The engine that runs the website. |
 | **htmx / Jinja** | Live page updates / fill-in-the-blank HTML pages. |
 | **S3** | Amazon cloud storage for images + the app's memory files. |
-| **Cognito** | Amazon's login/password service. |
 | **Docker** | Packs the app into a portable sealed container. |
 | **ECR** | Amazon's warehouse for those containers. |
 | **EC2** | The rented Amazon computer that runs the app, built on demand and deleted after use. |

@@ -35,11 +35,10 @@ flowchart TB
         oidc["IAM OIDC provider\ntoken.actions.githubusercontent.com"]
         roleGH["IAM role: github-actions-ecr-push"]
         ecr["ECR: marketplace-bulklisting"]
-        ec2["EC2: listing-app — ONLY WHILE ON\n(app_running=true; Spot planned)"]
+        ec2["EC2: listing-app — ONLY WHILE ON\n(app_running=true; Spot t3.small)"]
         roleEC2["IAM role: listing-app-ec2-role"]
         sg["SG: listing-app-sg"]
-        ssm["SSM Parameter Store\n/marketplace-listing/* (9 params)"]
-        cog["Cognito (removal planned, phase 5)"]
+        ssm["SSM Parameter Store\n/marketplace-listing/* (4 params)"]
         s3["S3: ijorethnicpartners\n(images + app state)"]
         xfer["S3: ijor-ansible-ssm-048589483919\n(Ansible file transfer)"]
     end
@@ -56,7 +55,6 @@ flowchart TB
     ec2 -->|instance profile| roleEC2
     ec2 -->|pull :latest| ecr
     ec2 -->|read config + secrets| ssm
-    ec2 -->|login| cog
     ec2 -->|read/write| s3
 ```
 
@@ -79,9 +77,9 @@ There is **no fixed instance ID**: every "on" creates a new one. Find the curren
 ### Compute & network
 | Resource | Identifier | Owned by | Notes |
 |---|---|---|---|
-| EC2 instance | Tag `Name=listing-app` (new ID on every build) | `infra/terraform/ec2.tf` (`aws_instance.server`) | t3.micro, Amazon Linux 2023, 8 GB encrypted gp3, IMDSv2 only, CPU credits `standard`. **No SSH key.** Created/deleted by `var.app_running`. Configured by Ansible. The CI deploy job finds it by the `listing-app` tag, so **exactly one instance may carry that tag**. |
+| EC2 instance | Tag `Name=listing-app` (new ID on every build) | `infra/terraform/ec2.tf` (`aws_instance.server`) | **Spot** t3.small by default (`var.use_spot`, `var.instance_type`; one-time request, terminated on interruption; `use_spot=false` = on-demand), Amazon Linux 2023, 8 GB encrypted gp3, IMDSv2 only, CPU credits `standard`. **No SSH key.** Created/deleted by `var.app_running`. Configured by Ansible. The CI deploy job finds it by the `listing-app` tag, so **exactly one instance may carry that tag**. |
 | Security group | `sg-06ceeb9a898378bb0` (`listing-app-sg`) | `infra/terraform/network.tf` | Inbound: port 80 + 22 from one laptop IP (`laptop_cidr`) only. **Both rules are leftovers** (the box has no SSH key and access is via SSM); phase 4 deletes them so there is **zero inbound**. Outbound: all (ECR, SSM, S3). ⚠️ At import (2026-11-17) it also had `0.0.0.0/0` on 22 and 80; those were removed the same day. |
-| ECR repository | `marketplace-bulklisting` | `infra/terraform/ecr.tf` | Tags `:latest` + `:<git-sha>`. Lifecycle: keep the last 10 images (to be lowered to 3). Scan on push. |
+| ECR repository | `marketplace-bulklisting` | `infra/terraform/ecr.tf` | Tags `:latest` + `:<git-sha>`. Lifecycle: keep the last 3 images. Scan on push. |
 
 ### Identity (three separate roles, least privilege)
 | IAM identity | Type | Policies | Owned by | Used by |
@@ -98,30 +96,18 @@ There is **no fixed instance ID**: every "on" creates a new one. Find the curren
 | `/marketplace-listing/s3_bucket` | `ijorethnicpartners` | `ssm.tf` |
 | `/marketplace-listing/s3_prefix` | `myntra/` | `ssm.tf` |
 | `/marketplace-listing/s3_region` | `ap-south-1` | `ssm.tf` |
-| `/marketplace-listing/cognito_client_id` | `29oo5dtqh8j30k2481lmffqb0e` | `ssm.tf` |
-| `/marketplace-listing/cognito_pool_id` | `ap-south-1_NdxNQ1pIz` (capital **I**) | `ssm.tf` |
-| `/marketplace-listing/cognito_domain` | `ijor-marketplace` | `ssm.tf` |
-| `/marketplace-listing/cognito_redirect_uri` | `http://localhost:8000/auth/callback` | `ssm.tf` |
-| `/marketplace-listing/cognito_client_secret` | **SecureString**. Terraform manages the parameter but **ignores its value**; the real value is set outside code and never appears in `.tf` files. | `ssm.tf` |
-| `/marketplace-listing/gemini_api_key` | **SecureString**, same pattern. Google Gemini key for the Fix flow's explanations. (Was missing from this page before 2026-11-17.) | `ssm.tf` |
+| `/marketplace-listing/gemini_api_key` | **SecureString**. Terraform manages the parameter but **ignores its value**; the real value is set outside code and never appears in `.tf` files. Google Gemini key for the Fix flow's explanations. (Was missing from this page before 2026-11-17.) | `ssm.tf` |
 
-Both SecureStrings use the free AWS-managed `aws/ssm` key. **No trailing whitespace in any
-value**: a stray `\n` in `cognito_redirect_uri` once broke login (`settings.py` now
-`.strip()`s values). The 5 `cognito_*` parameters go away with Cognito in phase 5.
+The SecureString uses the free AWS-managed `aws/ssm` key. **No trailing whitespace in any
+value**: a stray `\n` in an SSM value once broke login (`settings.py` now `.strip()`s values).
+The 5 `cognito_*` parameters were deleted with Cognito in phase 5.
 
-### Auth — Cognito (removal planned)
-| Thing | Value |
-|---|---|
-| User pool | `ap-south-1_NdxNQ1pIz` (name `User pool - e6qzup`), `deletion_protection = ACTIVE` |
-| App client | `29oo5dtqh8j30k2481lmffqb0e` (`marketplace-listing-pool`); secret in SSM |
-| Hosted-UI domain | `ijor-marketplace` (ManagedLogin v2) |
-| Callback / sign-out | `http://localhost:8000/auth/callback` / `http://localhost:8000/` |
-| ID-token validity | 8 hours (= `TOKEN_MAX_AGE` in `auth_routes.py`) |
-| Not in Terraform | the test user, the managed-login branding |
-
-Owned by `infra/terraform/cognito.tf`, with `prevent_destroy` on everything. It's adopted only so
-phase 5 can delete it cleanly: the only user is the owner, and AWS IAM (needed to open the SSM
-session) is already the real gate.
+### Auth — none (Cognito removed, phase 5)
+The app has no login. It's reachable only through an SSM port forward, so AWS IAM (the `gt`
+profile that opens the session) is the gate; there is one user, the owner. The Cognito pool
+`ap-south-1_NdxNQ1pIz`, its app client and the `ijor-marketplace` domain are deleted in two
+applies (step A unlocks `deletion_protection`, step B deletes `infra/terraform/cognito.tf`).
+Why: [`decisions/2026-11-17-remove-cognito-iam-only-access.md`](decisions/2026-11-17-remove-cognito-iam-only-access.md).
 
 ### Storage — S3
 | Bucket | Purpose | Owned by | Notes |

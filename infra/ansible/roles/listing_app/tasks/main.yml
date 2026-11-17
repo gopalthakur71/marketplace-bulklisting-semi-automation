@@ -19,14 +19,14 @@
 - name: Flush handlers
   ansible.builtin.meta: flush_handlers
 
-# First start pulls + unpacks a ~540 MB image (several minutes on a fresh t3.micro). 302 = Cognito login redirect (healthy
-# while auth is on); 200 once auth_disabled.
+# First start pulls + unpacks a ~540 MB image (several minutes on a fresh box). The home
+# page answers 200 (no login since phase 5).
 - name: Health check
   ansible.builtin.uri:
     url: http://localhost:80/
     follow_redirects: none
-    status_code: "{{ [200] if auth_disabled else [302] }}"
+    status_code: 200
   register: health
   retries: 60 # 10 min = TimeoutStartSec in the unit
   delay: 10
-  until: health.status == (200 if auth_disabled else 302)
+  until: health.status == 200

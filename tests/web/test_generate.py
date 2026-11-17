@@ -9,7 +9,7 @@ import src.web.routers.generate as gen
 
 
 def _client(tmp_path):
-    s = Settings(auth_disabled=True, s3_bucket="b",
+    s = Settings(s3_bucket="b",
                  ledger_local_path=str(tmp_path / "led.json"),
                  hsn_local_path=str(tmp_path / "hsn.json"),
                  sku_registry_local_path=str(tmp_path / "reg.json"))

@@ -1,8 +1,19 @@
+from dataclasses import dataclass
+
 from fastapi import APIRouter, Request
 
-from src.web.auth import current_user
-
 router = APIRouter()
+
+
+@dataclass
+class User:
+    email: str
+
+
+# No login: the app is reachable only through an SSM port forward, so AWS IAM (the `gt`
+# profile that opens the session) is the gate. Cognito was removed in IaC phase 5
+# (docs/decisions/2026-11-17-remove-cognito-iam-only-access.md).
+OPERATOR = User(email="ijor-ops")
 
 
 def get_settings(request: Request):
@@ -10,10 +21,7 @@ def get_settings(request: Request):
 
 
 def get_user(request: Request):
-    settings = request.app.state.settings
-    token = (request.cookies.get("id_token")
-             or (request.headers.get("authorization", "").removeprefix("Bearer ").strip() or None))
-    return current_user(settings, token)
+    return OPERATOR
 
 
 @router.get("/")

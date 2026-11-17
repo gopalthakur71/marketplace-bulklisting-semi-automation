@@ -7,18 +7,13 @@ _log = logging.getLogger(__name__)
 
 SSM_PREFIX = "/marketplace-listing/"
 
-# env var name -> settings attr. Every field (incl. the Cognito client secret,
-# which is an SSM SecureString) resolves from SSM Parameter Store — no Secrets
-# Manager. The SecureString is decrypted by the getter's WithDecryption=True.
+# env var name -> settings attr. Every field (incl. the Gemini key, an SSM
+# SecureString) resolves from SSM Parameter Store — no Secrets Manager. The
+# SecureString is decrypted by the getter's WithDecryption=True.
 _FIELDS = [
     ("S3_BUCKET", "s3_bucket"),
     ("S3_REGION", "s3_region"),
     ("S3_PREFIX", "s3_prefix"),
-    ("COGNITO_POOL_ID", "cognito_pool_id"),
-    ("COGNITO_CLIENT_ID", "cognito_client_id"),
-    ("COGNITO_DOMAIN", "cognito_domain"),
-    ("COGNITO_REDIRECT_URI", "cognito_redirect_uri"),
-    ("COGNITO_CLIENT_SECRET", "cognito_client_secret"),
     ("GEMINI_API_KEY", "gemini_api_key"),
 ]
 
@@ -28,13 +23,6 @@ class Settings:
     s3_bucket: str = ""
     s3_region: str = "ap-south-1"
     s3_prefix: str = "myntra/"
-    cognito_pool_id: str = ""
-    cognito_client_id: str = ""
-    cognito_client_secret: str = ""
-    cognito_domain: str = ""
-    cognito_redirect_uri: str = ""
-    auth_disabled: bool = False
-    cookie_secure: bool = False
     ledger_local_path: str | None = None
     hsn_local_path: str | None = None
     sku_registry_local_path: str | None = None
@@ -49,7 +37,7 @@ def _ssm_getter():
     """Lazy + fail-soft: build the client on first call; return None on any boto
     error (missing param, no creds, no region) so import never crashes offline.
     Failures are LOGGED — a silent empty return once masked a NoRegionError that
-    blanked every Cognito value in production."""
+    blanked every SSM value in production."""
     def get(name):
         try:
             import boto3
@@ -68,8 +56,8 @@ def load_settings(env=None, ssm=None) -> Settings:
 
     Fallback is per-field, not all-or-nothing: each field independently uses its
     env value if present, otherwise consults SSM. This means a deploy that sets
-    only some env vars still resolves the rest (including the Cognito client
-    secret, stored as an SSM SecureString) from AWS."""
+    only some env vars still resolves the rest (including the Gemini key,
+    stored as an SSM SecureString) from AWS."""
     if env is None:
         # Local dev convenience: populate os.environ from a repo-root .env if one
         # exists. override=False so real env vars and SSM always win; a no-op in
@@ -82,8 +70,6 @@ def load_settings(env=None, ssm=None) -> Settings:
             pass
     env = os.environ if env is None else env
     s = Settings()
-    s.auth_disabled = env.get("AUTH_DISABLED", "") in ("1", "true", "True")
-    s.cookie_secure = env.get("COOKIE_SECURE", "") in ("1", "true", "True")
     s.ledger_local_path = env.get("LEDGER_LOCAL_PATH") or None
     s.hsn_local_path = env.get("HSN_LOCAL_PATH") or None
     s.sku_registry_local_path = env.get("SKU_REGISTRY_LOCAL_PATH") or None
@@ -100,7 +86,7 @@ def load_settings(env=None, ssm=None) -> Settings:
             val = ssm(SSM_PREFIX + attr)
         if val is not None:
             # Strip stray whitespace/newlines — a trailing "\n" hand-saved into
-            # the SSM redirect_uri once broke Cognito login with redirect_mismatch.
+            # an SSM value once broke login (redirect_mismatch).
             setattr(s, attr, val.strip())
     return s
 

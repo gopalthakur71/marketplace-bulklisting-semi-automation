@@ -17,7 +17,7 @@ def _fake_image_bytes():
 
 def _client(tmp_path):
     return TestClient(create_app(Settings(
-        auth_disabled=True, s3_bucket="b",
+        s3_bucket="b",
         explanation_store_path=str(tmp_path / "expl.json"),
         correction_log_path=str(tmp_path / "log.json"))))
 

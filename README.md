@@ -20,7 +20,8 @@ The project ships in two layers, both live:
 > via this pipeline reached `CATALOGING_IN_PROGRESS` (SKUs created). Every upload error
 > encountered has been diagnosed and fixed (see
 > [Myntra upload requirements](#myntra-upload-requirements-hard-won)). The web app runs
-> on AWS with Cognito auth and Gemini-backed error explanation enabled; its server is
+> on AWS behind an SSM port forward (AWS IAM is the only gate) with Gemini-backed error
+> explanation enabled; its server is
 > **created on demand and deleted after use** (all infrastructure is code, under `infra/`).
 > **222 tests pass.**
 
@@ -93,14 +94,13 @@ pip install -r requirements.txt
 
 ### Option 2 — Web app (local)
 ```
-AUTH_DISABLED=1 \
 LEDGER_LOCAL_PATH=.state/ledger.json \
 HSN_LOCAL_PATH=.state/hsn_kb.json \
 SKU_REGISTRY_LOCAL_PATH=.state/sku_registry.json \
 uvicorn src.web.main:app --reload
 ```
-Open `http://localhost:8000`. `AUTH_DISABLED=1` injects a fake dev user so no AWS/Cognito
-is needed; supply a full `.env` and the config loader makes **zero AWS calls**. The
+Open `http://localhost:8000`. There is no login (none is needed locally either);
+supply a full `.env` and the config loader makes **zero AWS calls**. The
 three `*_LOCAL_PATH` vars point the JSON state stores at local files. Set
 `GEMINI_API_KEY` + `EXPLAIN_WITH_GEMINI=1` to enable plain-English error explanation
 (optional — the app degrades gracefully to the hand-authored dictionary and raw text).
@@ -117,7 +117,8 @@ polls a status endpoint (~1 s) and lights up a live pipeline stepper. No Celery,
 no database — the only durable state is a handful of JSON stores (in S3 in prod, local
 files in dev; see [Persistent state](#persistent-state-json-stores)).
 
-Every route gates on a valid Cognito session (or the `AUTH_DISABLED` dev user). Two flows
+There is no login: the deployed app is reachable only through an SSM port forward, so AWS
+IAM is the gate (Cognito was removed 2026-11-17). Two flows
 share the nav.
 
 ### Flow A — Generate
@@ -489,14 +490,11 @@ only if this goes multi-tenant/SaaS" are deliberate — see the design specs.
 
 ## Auth, config & secrets
 
-- **Cognito hosted-UI login.** `src/web/oauth.py` + `routers/auth_routes.py` implement the
-  authorization-code round-trip (`/login` → Cognito → `/auth/callback` → `/logout`) with a
-  CSRF `state` cookie; `auth.py` verifies the returned `id_token` JWT (RS256, issuer,
-  audience, expiry) on **every** request. Session model is **re-login on stale** (no
-  refresh tokens; id-token validity bumped to ~8h in the Cognito console). Add/remove
-  teammates in the Cognito console — no code change.
-- **`AUTH_DISABLED=1`** injects a fixed dev user and skips all Cognito work — identical
-  code path, only the env differs, so the whole app runs locally with no AWS reachable.
+- **No app login.** The app is never exposed to the internet; it's reached through an SSM
+  port forward, which needs the owner's AWS credentials, so AWS IAM is the gate. The
+  Cognito hosted-UI login it used to have was removed on 2026-11-17 (one user, and it was a
+  second lock on the same door). See
+  `docs/decisions/2026-11-17-remove-cognito-iam-only-access.md`.
 - **Layered config loader** (`settings.py`): each value resolves **env var first, else
   SSM Parameter Store** (secrets as SecureStrings). AWS is
   contacted only for values not supplied via env. Credentials come from the default chain
@@ -524,8 +522,8 @@ If Myntra changes a column or vocabulary, it's a one-line config edit.
 ## Tech stack
 
 Python 3.12 · **FastAPI** · **uvicorn** · **Jinja2** · **htmx** (vendored) ·
-python-multipart · python-jose (JWT) · pandas · openpyxl · Pillow · PyYAML · requests ·
-boto3 · pytest. AWS: **S3**, **SSM Parameter Store**, **Cognito**, **ECR**, **EC2**
+python-multipart · pandas · openpyxl · Pillow · PyYAML · requests ·
+boto3 · pytest. AWS: **S3**, **SSM Parameter Store**, **ECR**, **EC2**
 (ap-south-1). Infrastructure: **Terraform** (AWS resources) + **Ansible** (server setup, over
 SSM). LLM: **Google Gemini Flash** (explain-only, optional).
 No Node, no Tailwind, no Celery/Redis, no database.
@@ -563,8 +561,8 @@ Ansible (`infra/ansible/`, run over SSM, no SSH) sets up the server. The EC2 ser
 app_running=true|false`), so the idle bill is about $0.50/month. Its systemd unit pulls
 `:latest` from ECR on every start, so *starting = deploying the newest build*; while it's on,
 CI's `deploy` job restarts it via SSM on each push to `main`. The app is reached through an
-**SSM port forward** to `localhost:8000` (nothing is exposed to the internet), behind Cognito
-login, with Gemini enabled (key in SSM, `EXPLAIN_WITH_GEMINI=1` in the unit). All AWS access
+**SSM port forward** to `localhost:8000` (nothing is exposed to the internet; AWS IAM is the gate),
+with Gemini enabled (key in SSM, `EXPLAIN_WITH_GEMINI=1` in the unit). All AWS access
 from the app is via the EC2 instance role.
 
 - Workflow: `.github/workflows/ci-cd.yml`

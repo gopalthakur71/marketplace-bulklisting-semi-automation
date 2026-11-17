@@ -12,7 +12,7 @@ V13 = "templates/myntra/Myntra-Sku-Template-2026-07-24.xlsx"
 
 
 def _client(raise_server=True):
-    return TestClient(create_app(Settings(auth_disabled=True, s3_bucket="b")),
+    return TestClient(create_app(Settings(s3_bucket="b")),
                       raise_server_exceptions=raise_server)
 
 

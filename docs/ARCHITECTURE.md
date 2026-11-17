@@ -24,7 +24,6 @@ for *why* decisions were made see [decisions/](decisions/).
 | styleGroupId wrong, duplicated, or skipped | `src/myntra/groupid_ledger.py` (reserve vs confirm) + `style_group_id_start` in `rules.yaml` |
 | Sheet structurally rejected (`SHEET_VALIDATION_FAILED`, null brand) | `src/myntra/fill.py` (clears stray rows; inline strings; dropdowns) — see journal 2026-06-24/25 |
 | Rejection file not classified / wrong fix bucket | `src/myntra/error_reader.py` + `config/myntra/error_rules.yaml` |
-| Web app returns 401 / login issues | `src/web/auth.py` + Cognito settings; locally set `AUTH_DISABLED=1` |
 | Generate job stuck / disappears | `src/web/jobs.py` (**in-memory, lost on restart**) + `src/web/routers/generate.py` |
 | Config not loading on the server | `src/web/settings.py` (per-field env→SSM) + `infra/terraform/iam.tf` (instance role perms) + `ssm.tf` |
 | CI build/push fails | `.github/workflows/ci-cd.yml` + `infra/terraform/iam.tf` (OIDC provider, role, trust) |
@@ -39,7 +38,7 @@ for *why* decisions were made see [decisions/](decisions/).
                          ┌─────────────────────────── Layer 3: Web app (src/web, FastAPI) ──┐
                          │  Flow A Generate    Flow B Fix      Flow C Preview   Flow D Fill │
   browser ──────────────►  upload CSV → xlsx  upload rejection upload filled xlsx  attributes│
-   (Cognito/AUTH_DISABLED)│        │           → corrected xlsx → adopts, hands  + images    │
+   (via SSM port fwd)     │        │           → corrected xlsx → adopts, hands  + images    │
                          │        │                             off to Flow D    in-app     │
                          └────────┼──────────────────────────┼──────────────────────────────┘
                                   │ calls                     │ calls
@@ -283,17 +282,14 @@ the SKUs that did rebuild — the sheet never silently omits a SKU the button pr
 
 | File | Responsibility |
 |---|---|
-| `src/web/main.py` | `create_app()`: settings on `app.state` **before** routers; mounts `/static`; includes routers (`pages`, `generate`, `fix`, `auth_routes`, `preview`, `attributes`); maps `AuthError → redirect to /login (HX-Redirect for HTMX)`. Module-level `app` + shared `Jinja2Templates` with an `asset_v()` cache-buster. |
-| `src/web/settings.py` | `Settings` dataclass + `load_settings(env, ssm)`: each field resolves **env-first, then per-field fallback** to SSM (the client secret is a SecureString, decrypted via `WithDecryption=True` — no Secrets Manager). `SSM_PREFIX="/marketplace-listing/"`. AWS getter is **lazy + fail-soft** (import never crashes offline) and **logs** failures; values are `.strip()`ed. `ledger_store()` → `LocalJsonStore` if `LEDGER_LOCAL_PATH` else `S3JsonStore`; `hsn_store()` likewise on `HSN_LOCAL_PATH`; `sku_registry_store()` likewise on `SKU_REGISTRY_LOCAL_PATH` (**each a separate path** — `LocalJsonStore` is one-file-per-path). |
-| `src/web/auth.py` | `current_user(settings, token)`: returns `dev@local` when `AUTH_DISABLED`, else `verify_jwt` (RS256 pinned; audience = client id; issuer from pool id + region; JWKS looked up by `kid`, cached; jose errors → `AuthError`). **Gotcha:** the Cognito region is taken from `settings.s3_region` (both are `ap-south-1`). |
+| `src/web/main.py` | `create_app()`: settings on `app.state` **before** routers; mounts `/static`; includes routers (`pages`, `generate`, `fix`, `preview`, `attributes`). **No login** (Cognito removed in IaC phase 5; the SSM port forward / AWS IAM is the gate). Module-level `app` + shared `Jinja2Templates` with an `asset_v()` cache-buster. |
+| `src/web/settings.py` | `Settings` dataclass + `load_settings(env, ssm)`: each field resolves **env-first, then per-field fallback** to SSM (the Gemini key is a SecureString, decrypted via `WithDecryption=True` — no Secrets Manager). `SSM_PREFIX="/marketplace-listing/"`. AWS getter is **lazy + fail-soft** (import never crashes offline) and **logs** failures; values are `.strip()`ed. `ledger_store()` → `LocalJsonStore` if `LEDGER_LOCAL_PATH` else `S3JsonStore`; `hsn_store()` likewise on `HSN_LOCAL_PATH`; `sku_registry_store()` likewise on `SKU_REGISTRY_LOCAL_PATH` (**each a separate path** — `LocalJsonStore` is one-file-per-path). |
 | `src/web/jobs.py` | Thread-safe in-memory `JobStore` + `Job` dataclass + `STEPS`. Backs the Generate background job + htmx polling. **In-memory only → all jobs are lost on app restart.** |
-| `src/web/routers/pages.py` | `GET /` home; `get_user` (reads `id_token` cookie or `Authorization: Bearer`) and `get_settings` helpers reused by other routers. |
+| `src/web/routers/pages.py` | `GET /` home; `get_user` (always the fixed `OPERATOR` user — there is no login) and `get_settings` helpers reused by other routers. |
 | `src/web/routers/generate.py` | Flow A (below); `_safe_job_id` guards path traversal. |
 | `src/web/routers/fix.py` | Flow B (below); `_safe_fix_id` guards path traversal. |
 | `src/web/routers/preview.py` | Flow C (below): **adopts** a workbook as a job — an upload, or one rebuilt for a fix run's photo-rejected SKUs — see "The adoption mechanism" below, then hands off to Flow D for editing. Reads `user_filled_attributes` from `rules.yaml`. |
 | `src/web/routers/attributes.py` | Flow D (below): the in-app **Fill attributes** screen — drives both a freshly-built workbook and an adopted upload identically. `job_files(job_id)` locates the job's built workbook + Shopify export (404 `session expired, please re-upload`); `_panels(...)` joins sheet row ↔ SKU ↔ product photo; `_submitted(...)` / `_submitted_free(...)` / `_submitted_hsn(...)` parse the `attr__{ordinal}__{column_index}`, `free__{ordinal}__{column_index}`, `sku__{ordinal}` and `hsn__{ordinal}` form fields. Writes **only** the 12 attribute cells plus `tags`, `Brand Colour (Remarks)` and `HSN`. `_filled_count` / `_total` are the single shared definitions of "n of N", so the screen and the per-panel save cannot disagree. `attributes_save_images` (the `/images` route) reads up to 7 uploaded files per panel keyed `img__{ordinal}__{slot}` (`slot` 1-based over `IMAGE_COLUMNS`), calls `image_replace.prepare()` per slot so one bad photo fails only its own slot, then `image_replace.host()` once for everything that prepared cleanly, and writes the resulting URLs through `write_attributes` (never a bare openpyxl save). On any adopted (`origin == "upload"`) job, a successful attribute *or* image save sets `job.result["edited"] = True`, which is what makes the Clear button ask for confirmation. A slot may instead be **cleared** via `rm__{ordinal}__{slot}`: the removal is written **before** the uploads (clearing a cell needs no hosting, so it still lands when the S3 leg fails) and wins over a file chosen for the same slot in the same click. The URL it displaced is stashed on `job.result["removed_images"]` keyed `"{ordinal}:{slot}"`, and `attributes_undo_image` (the `/images/undo` route) writes it back — **the URL is never taken from the post**, which is what stops that route being a way to write an arbitrary string into an image column; the entry is consumed on use and dies with the process. |
-| `src/web/oauth.py` | Hosted-UI OAuth helpers (`authorize_url`/`exchange_code`/`logout_url`); stdlib urllib, injectable `http` so unit tests never hit the network. |
-| `src/web/routers/auth_routes.py` | `GET /login` (state CSRF cookie → hosted UI), `GET /auth/callback` (verify state, exchange code, set `id_token` cookie), `GET /logout`. Sessions are **re-login-on-stale** (no refresh tokens). |
 
 ### Routes
 
@@ -510,8 +506,8 @@ instance and the job fails, harmlessly. Least-privilege permissions: default `co
 
 | Path | Owns |
 |---|---|
-| `infra/terraform/` | Every AWS resource: `ec2.tf` (the on-demand server, `var.app_running`), `network.tf` (SG), `iam.tf` (EC2 role + GitHub OIDC/deploy role), `ecr.tf`, `s3.tf` (`ijorethnicpartners`, `prevent_destroy`), `ssm.tf` (9 params; SecureString values ignored, never in code), `cognito.tf` (until phase 5), `ansible_transfer.tf`, `imports.tf` (audit trail of what was adopted from the console). State: S3 `ijor-tfstate-048589483919`, S3-native lock. |
-| `infra/ansible/` | The server's setup over SSM (`community.aws.aws_ssm`; dynamic inventory by `Name` tag): roles `docker` (install + validated `daemon.json` log rotation), `journald` (cap drop-in), `listing_app` (systemd unit template, start, health check). Env vars and `auth_disabled` live in `group_vars/all.yml`. |
+| `infra/terraform/` | Every AWS resource: `ec2.tf` (the on-demand server, `var.app_running`), `network.tf` (SG), `iam.tf` (EC2 role + GitHub OIDC/deploy role), `ecr.tf`, `s3.tf` (`ijorethnicpartners`, `prevent_destroy`), `ssm.tf` (3 plain params + the Gemini SecureString, value ignored, never in code), `cognito.tf` (being deleted, phase 5), `ansible_transfer.tf`, `imports.tf` (audit trail of what was adopted from the console). State: S3 `ijor-tfstate-048589483919`, S3-native lock. |
+| `infra/ansible/` | The server's setup over SSM (`community.aws.aws_ssm`; dynamic inventory by `Name` tag): roles `docker` (install + validated `daemon.json` log rotation), `journald` (cap drop-in), `listing_app` (systemd unit template, start, health check). Env vars live in `group_vars/all.yml`. |
 | `aws/cicd/*.json`, `S3/*.json` | The policies as first hand-applied in the console. **History only**; the live definitions are in `infra/terraform/`. |
 
 ### Three separate AWS identities (don't conflate)
@@ -519,13 +515,13 @@ instance and the job fails, harmlessly. Least-privilege permissions: default `co
 1. **App → S3 (local/dev):** an IAM user's access keys via boto3 default chain (S3-only policy).
 2. **Pipeline → ECR (CI):** the OIDC role `github-actions-ecr-push` — **no stored keys**.
 3. **App on EC2 (deploy):** the instance role `listing-app-ec2-role` — takes over S3 + ECR-pull
-   + SSM (config incl. the SecureString secret) at deploy time, retiring the local keys, plus
+   + SSM (config incl. the SecureString Gemini key) at deploy time, retiring the local keys, plus
    `AmazonSSMManagedInstanceCore` so CI can redeploy. (See the deploy runbook.)
 
 ### Runtime config & secrets
 
-All runtime config = **SSM Parameter Store** under `/marketplace-listing/*` (9 params: 3 S3 + 4
-Cognito + two **SecureStrings**, the Cognito client secret and the Gemini API key). Defined in
+All runtime config = **SSM Parameter Store** under `/marketplace-listing/*` (4 params: 3 S3 + the
+Gemini API key, a **SecureString**; the 5 Cognito params went with Cognito in phase 5). Defined in
 `infra/terraform/ssm.tf`; the secret values are set outside code. **No Secrets Manager**: it was
 retired 2026-07-02 (SSM SecureString is free and read the same way, with `WithDecryption=True`).
 Rationale in [decisions/2026-06-30-config-ssm-secrets-rationale.md](decisions/2026-06-30-config-ssm-secrets-rationale.md).
@@ -533,11 +529,11 @@ Rationale in [decisions/2026-06-30-config-ssm-secrets-rationale.md](decisions/20
 ### Deploy
 
 **The server is disposable.** `terraform apply -var app_running=true` builds a fresh EC2
-t3.micro (Amazon Linux 2023, no SSH key); `ansible-playbook site.yml` installs Docker and the
+**Spot** t3.small (Amazon Linux 2023, no SSH key; `use_spot=false` for on-demand); `ansible-playbook site.yml` installs Docker and the
 systemd unit, which pulls `:latest` on start (**start = deploy**); `app_running=false` deletes the
 box. While it's on, CI's `deploy` job restarts it via SSM Run Command on every push to `main`
-(full CD). Access is an **SSM port forward** to `localhost:8000`; Cognito login is still live
-(removal planned). Operate: [runbooks/infra-terraform-ansible.md](runbooks/infra-terraform-ansible.md);
+(full CD). Access is an **SSM port forward** to `localhost:8000`; the app has no login of its own
+(AWS IAM is the gate). Operate: [runbooks/infra-terraform-ansible.md](runbooks/infra-terraform-ansible.md);
 why: [decisions/2026-11-17-terraform-ansible-disposable-server.md](decisions/2026-11-17-terraform-ansible-disposable-server.md);
 resource map: [infra-resources.md](infra-resources.md).
 
@@ -554,7 +550,6 @@ This is the section to read when something *outside* the code changes.
 | **Myntra vocabulary** | `mapper.validate_value`, `template_reader.vocab_by_header` | Dropdown values must match template spelling exactly — flagged, never guessed. The seller-facing dropdowns offer **only** these values; nothing (not even `NA`) is ever added to a list. |
 | **Myntra's generated title/description** | `src/myntra/preview.py` | Myntra derives them from the attributes and ignores what we submit. The reconstruction is deliberately labelled approximate — do not try to pixel-match it. Both preview surfaces go through `build_card`, so change it in one place. |
 | **S3 (images + ledger)** | `src/core/s3_upload.py`, `groupid_ledger.S3JsonStore`, `src/myntra/image_replace.py` (replacement leg) | Bucket `ijorethnicpartners`, region `ap-south-1`, image prefix `myntra/`, ledger key `state/myntra_groupid.json`. Images must be `.jpg` and public-read. Replacement images key as `{sku}/{slot}-{hash}.jpg` (content-addressed, not `{sku}/{n}.jpg`) — see §3. **Unverified:** the replacement upload leg has not yet been exercised against real AWS credentials, only against a fake/injected boto3 client in tests. |
-| **Cognito (auth)** | `src/web/auth.py`, `settings.py`, `oauth.py`, `auth_routes.py` | Pool/client/domain + client secret (SecureString) in SSM; JWT validated by JWKS with `verify_at_hash: False` (Cognito id_tokens carry `at_hash`). Hosted-UI login round-trip (/login → /auth/callback → /logout) is **live**. |
 | **ECR (image registry)** | `ci-cd.yml`, the Ansible-managed unit | Repo `marketplace-bulklisting`, `:latest` pulled on every start; CI `deploy` job restarts via SSM. |
 | **SSM Parameter Store (config)** | `src/web/settings.py` | Per-field env→SSM fallback; prefix `/marketplace-listing/`; read on EC2 via instance role. Secrets are SecureStrings. No Secrets Manager. |
 | **AWS infrastructure** | `infra/terraform/`, `infra/ansible/` | Change AWS resources or the server's setup only here, never in the console or on the box. Read every `terraform plan`; a destroy/replace on anything but `aws_instance.server[0]` is a stop sign. |

@@ -1,9 +1,13 @@
-# Cognito login for the web app. Adopted ONLY so phase 5 can delete it cleanly, so nothing
-# here is meant to be edited. prevent_destroy (plus the pool's own deletion_protection) stays
-# on until phase 5. Not imported: the test user and the managed-login branding.
+# Cognito login — BEING REMOVED (IaC phase 5). The app no longer has a login; the SSM port
+# forward (AWS IAM) is the only gate. Deleting takes two applies:
+#   A (this file as it stands): turn off the pool's AWS-side deletion_protection and drop
+#     prevent_destroy. For Cognito the plan must show only that one in-place pool update
+#     (the 5 /marketplace-listing/cognito_* SSM params are destroyed in the same apply).
+#   B: delete this whole file + its import blocks in imports.tf → apply destroys pool, client
+#     and domain (the test user goes with the pool).
 resource "aws_cognito_user_pool" "app" {
   name                     = "User pool - e6qzup"
-  deletion_protection      = "ACTIVE"
+  deletion_protection      = "INACTIVE" # phase 5 step A: unlock for deletion
   mfa_configuration        = "OFF"
   user_pool_tier           = "ESSENTIALS"
   username_attributes      = ["email"]
@@ -43,10 +47,6 @@ resource "aws_cognito_user_pool" "app" {
   verification_message_template {
     default_email_option = "CONFIRM_WITH_CODE"
   }
-
-  lifecycle {
-    prevent_destroy = true
-  }
 }
 
 resource "aws_cognito_user_pool_client" "app" {
@@ -73,18 +73,10 @@ resource "aws_cognito_user_pool_client" "app" {
     id_token      = "minutes"
     refresh_token = "days"
   }
-
-  lifecycle {
-    prevent_destroy = true
-  }
 }
 
 resource "aws_cognito_user_pool_domain" "app" {
   domain                = "ijor-marketplace"
   user_pool_id          = aws_cognito_user_pool.app.id
   managed_login_version = 2
-
-  lifecycle {
-    prevent_destroy = true
-  }
 }

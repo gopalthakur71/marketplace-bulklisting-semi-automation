@@ -34,7 +34,7 @@ AWS resource (imported from the console 2026-11-17 with zero changes); Ansible
 systemd unit, Docker log rotation and the journald cap.
 
 **The EC2 server is disposable and usually doesn't exist.** `terraform apply -var
-app_running=true` builds a fresh t3.micro (Amazon Linux 2023, no SSH key), `ansible-playbook
+app_running=true` builds a fresh **Spot** t3.small (Amazon Linux 2023, no SSH key; `-var use_spot=false` for on-demand), `ansible-playbook
 site.yml` sets it up, and `app_running=false` deletes it, so idle cost is ≈ $0.50/mo. Nothing
 lives on the box: data is in S3, config/secrets in SSM, the image in ECR. **Never `terraform
 destroy`**: it targets the data bucket and IAM too. **Never configure the box by hand**: edit
@@ -42,16 +42,17 @@ Ansible instead. Step-by-step: [`docs/runbooks/infra-terraform-ansible.md`](docs
 Why: [`docs/decisions/2026-11-17-terraform-ansible-disposable-server.md`](docs/decisions/2026-11-17-terraform-ansible-disposable-server.md).
 
 **Access** is an **SSM port forward** to `http://localhost:8000` (the command is the
-`ssm_port_forward_command` Terraform output). No SSH. **Cognito login is still enforced**
-(hosted UI → `/auth/callback`; its callback is `localhost:8000`, so it works through the
-forward). **CI/CD is full CD:** push to `main` → tests → build/push `:latest` → the `deploy`
+`ssm_port_forward_command` Terraform output). No SSH. **The app has no login** (Cognito was
+removed in phase 5): AWS IAM, i.e. the `gt` profile that opens the SSM session, is the only
+gate. **CI/CD is full CD:** push to `main` → tests → build/push `:latest` → the `deploy`
 job restarts the box via **SSM Run Command** (targets the `Name=listing-app` tag, so exactly one
 instance may carry it). While the server is off, the deploy job fails harmlessly, and the next
 "on" pulls `:latest`.
 
 **Pending (spec [`docs/superpowers/specs/2026-11-13-terraform-ansible-iac-design.md`](docs/superpowers/specs/2026-11-13-terraform-ansible-iac-design.md)):**
-phase 4 deletes the last two inbound SG rules and the old key pair; phase 5 removes Cognito
-(`AUTH_DISABLED=1`, with IAM as the gate); also agreed: ECR keep 3 images, and a Spot instance one size up.
+phase 4 deletes the last two inbound SG rules and the old key pair. Phase 5 (Cognito) is done in
+code; the AWS side is two applies (see `infra/terraform/cognito.tf`). ECR keep-3 and the Spot
+server are in code, applied with that first apply.
 Every resource is catalogued in [`docs/infra-resources.md`](docs/infra-resources.md). TLS + a
 public URL stay **deferred**: never open the SG to `0.0.0.0/0`.
 
@@ -61,11 +62,11 @@ public URL stay **deferred**: never open the SG to `0.0.0.0/0`.
 # CLI pipeline (reads real files in repo root / input/, writes output/)
 python run.py
 
-# Web app locally (no AWS needed; logs in a synthetic dev@local user)
+# Web app locally (no AWS needed; there is no login)
 #   bash:
-LEDGER_LOCAL_PATH=src/web/runtime/ledger.json HSN_LOCAL_PATH=src/web/runtime/hsn_kb.json SKU_REGISTRY_LOCAL_PATH=src/web/runtime/sku_registry.json AUTH_DISABLED=1 uvicorn src.web.main:app --reload
+LEDGER_LOCAL_PATH=src/web/runtime/ledger.json HSN_LOCAL_PATH=src/web/runtime/hsn_kb.json SKU_REGISTRY_LOCAL_PATH=src/web/runtime/sku_registry.json uvicorn src.web.main:app --reload
 #   PowerShell:
-#   $env:LEDGER_LOCAL_PATH="src/web/runtime/ledger.json"; $env:HSN_LOCAL_PATH="src/web/runtime/hsn_kb.json"; $env:SKU_REGISTRY_LOCAL_PATH="src/web/runtime/sku_registry.json"; $env:AUTH_DISABLED="1"; uvicorn src.web.main:app --reload
+#   $env:LEDGER_LOCAL_PATH="src/web/runtime/ledger.json"; $env:HSN_LOCAL_PATH="src/web/runtime/hsn_kb.json"; $env:SKU_REGISTRY_LOCAL_PATH="src/web/runtime/sku_registry.json"; uvicorn src.web.main:app --reload
 # → http://localhost:8000/   (container runs on 8080; local uvicorn defaults to 8000)
 
 # Tests (241; this is the CI gate)
@@ -93,7 +94,7 @@ CSS + vendored htmx + vendored fonts (no runtime CDN).
 6. **Fix-flow corrections are typed free-text, validated against vocab — not option buttons.**
    A "closest Myntra names" hint is OK; clickable option pickers are not (deliberate UX call).
 7. **Secrets never go in git.** `.env` is git-ignored; the deployed app reads all config —
-   including the Cognito client secret (an SSM **SecureString**) — from SSM Parameter Store via
+   including the Gemini API key (an SSM **SecureString**) — from SSM Parameter Store via
    the EC2 instance role. (Secrets Manager was retired 2026-07-02; SSM SecureString is free.)
 8. **The 12 name-driving attributes are the seller's call, never the machine's.** Myntra
    generates the public title and "Design Details" from the attribute columns, so a guessed

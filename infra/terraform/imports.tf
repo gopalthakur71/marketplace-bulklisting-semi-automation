@@ -19,10 +19,6 @@ import {
   to       = aws_ssm_parameter.plain[each.key]
   id       = "/marketplace-listing/${each.key}"
 }
-import {
-  to = aws_ssm_parameter.cognito_client_secret
-  id = "/marketplace-listing/cognito_client_secret"
-}
 
 # --- step 2: S3 bucket (images + app state). Objects are never managed by Terraform. ---
 import {

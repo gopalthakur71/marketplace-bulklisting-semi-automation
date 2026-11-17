@@ -18,7 +18,7 @@ V13 = "templates/myntra/Myntra-Sku-Template-2026-07-24.xlsx"
 
 
 def _client(tmp_path):
-    s = Settings(auth_disabled=True, s3_bucket="b",
+    s = Settings(s3_bucket="b",
                  ledger_local_path=str(tmp_path / "led.json"),
                  hsn_local_path=str(tmp_path / "hsn.json"),
                  sku_registry_local_path=str(tmp_path / "reg.json"))
@@ -704,7 +704,7 @@ def test_saving_an_hsn_corrects_the_sku_registry(tmp_path, monkeypatch):
     from src.myntra.sku_registry import read_registry, record
     from src.web.settings import sku_registry_store
     job = _job(tmp_path, monkeypatch, skus=("S1",))
-    s = Settings(auth_disabled=True, s3_bucket="b",
+    s = Settings(s3_bucket="b",
                  ledger_local_path=str(tmp_path / "led.json"),
                  hsn_local_path=str(tmp_path / "hsn.json"),
                  sku_registry_local_path=str(tmp_path / "reg.json"))
@@ -725,7 +725,7 @@ def test_a_rejected_save_does_not_move_the_registry(tmp_path, monkeypatch):
     from src.myntra.sku_registry import read_registry, record
     from src.web.settings import sku_registry_store
     job = _job(tmp_path, monkeypatch, skus=("S1",))
-    s = Settings(auth_disabled=True, s3_bucket="b",
+    s = Settings(s3_bucket="b",
                  ledger_local_path=str(tmp_path / "led.json"),
                  hsn_local_path=str(tmp_path / "hsn.json"),
                  sku_registry_local_path=str(tmp_path / "reg.json"))
@@ -749,7 +749,7 @@ def test_saving_a_name_pins_it_in_the_sku_registry(tmp_path, monkeypatch):
     pin has to be written here or a later rebuild reverts to the Shopify title."""
     from src.myntra.sku_registry import record
     from src.web.settings import Settings, sku_registry_store
-    s = Settings(auth_disabled=True, s3_bucket="b",
+    s = Settings(s3_bucket="b",
                  ledger_local_path=str(tmp_path / "led.json"),
                  hsn_local_path=str(tmp_path / "hsn.json"),
                  sku_registry_local_path=str(tmp_path / "reg.json"))
@@ -773,7 +773,7 @@ def test_a_rejected_save_pins_no_name(tmp_path, monkeypatch):
     pin follows."""
     from src.myntra.sku_registry import record
     from src.web.settings import Settings, sku_registry_store
-    s = Settings(auth_disabled=True, s3_bucket="b",
+    s = Settings(s3_bucket="b",
                  ledger_local_path=str(tmp_path / "led.json"),
                  hsn_local_path=str(tmp_path / "hsn.json"),
                  sku_registry_local_path=str(tmp_path / "reg.json"))

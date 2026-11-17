@@ -1,6 +1,6 @@
 # Infrastructure as Code — Terraform + Ansible (design)
 
-**Date:** 2026-11-13 · **Status:** phases 1–3 **done** (2026-11-17), 4–5 pending · **Owner:** Gopal
+**Date:** 2026-11-13 · **Status:** phases 1–3 **done**, phase 5 + additions **done in code** (2026-11-17; AWS applies pending), phase 4 pending · **Owner:** Gopal
 
 > **Progress & how the build differed from this plan (2026-11-17):**
 > - **Phase 1–2 done.** 27 console resources imported with zero changes, plus a 9th SSM parameter
@@ -17,6 +17,19 @@
 >   fresh box (a latent bug in the original unit).
 > - Operating runbook: [`docs/runbooks/infra-terraform-ansible.md`](../../runbooks/infra-terraform-ansible.md);
 >   ADR: [`docs/decisions/2026-11-17-terraform-ansible-disposable-server.md`](../../decisions/2026-11-17-terraform-ansible-disposable-server.md).
+
+> **Phase 5 + additions (2026-11-17, code done, applies pending):**
+> - **ECR keeps 3 images**, and the **server is a one-time Spot t3.small** (`var.use_spot`,
+>   default true, with on-demand as the fallback; `var.instance_type`). The size was chosen
+>   without checking live Spot prices, because no AWS commands were run; compare prices before
+>   moving to t3.medium.
+> - **Cognito code deleted, not kept dormant** (open item settled). `AUTH_DISABLED` went too,
+>   because there's no login left to disable. Ansible's health check expects 200. ADR:
+>   [`docs/decisions/2026-11-17-remove-cognito-iam-only-access.md`](../../decisions/2026-11-17-remove-cognito-iam-only-access.md).
+> - **Deleting the pool takes two applies**, not one: its AWS-side `deletion_protection = ACTIVE`
+>   blocks a destroy. Step A sets it `INACTIVE`, drops `prevent_destroy` and deletes the 5 SSM
+>   params. Step B deletes `cognito.tf` and its import blocks.
+> - **Order:** push the code first (so `:latest` has no login), then apply.
 
 ## Goal
 
@@ -168,4 +181,4 @@ Goal: pay nothing when it's not in use. Phase 3 already delivers the on/off swit
 
 - State bucket name.
 - Pin exact Terraform / AWS provider / `amazon.aws` versions at implementation time.
-- Phase 5: delete the Cognito code outright or keep it dormant.
+- ~~Phase 5: delete the Cognito code outright or keep it dormant.~~ Deleted (2026-11-17).

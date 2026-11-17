@@ -71,7 +71,7 @@ caused three problems:
 
 - **Phase 4:** use the SSM port forward in the browser; delete the last two inbound rules (zero
   inbound) and the old `listing-app` key pair.
-- **Phase 5:** remove Cognito (`AUTH_DISABLED=1` via Ansible, delete the pool/client/domain and
-  the 5 `cognito_*` parameters). AWS IAM (needed to open the SSM session) becomes the only gate.
-- **Agreed additions:** ECR lifecycle keep 3 (not 10); a **Spot** instance one size up with an
-  on-demand fallback.
+- **Phase 5:** remove Cognito. **Done in code** (2026-11-17); the AWS deletion takes two applies.
+  See [`2026-11-17-remove-cognito-iam-only-access.md`](2026-11-17-remove-cognito-iam-only-access.md).
+- **Agreed additions: done in code** (2026-11-17): ECR keeps 3 images, and the server is a
+  **Spot** t3.small (`use_spot=false` falls back to on-demand).

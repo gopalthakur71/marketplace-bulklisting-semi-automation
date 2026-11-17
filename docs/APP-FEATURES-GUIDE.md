@@ -23,12 +23,12 @@ rejected one). Everything else supports these two.
 
 ---
 
-## Logging in
+## Opening the app
 
-The app is private to your team. When you open it you sign in with your email and password
-(handled by Amazon's login service, "Cognito"). Once in, you land on the home dashboard with the
-two main actions. On your own computer during testing, login can be switched off so you go
-straight in.
+The app is private. There's no username or password screen: you open it through a secure
+connection to Amazon (an "SSM port forward") that only works with your AWS login on your own
+computer, so that AWS login *is* the lock. Once it's open, you land straight on the home
+dashboard with the two main actions.
 
 ---
 
