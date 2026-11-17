@@ -9,6 +9,9 @@ resource "aws_security_group" "app" {
   # ZERO inbound (phase 4, pulled forward with phase 5): the app has no login, so the network
   # must have no path in. Access is the SSM port forward only (the agent connects outbound).
   # Never add an ingress rule here, least of all 0.0.0.0/0.
+  # `ingress = []` is required: with no ingress blocks at all, Terraform stops managing inbound
+  # rules and silently leaves the existing ones in place. The empty list makes it delete them.
+  ingress = []
 
   egress {
     protocol    = "-1"
