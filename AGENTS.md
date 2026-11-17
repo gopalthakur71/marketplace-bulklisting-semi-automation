@@ -51,9 +51,9 @@ instance may carry it). While the server is off, the deploy job fails harmlessly
 
 **Pending (spec [`docs/superpowers/specs/2026-11-13-terraform-ansible-iac-design.md`](docs/superpowers/specs/2026-11-13-terraform-ansible-iac-design.md)):**
 phase 4's SG ingress removal (zero inbound) is done in code, pulled forward because the app now has
-no login; only deleting the old key pair remains. Phase 5 (Cognito) is done in
-code; the AWS side is two applies (see `infra/terraform/cognito.tf`). ECR keep-3 and the Spot
-server are in code, applied with that first apply.
+no login; only deleting the old key pair remains. Phase 5 (Cognito removal) is done:
+code, and the pool, client, domain and SSM params deleted via Terraform. ECR keeps 3 images and the
+server is Spot.
 Every resource is catalogued in [`docs/infra-resources.md`](docs/infra-resources.md). TLS + a
 public URL stay **deferred**: never open the SG to `0.0.0.0/0`.
 

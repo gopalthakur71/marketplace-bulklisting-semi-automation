@@ -1,8 +1,8 @@
 # Decision: remove the Cognito login, AWS IAM is the only gate
 
 **Date:** 2026-11-17
-**Status:** Accepted. The code is done. The AWS side takes two applies: step A (unlock and drop
-the SSM params) and step B (delete `infra/terraform/cognito.tf`).
+**Status:** Accepted and done (2026-11-17). Step A (unlock, drop the SSM params) was applied;
+step B deletes `infra/terraform/cognito.tf`.
 **Design spec:** [`../superpowers/specs/2026-11-13-terraform-ansible-iac-design.md`](../superpowers/specs/2026-11-13-terraform-ansible-iac-design.md), phase 5
 **Follows:** [`2026-11-17-terraform-ansible-disposable-server.md`](2026-11-17-terraform-ansible-disposable-server.md)
 

@@ -506,7 +506,7 @@ instance and the job fails, harmlessly. Least-privilege permissions: default `co
 
 | Path | Owns |
 |---|---|
-| `infra/terraform/` | Every AWS resource: `ec2.tf` (the on-demand server, `var.app_running`), `network.tf` (SG), `iam.tf` (EC2 role + GitHub OIDC/deploy role), `ecr.tf`, `s3.tf` (`ijorethnicpartners`, `prevent_destroy`), `ssm.tf` (3 plain params + the Gemini SecureString, value ignored, never in code), `cognito.tf` (being deleted, phase 5), `ansible_transfer.tf`, `imports.tf` (audit trail of what was adopted from the console). State: S3 `ijor-tfstate-048589483919`, S3-native lock. |
+| `infra/terraform/` | Every AWS resource: `ec2.tf` (the on-demand server, `var.app_running`), `network.tf` (SG), `iam.tf` (EC2 role + GitHub OIDC/deploy role), `ecr.tf`, `s3.tf` (`ijorethnicpartners`, `prevent_destroy`), `ssm.tf` (3 plain params + the Gemini SecureString, value ignored, never in code), `ansible_transfer.tf`, `imports.tf` (audit trail of what was adopted from the console). State: S3 `ijor-tfstate-048589483919`, S3-native lock. |
 | `infra/ansible/` | The server's setup over SSM (`community.aws.aws_ssm`; dynamic inventory by `Name` tag): roles `docker` (install + validated `daemon.json` log rotation), `journald` (cap drop-in), `listing_app` (systemd unit template, start, health check). Env vars live in `group_vars/all.yml`. |
 | `aws/cicd/*.json`, `S3/*.json` | The policies as first hand-applied in the console. **History only**; the live definitions are in `infra/terraform/`. |
 

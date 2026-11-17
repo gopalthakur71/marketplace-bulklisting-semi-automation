@@ -105,8 +105,8 @@ The 5 `cognito_*` parameters were deleted with Cognito in phase 5.
 ### Auth — none (Cognito removed, phase 5)
 The app has no login. It's reachable only through an SSM port forward, so AWS IAM (the `gt`
 profile that opens the session) is the gate; there is one user, the owner. The Cognito pool
-`ap-south-1_NdxNQ1pIz`, its app client and the `ijor-marketplace` domain are deleted in two
-applies (step A unlocks `deletion_protection`, step B deletes `infra/terraform/cognito.tf`).
+`ap-south-1_NdxNQ1pIz`, its app client and the `ijor-marketplace` domain were deleted in two
+applies (step A unlocked `deletion_protection`, step B deleted `infra/terraform/cognito.tf`).
 Why: [`decisions/2026-11-17-remove-cognito-iam-only-access.md`](decisions/2026-11-17-remove-cognito-iam-only-access.md).
 
 ### Storage — S3

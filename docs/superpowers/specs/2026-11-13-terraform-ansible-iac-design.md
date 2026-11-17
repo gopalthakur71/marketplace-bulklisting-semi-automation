@@ -18,7 +18,7 @@
 > - Operating runbook: [`docs/runbooks/infra-terraform-ansible.md`](../../runbooks/infra-terraform-ansible.md);
 >   ADR: [`docs/decisions/2026-11-17-terraform-ansible-disposable-server.md`](../../decisions/2026-11-17-terraform-ansible-disposable-server.md).
 
-> **Phase 5 + additions (2026-11-17, code done, applies pending):**
+> **Phase 5 + additions (2026-11-17, done: step A applied, step B = cognito.tf deleted):**
 > - **ECR keeps 3 images**, and the **server is a one-time Spot t3.small** (`var.use_spot`,
 >   default true, with on-demand as the fallback; `var.instance_type`). The size was chosen
 >   without checking live Spot prices, because no AWS commands were run; compare prices before

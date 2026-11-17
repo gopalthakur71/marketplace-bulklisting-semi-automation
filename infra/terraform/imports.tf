@@ -72,19 +72,7 @@ import {
   id = "github-actions-ecr-push:ssm-deploy"
 }
 
-# --- step 4: Cognito (adopted only so phase 5 can delete it cleanly) + the current EC2 box ---
-import {
-  to = aws_cognito_user_pool.app
-  id = "ap-south-1_NdxNQ1pIz"
-}
-import {
-  to = aws_cognito_user_pool_client.app
-  id = "ap-south-1_NdxNQ1pIz/29oo5dtqh8j30k2481lmffqb0e"
-}
-import {
-  to = aws_cognito_user_pool_domain.app
-  id = "ijor-marketplace"
-}
+# --- step 4: the console EC2 box. Cognito was imported here too and deleted in phase 5. ---
 # The console-built EC2 i-0add667d4cec224c6 was imported here too, then deleted at the
 # phase-3 cutover (replaced by the Terraform/Ansible-built server in ec2.tf).
 
