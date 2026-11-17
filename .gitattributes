@@ -2,3 +2,6 @@
 # A stray CR in a #!/bin/bash shebang makes the script fail silently
 # (notably as EC2 user-data). Force LF regardless of core.autocrlf.
 *.sh text eol=lf
+# Files that run on Linux (the EC2 box / WSL) must keep LF, even on a Windows checkout:
+# a CRLF unit file breaks systemd line continuations, a CRLF script breaks bash.
+infra/** text eol=lf
