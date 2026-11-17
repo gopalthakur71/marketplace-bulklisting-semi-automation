@@ -75,3 +75,21 @@ import {
   to = aws_iam_role_policy.github_ssm_deploy
   id = "github-actions-ecr-push:ssm-deploy"
 }
+
+# --- step 4: Cognito (adopted only so phase 5 can delete it cleanly) + the current EC2 box ---
+import {
+  to = aws_cognito_user_pool.app
+  id = "ap-south-1_NdxNQ1pIz"
+}
+import {
+  to = aws_cognito_user_pool_client.app
+  id = "ap-south-1_NdxNQ1pIz/29oo5dtqh8j30k2481lmffqb0e"
+}
+import {
+  to = aws_cognito_user_pool_domain.app
+  id = "ijor-marketplace"
+}
+import {
+  to = aws_instance.app
+  id = "i-0add667d4cec224c6"
+}
