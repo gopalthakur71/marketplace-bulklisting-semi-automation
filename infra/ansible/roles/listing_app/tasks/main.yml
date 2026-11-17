@@ -1,0 +1,32 @@
+- name: Install the listing-app systemd unit
+  ansible.builtin.template:
+    src: listing-app.service.j2
+    dest: /etc/systemd/system/listing-app.service
+    mode: "0644"
+  notify: Restart listing-app
+
+- name: Enable and start listing-app
+  ansible.builtin.systemd_service:
+    name: listing-app
+    enabled: true
+    state: started
+    daemon_reload: true
+    # Don't wait: a start blocks until the ~540 MB image is pulled, longer than an SSM
+    # command may run. The health check below is what proves the app came up.
+    no_block: true
+
+# Apply pending restarts (docker → app) before checking health.
+- name: Flush handlers
+  ansible.builtin.meta: flush_handlers
+
+# First start pulls + unpacks a ~540 MB image (several minutes on a fresh t3.micro). 302 = Cognito login redirect (healthy
+# while auth is on); 200 once auth_disabled.
+- name: Health check
+  ansible.builtin.uri:
+    url: http://localhost:80/
+    follow_redirects: none
+    status_code: "{{ [200] if auth_disabled else [302] }}"
+  register: health
+  retries: 60 # 10 min = TimeoutStartSec in the unit
+  delay: 10
+  until: health.status == (200 if auth_disabled else 302)

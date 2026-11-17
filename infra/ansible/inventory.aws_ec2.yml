@@ -1,0 +1,20 @@
+# Dynamic inventory: asks AWS for the boxes on every run — nothing to keep in sync with
+# Terraform. Each running instance becomes a host named by its instance ID (what the SSM
+# connection needs) and joins a group named after its Name tag, dashes → underscores:
+#   Name=listing-app       → group listing_app
+#   Name=listing-app-next  → group listing_app_next
+plugin: amazon.aws.aws_ec2
+profile: gt
+regions:
+  - ap-south-1
+filters:
+  instance-state-name: running
+  tag:Name:
+    - listing-app
+    - listing-app-next # phase-3 cutover only; harmless once nothing carries it
+hostnames:
+  - instance-id
+keyed_groups:
+  - key: tags.Name
+    prefix: ""
+    separator: ""

@@ -89,7 +89,11 @@ import {
   to = aws_cognito_user_pool_domain.app
   id = "ijor-marketplace"
 }
+# The console-built EC2 i-0add667d4cec224c6 was imported here too, then deleted at the
+# phase-3 cutover (replaced by the Terraform/Ansible-built server in ec2.tf).
+
+# --- phase 3: the Gemini key (missing from docs/infra-resources.md at import time) ---
 import {
-  to = aws_instance.app
-  id = "i-0add667d4cec224c6"
+  to = aws_ssm_parameter.gemini_api_key
+  id = "/marketplace-listing/gemini_api_key"
 }

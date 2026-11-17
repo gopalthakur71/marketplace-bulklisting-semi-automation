@@ -1,0 +1,20 @@
+- name: Install Docker
+  ansible.builtin.dnf:
+    name: docker
+    state: present
+
+# Docker's json-file logs are unbounded by default. `validate` refuses to write invalid
+# JSON: an unparseable daemon.json stops dockerd from booting (the 2026-08-03 outage).
+- name: Cap container log size
+  ansible.builtin.copy:
+    src: daemon.json
+    dest: /etc/docker/daemon.json
+    mode: "0644"
+    validate: python3 -c "import json,sys; json.load(open(sys.argv[1]))" %s
+  notify: Restart docker
+
+- name: Enable and start Docker
+  ansible.builtin.systemd_service:
+    name: docker
+    enabled: true
+    state: started

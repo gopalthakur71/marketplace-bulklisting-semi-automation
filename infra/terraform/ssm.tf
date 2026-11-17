@@ -31,3 +31,16 @@ resource "aws_ssm_parameter" "cognito_client_secret" {
     ignore_changes = [value]
   }
 }
+
+# Gemini key for the Fix flow's plain-English error explanations. Same pattern as above:
+# adopted, value never in code.
+resource "aws_ssm_parameter" "gemini_api_key" {
+  name        = "/marketplace-listing/gemini_api_key"
+  description = "Gemini API key for Fix-Error explanations"
+  type        = "SecureString"
+  value       = "managed-outside-terraform"
+
+  lifecycle {
+    ignore_changes = [value]
+  }
+}

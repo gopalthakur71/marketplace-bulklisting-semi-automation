@@ -1,0 +1,23 @@
+# --- connection: SSM Session Manager, no SSH, no open ports ---
+ansible_connection: community.aws.aws_ssm
+ansible_aws_ssm_region: ap-south-1
+ansible_aws_ssm_profile: gt
+ansible_aws_ssm_timeout: 120 # default 60s; dnf install on a t3.micro can run past it
+ansible_aws_ssm_bucket_name: ijor-ansible-ssm-048589483919 # terraform output ansible_ssm_bucket
+# Regional endpoint: the global one makes presigned URLs redirect for non-us-east-1 buckets.
+ansible_aws_ssm_bucket_endpoint_url: https://s3.ap-south-1.amazonaws.com
+
+# --- the app (contents mirror docs/runbooks/ec2-box-configuration.md) ---
+aws_account_id: "048589483919"
+aws_region: ap-south-1
+ecr_registry: "{{ aws_account_id }}.dkr.ecr.{{ aws_region }}.amazonaws.com"
+app_image: "{{ ecr_registry }}/marketplace-bulklisting:latest"
+
+# false while Cognito is live (health check expects 302 = login redirect); phase 5 → true (200).
+auth_disabled: false
+
+app_env:
+  AWS_REGION: "{{ aws_region }}"
+  AWS_DEFAULT_REGION: "{{ aws_region }}"
+  EXPLAIN_WITH_GEMINI: "1"
+  GEMINI_MODEL: gemini-2.5-flash

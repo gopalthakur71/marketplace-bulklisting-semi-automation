@@ -1,0 +1,9 @@
+# ansible-galaxy collection install -r requirements.yml
+# The aws_ssm connection plugin lives in community.aws up to 9.x; it only moved into
+# amazon.aws in 10.0, which needs ansible-core >= 2.17 (Ubuntu 24.04 ships 2.16).
+# Keep the two collections on the same major version.
+collections:
+  - name: amazon.aws
+    version: ">=9.0.0,<10.0.0"
+  - name: community.aws
+    version: ">=9.0.0,<10.0.0"

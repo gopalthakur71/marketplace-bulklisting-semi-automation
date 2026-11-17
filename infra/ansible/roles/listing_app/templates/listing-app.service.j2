@@ -1,0 +1,28 @@
+# Managed by Ansible (infra/ansible/roles/listing_app) — edits on the box are overwritten.
+# restart == deploy: every start re-pulls :latest, which is all the CI deploy job relies on.
+[Unit]
+Description=Marketplace Listing App
+After=docker.service
+Requires=docker.service
+
+[Service]
+# systemd's default 90s start timeout covers ExecStartPre, i.e. the image pull. On a fresh
+# box (nothing cached) pulling + unpacking ~540 MB on a t3.micro takes longer: systemd killed
+# the pull and Restart=on-failure looped it forever. 10 min is ample; still bounded.
+TimeoutStartSec=600
+ExecStartPre=-/usr/bin/docker rm -f listing-app
+ExecStartPre=/bin/bash -lc 'aws ecr get-login-password --region {{ aws_region }} | docker login --username AWS --password-stdin {{ ecr_registry }}'
+ExecStartPre=/usr/bin/docker pull {{ app_image }}
+ExecStart=/usr/bin/docker run --rm --name listing-app -p 80:8080 \
+{% for key, val in app_env.items() %}
+  -e {{ key }}={{ val }} \
+{% endfor %}
+{% if auth_disabled %}
+  -e AUTH_DISABLED=1 \
+{% endif %}
+  {{ app_image }}
+ExecStop=/usr/bin/docker stop listing-app
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target

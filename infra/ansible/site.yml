@@ -1,0 +1,10 @@
+# Configure the listing-app server end to end. Run after every
+# `terraform apply -var app_running=true` (a fresh box is bare):
+#   ansible-playbook site.yml
+- name: Configure listing-app box
+  hosts: "{{ target | default('listing_app') }}"
+  become: true
+  roles:
+    - docker
+    - journald
+    - listing_app

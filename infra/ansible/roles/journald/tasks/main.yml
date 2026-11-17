@@ -1,0 +1,13 @@
+- name: Ensure the journald drop-in directory exists
+  ansible.builtin.file:
+    path: /etc/systemd/journald.conf.d
+    state: directory
+    mode: "0755"
+
+# A drop-in instead of editing /etc/systemd/journald.conf: the distro file stays pristine.
+- name: Cap the systemd journal
+  ansible.builtin.copy:
+    src: size.conf
+    dest: /etc/systemd/journald.conf.d/size.conf
+    mode: "0644"
+  notify: Restart journald
