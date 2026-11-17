@@ -23,3 +23,17 @@ import {
   to = aws_ssm_parameter.cognito_client_secret
   id = "/marketplace-listing/cognito_client_secret"
 }
+
+# --- step 2: S3 bucket (images + app state). Objects are never managed by Terraform. ---
+import {
+  to = aws_s3_bucket.data
+  id = "ijorethnicpartners"
+}
+import {
+  to = aws_s3_bucket_policy.data
+  id = "ijorethnicpartners"
+}
+import {
+  to = aws_s3_bucket_public_access_block.data
+  id = "ijorethnicpartners"
+}
