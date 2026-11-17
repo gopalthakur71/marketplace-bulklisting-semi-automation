@@ -35,7 +35,7 @@ systemd unit, Docker log rotation and the journald cap.
 
 **The EC2 server is disposable and usually doesn't exist.** `terraform apply -var
 app_running=true` builds a fresh **Spot** t3.small (Amazon Linux 2023, no SSH key; `-var use_spot=false` for on-demand), `ansible-playbook
-site.yml` sets it up, and `app_running=false` deletes it, so idle cost is ≈ $0.50/mo. Nothing
+site.yml` sets it up, and `app_running=false` deletes it, so idle cost is under $0.50/mo. Nothing
 lives on the box: data is in S3, config/secrets in SSM, the image in ECR. **Never `terraform
 destroy`**: it targets the data bucket and IAM too. **Never configure the box by hand**: edit
 Ansible instead. Step-by-step: [`docs/runbooks/infra-terraform-ansible.md`](docs/runbooks/infra-terraform-ansible.md).

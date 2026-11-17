@@ -33,7 +33,7 @@ TimeoutStartSec=600
 ExecStartPre=-/usr/bin/docker rm -f listing-app
 ExecStartPre=/bin/bash -lc 'aws ecr get-login-password --region ap-south-1 | docker login --username AWS --password-stdin 048589483919.dkr.ecr.ap-south-1.amazonaws.com'
 ExecStartPre=/usr/bin/docker pull 048589483919.dkr.ecr.ap-south-1.amazonaws.com/marketplace-bulklisting:latest
-ExecStart=/usr/bin/docker run --rm --name listing-app -p 80:8080 \
+ExecStart=/usr/bin/docker run --rm --name listing-app -p 127.0.0.1:80:8080 \
   -e AWS_REGION=ap-south-1 \
   -e AWS_DEFAULT_REGION=ap-south-1 \
   -e EXPLAIN_WITH_GEMINI=1 \
@@ -46,13 +46,17 @@ Restart=on-failure
 WantedBy=multi-user.target
 ```
 
-With `auth_disabled: true` in `group_vars/all.yml` (phase 5), one more line, `-e AUTH_DISABLED=1`, is added.
+The app has no login (Cognito was removed in phase 5), so there is no auth setting in the unit.
 
 Things worth knowing about it:
 
+- **`-p 127.0.0.1:80:8080`**: the app answers only on the box's own loopback. The SSM port
+  forward and the health check both connect from there, so nothing else (not even a
+  mistakenly added security group rule) can reach a login-less app.
+
 - **`TimeoutStartSec=600`** (added 2026-11-17). systemd's default 90 s start timeout covers the
   `ExecStartPre` steps, including the image pull. On a **fresh** server nothing is cached, and
-  pulling and unpacking ~540 MB on a t3.micro takes longer than 90 s, so systemd killed the pull
+  pulling and unpacking ~540 MB on the old t3.micro took longer than 90 s, so systemd killed the pull
   and `Restart=on-failure` looped it forever. It never showed on the old long-lived box because
   its image was cached. Found by the first rebuild from code.
 - **`Restart=on-failure` retries forever.** When the 2026-08-03 disk-full failure hit, the
@@ -134,5 +138,4 @@ ansible listing_app -b -m shell -a "systemctl is-active listing-app; curl -s -o 
 its `{{json …}}` as a template. Run it in an SSM shell instead: `aws ssm start-session --target
 <id> --profile gt`, then `sudo docker inspect …`.)
 
-`active` and **302** are healthy: a 302 is the Cognito login redirect, not an error. It becomes
-`200` once Cognito is removed (phase 5).
+`active` and **200** are healthy (the home page; there is no login since phase 5).

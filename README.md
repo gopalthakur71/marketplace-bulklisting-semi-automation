@@ -13,8 +13,8 @@ The project ships in two layers, both live:
   writes the upload sheet.
 - **The web app** (`src/web`, "Marigold Ops") — a FastAPI + htmx UI wrapping the
   pipeline so non-technical teammates can **Generate** upload sheets and **Fix** rows
-  Myntra rejected, without touching code, Python, or AWS. Runs on an on-demand EC2
-  server built by **Terraform + Ansible**, shipped by a GitHub Actions → ECR CI/CD pipeline.
+  Myntra rejected, without touching code, Python, or AWS. Runs on a create-when-needed
+  Spot EC2 server built by **Terraform + Ansible**, shipped by a GitHub Actions → ECR CI/CD pipeline.
 
 > **Status:** generated files are **accepted by Myntra end-to-end** — a batch uploaded
 > via this pipeline reached `CATALOGING_IN_PROGRESS` (SKUs created). Every upload error
@@ -558,7 +558,9 @@ Pull requests run the test job only.
 **All infrastructure is code.** Terraform (`infra/terraform/`) owns every AWS resource;
 Ansible (`infra/ansible/`, run over SSM, no SSH) sets up the server. The EC2 server is
 **disposable**: it exists only while the app is in use (`terraform apply -var
-app_running=true|false`), so the idle bill is about $0.50/month. Its systemd unit pulls
+app_running=true|false`), so the idle bill is under $0.50/month. It's a **Spot** t3.small
+(`-var use_spot=false` falls back to on-demand) whose security group has **zero inbound rules**,
+and ECR keeps only the last 3 images. Its systemd unit pulls
 `:latest` from ECR on every start, so *starting = deploying the newest build*; while it's on,
 CI's `deploy` job restarts it via SSM on each push to `main`. The app is reached through an
 **SSM port forward** to `localhost:8000` (nothing is exposed to the internet; AWS IAM is the gate),

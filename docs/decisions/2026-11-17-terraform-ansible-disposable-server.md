@@ -1,7 +1,7 @@
 # Decision — infrastructure as code (Terraform + Ansible) and a disposable server
 
 **Date:** 2026-11-17
-**Status:** Accepted. Phases 1–3 done; phases 4–5 pending (see "Still to do").
+**Status:** Accepted. Phases 1–3 and 5 done; phase 4 is down to the key pair (see "Still to do").
 **Design spec:** [`../superpowers/specs/2026-11-13-terraform-ansible-iac-design.md`](../superpowers/specs/2026-11-13-terraform-ansible-iac-design.md)
 **Operate it:** [`../runbooks/infra-terraform-ansible.md`](../runbooks/infra-terraform-ansible.md)
 
@@ -62,7 +62,7 @@ caused three problems:
   `:latest`), but it shows red. Making the job skip cleanly is a possible follow-up.
 - **Terraform state contains the decrypted SecureStrings.** The state bucket is private,
   encrypted and versioned; local copies (`errored.tfstate`, `*.tfplan`) are git-ignored and
-  deleted after use. The Cognito secret disappears entirely in phase 5.
+  deleted after use. The Cognito secret left the state with Cognito in phase 5.
 - **Turning on takes ~5 minutes** (create + Ansible + first image pull), versus ~1 minute to
   start a stopped box. That's acceptable for a few sessions a month.
 - **Terraform runs from the laptop**, not CI.
@@ -72,7 +72,8 @@ caused three problems:
 - **Phase 4:** zero inbound is **done in code** (pulled into phase 5: with no login, no inbound
   path may exist). Still to do: the browser check through the SSM port forward, and deleting the
   old `listing-app` key pair.
-- **Phase 5:** remove Cognito. **Done in code** (2026-11-17); the AWS deletion takes two applies.
+- **Phase 5:** remove Cognito. **Done** (2026-11-17): code deleted, and the pool, client, domain
+  and SSM params deleted in two Terraform applies.
   See [`2026-11-17-remove-cognito-iam-only-access.md`](2026-11-17-remove-cognito-iam-only-access.md).
 - **Agreed additions: done in code** (2026-11-17): ECR keeps 3 images, and the server is a
   **Spot** t3.small (`use_spot=false` falls back to on-demand).

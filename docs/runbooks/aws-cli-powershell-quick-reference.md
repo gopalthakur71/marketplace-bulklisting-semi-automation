@@ -202,8 +202,8 @@ aws ssm get-command-invocation --command-id $id --instance-id $iid --query "{Sta
 the app needs is never touched. On 2026-08-03 this reclaimed **4.59 GB**, taking the disk from
 94% to 33%.
 
-A healthy result is `active` and HTTP **302** — that is the Cognito login redirect, which is
-what an unauthenticated request to `/` should return. To prove the *new* code is really live,
+A healthy result is `active` and HTTP **200** (the home page; the app has no login since
+Cognito was removed on 2026-11-17). To prove the *new* code is really live,
 look inside the running container rather than trusting the tag:
 
 ```powershell
