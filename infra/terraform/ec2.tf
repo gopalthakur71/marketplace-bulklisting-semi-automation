@@ -112,6 +112,11 @@ resource "aws_ec2_fleet" "server" {
   spot_options {
     allocation_strategy            = "price-capacity-optimized"
     instance_interruption_behavior = "terminate" # nothing on the box to keep
+    # Both already true here (one subnet = one AZ, one box = one type). Stated explicitly
+    # because the provider always sends MinTargetCapacity, which AWS rejects otherwise
+    # ("only available with single instance fleets or single AZ fleets").
+    single_availability_zone = true
+    single_instance_type     = true
     # no max price: pay the current Spot price, capped at the on-demand price
   }
 
