@@ -7,7 +7,7 @@ output "ssm_port_forward_command" {
   value = !var.app_running ? "server is off - terraform apply -var app_running=true" : (
     local.server_instance_id == null
     ? "no Spot capacity for any matching type right now - run apply again in a few minutes"
-    : "aws ssm start-session --target ${local.server_instance_id} --document-name AWS-StartPortForwardingSession --parameters portNumber=80,localPortNumber=8000 --profile gt"
+    : "aws ssm start-session --target ${local.server_instance_id} --document-name AWS-StartPortForwardingSession --parameters portNumber=80,localPortNumber=8000 --profile gt --region ap-south-1"
   )
 }
 

@@ -46,7 +46,7 @@ It passes on HTTP `200` (the home page; the app has no login, the SSM session is
 ### 3. Open the app — Git Bash
 ```bash
 terraform output -raw ssm_port_forward_command   # prints the command below with the right id
-aws ssm start-session --target <instance-id> --document-name AWS-StartPortForwardingSession --parameters portNumber=80,localPortNumber=8000 --profile gt
+aws ssm start-session --target <instance-id> --document-name AWS-StartPortForwardingSession --parameters portNumber=80,localPortNumber=8000 --profile gt --region ap-south-1
 ```
 Leave that window open and browse **http://localhost:8000**. Closing it (Ctrl+C) closes the tunnel.
 
