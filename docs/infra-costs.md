@@ -34,7 +34,7 @@ console (Spot Requests → Pricing history) for the real number.
 ### Billed only while the server EXISTS (the variable part)
 | Resource | Rate (ap-south-1) | Notes |
 |---|---|---|
-| **EC2** compute (t3.small-like, Spot) | Spot price, **capped** at on-demand (~**$0.0224/hr** for t3.small) | Spot only — an EC2 Fleet picks the cheapest 2 vCPU / 2–4 GB burstable type with capacity (t3/t3a small/medium, t2.medium); there is no on-demand fallback. One size up from the old t3.micro (~$0.0112/hr) for 2 GB RAM and a faster first image pull. |
+| **EC2** compute (t3.small-like, Spot) | Spot price, **capped** at on-demand (~**$0.0224/hr** for t3.small) | Spot only — an EC2 Fleet picks a 2 vCPU / 2–4 GB burstable Spot type with capacity, with a hard `max_total_price` of $0.0224/hr (t3/t3a small/medium, t2.medium); there is no on-demand fallback. One size up from the old t3.micro (~$0.0112/hr) for 2 GB RAM and a faster first image pull. |
 | **Public IPv4 address** | ~**$0.005/hr** | Released when the server is deleted. |
 | **EBS root volume** (8 GB gp3) | ~$0.0912/GB-mo, so ~$0.0010/hr | Deleted with the server. (A *stopped* server would still pay ~$0.70/mo for this, which is why the box is deleted, not stopped.) |
 | → **combined** | ≤ ~**$0.028/hr** | What each hour of use costs at most (on-demand rate; Spot lowers the EC2 part). |
@@ -68,7 +68,7 @@ console (Spot Requests → Pricing history) for the real number.
 1. **Forgetting to turn the server off.** That's the only way to a real bill (up to ~$20/mo 24×7).
    `terraform output` shows whether `instance_id` exists.
 2. **Widening the instance shape** (the `server_*` locals in `ec2.tf`) to bigger types. The Fleet
-   picks the cheapest match, but a wider range can still land on a pricier box.
+   is capped at `max_total_price`; raising both is what would raise the bill.
 3. **TLS + a public URL** (deferred): CloudFront is usage-billed, and an Elastic IP is billed
    while not attached to a running instance.
 4. **Large image volume in S3**, which grows slowly (~$0.025/GB-mo).

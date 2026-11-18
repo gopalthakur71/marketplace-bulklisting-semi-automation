@@ -28,9 +28,11 @@ Check that the plan says **`1 to add, 0 to change, 0 to destroy`** (the server),
 If you forget `-var`, Terraform asks for `app_running`: type `true`.
 
 The server is **Spot only** (never on-demand). Terraform doesn't name one instance type: an EC2
-Fleet asks for 2 vCPU / 2–4 GB burstable and AWS launches the cheapest matching type that has
-Spot capacity (t3.small, t3a.small, t3.medium, t3a.medium, t2.medium). If AWS reclaims a Spot box
-mid-session the app just stops; run steps 1–2 again (nothing is lost, the box holds no data).
+Fleet asks for 2 vCPU / 2–4 GB burstable and AWS launches a matching type that has
+Spot capacity (t3.small, t3a.small, t3.medium, t3a.medium, t2.medium), never above t3.small's
+on-demand price. If AWS reclaims a Spot box mid-session the app just stops. A plain apply then
+shows "No changes" (the fleet is still in state), so run step 4 (`app_running=false`), then
+steps 1–2 again. Nothing is lost, the box holds no data.
 
 ### 2. Set it up (~3–6 min on a fresh box) — WSL
 Wait about **2 minutes** after step 1 so the new box can register with SSM. Then:
@@ -126,6 +128,6 @@ aren't found.
 | `ansible-inventory --graph` shows no host | The box isn't running yet, or hasn't registered with SSM (wait ~2 min after `apply`). |
 | Ansible task `UNREACHABLE … timeout` | An SSM command ran past `ansible_aws_ssm_timeout` (120 s). Re-run the playbook; finished steps are skipped. |
 | Health check fails, `Connection refused` | The app isn't up. Read its logs over SSM: `ansible listing_app -b -m shell -a "systemctl status listing-app --no-pager \| head -15; journalctl -u listing-app --no-pager -n 40; docker ps -a; df -h /; free -m"` |
-| `ssm_port_forward_command` says "no Spot capacity" / `instance_id` is null | No matching type had Spot capacity (very rare across 5 types). Run `terraform apply -var app_running=false`, then `true` again a few minutes later. To widen the choice, raise the `server_*` locals in `ec2.tf`. |
-| The app stops mid-session and the instance is gone | AWS reclaimed the Spot instance. Run steps 1–2 again; the next box pulls `:latest` and the data is all in S3. |
+| `ssm_port_forward_command` says "no Spot capacity" / `instance_id` is null | No matching type had Spot capacity under the price cap (rare across 5 types). Run `terraform apply -var app_running=false`, then `true` again a few minutes later. To widen the choice, raise the `server_*` locals in `ec2.tf`. |
+| The app stops mid-session and the instance is gone | AWS reclaimed the Spot instance. `apply -var app_running=false`, then steps 1–2 again (a plain re-apply shows "No changes"); the next box pulls `:latest` and the data is all in S3. |
 | Unit stuck in `activating (start-pre)` and the pull keeps restarting | systemd's start timeout killed the image pull. The unit sets `TimeoutStartSec=600` for exactly this; if it recurs, the box is too slow or the image grew. |

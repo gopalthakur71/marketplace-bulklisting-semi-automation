@@ -529,7 +529,7 @@ Rationale in [decisions/2026-06-30-config-ssm-secrets-rationale.md](decisions/20
 ### Deploy
 
 **The server is disposable.** `terraform apply -var app_running=true` builds a fresh EC2
-**Spot**-only server of any t3.small-like type (2 vCPU, 2–4 GB; AWS picks the cheapest with capacity) (Amazon Linux 2023, no SSH key); `ansible-playbook site.yml` installs Docker and the
+**Spot**-only server of any t3.small-like type (2 vCPU, 2–4 GB; AWS picks a Spot type with capacity, never above t3.small's on-demand price) (Amazon Linux 2023, no SSH key); `ansible-playbook site.yml` installs Docker and the
 systemd unit, which pulls `:latest` on start (**start = deploy**); `app_running=false` deletes the
 box. While it's on, CI's `deploy` job restarts it via SSM Run Command on every push to `main`
 (full CD). Access is an **SSM port forward** to `localhost:8000`; the app has no login of its own

@@ -15,10 +15,14 @@ variable "app_running" {
 
 # SPOT ONLY, ANY SIMILAR TYPE. Instead of naming one instance type (and falling back to
 # paying on-demand when it has no Spot capacity), the box is launched by an "instant" EC2
-# Fleet that describes the SHAPE we need and lets AWS pick the cheapest Spot type that has
-# capacity right now (price-capacity-optimized). With the AL2023 x86_64 AMI this matches
+# Fleet that describes the SHAPE we need and lets AWS pick a Spot type (price-capacity-
+# optimized: low price weighted by how unlikely an interruption is), never above t3.small's
+# on-demand price (max_total_price below). With the AL2023 x86_64 AMI this matches
 # t3.small / t3a.small / t3.medium / t3a.medium / t2.medium — any of them runs the app.
-# If AWS reclaims the box mid-session: re-run apply + ansible-playbook (data is all in S3).
+# If AWS reclaims the box mid-session the fleet stays in state, so a plain apply shows
+# "No changes": cycle it with app_running=false then true (data is all in S3).
+# There is deliberately NO on-demand fallback (owner's call, 2026-11-18): five types make a
+# Spot shortage of all of them unlikely, and waiting beats paying on-demand.
 locals {
   server_vcpus          = 2    # same as t3.small
   server_memory_min_mib = 2048 # t3.small's 2 GB is the floor (the image pull needs it)
@@ -76,6 +80,10 @@ resource "aws_launch_template" "server" {
     resource_type = "volume"
     tags          = { Name = "listing-app" }
   }
+  tag_specifications {
+    resource_type = "network-interface"
+    tags          = { Name = "listing-app" }
+  }
 }
 
 resource "aws_ec2_fleet" "server" {
@@ -83,6 +91,8 @@ resource "aws_ec2_fleet" "server" {
 
   type                = "instant" # one-shot launch: no re-launch behind your back
   terminate_instances = true      # deleting the fleet (app_running=false) deletes the box
+
+  tags = { Name = "listing-app" } # the fleet object itself (the instance tag is in the template)
 
   launch_template_config {
     launch_template_specification {
@@ -118,13 +128,17 @@ resource "aws_ec2_fleet" "server" {
     min_target_capacity      = 1
     single_availability_zone = true
     single_instance_type     = true
-    # no max price: pay the current Spot price, capped at the on-demand price
+    # Hard ceiling for the whole fleet (1 box): t3.small's ap-south-1 on-demand rate, so a
+    # medium is only picked when its Spot price is below that. Keeps docs/infra-costs.md's
+    # worst case (~$20/mo if left on 24x7) true.
+    max_total_price = "0.0224"
   }
 
   lifecycle {
     # A new AL2023 release (new launch-template version) must not replace a running box
-    # mid-session; the next off→on cycle picks it up anyway.
-    ignore_changes = [launch_template_config]
+    # mid-session; the next off→on cycle picks it up anyway. Only the VERSION is ignored, so
+    # an edit to the instance shape still shows up in the plan (as a replace).
+    ignore_changes = [launch_template_config[0].launch_template_specification[0].version]
   }
 }
 

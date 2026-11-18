@@ -559,7 +559,7 @@ Pull requests run the test job only.
 Ansible (`infra/ansible/`, run over SSM, no SSH) sets up the server. The EC2 server is
 **disposable**: it exists only while the app is in use (`terraform apply -var
 app_running=true|false`), so the idle bill is under $0.50/month. It's a **Spot-only** box of
-any t3.small-like type (an EC2 Fleet picks the cheapest 2 vCPU / 2–4 GB type with capacity) whose security group has **zero inbound rules**,
+any t3.small-like type (an EC2 Fleet picks a 2 vCPU / 2–4 GB Spot type with capacity, capped at t3.small's on-demand price) whose security group has **zero inbound rules**,
 and ECR keeps only the last 3 images. Its systemd unit pulls
 `:latest` from ECR on every start, so *starting = deploying the newest build*; while it's on,
 CI's `deploy` job restarts it via SSM on each push to `main`. The app is reached through an
