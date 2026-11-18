@@ -34,7 +34,7 @@ AWS resource (imported from the console 2026-11-17 with zero changes); Ansible
 systemd unit, Docker log rotation and the journald cap.
 
 **The EC2 server is disposable and usually doesn't exist.** `terraform apply -var
-app_running=true` builds a fresh **Spot** t3.small (Amazon Linux 2023, no SSH key; `-var use_spot=false` for on-demand), `ansible-playbook
+app_running=true` builds a fresh **Spot**-only server of any t3.small-like type (2 vCPU, 2–4 GB; AWS picks the cheapest with capacity) (Amazon Linux 2023, no SSH key; never on-demand), `ansible-playbook
 site.yml` sets it up, and `app_running=false` deletes it, so idle cost is under $0.50/mo. Nothing
 lives on the box: data is in S3, config/secrets in SSM, the image in ECR. **Never `terraform
 destroy`**: it targets the data bucket and IAM too. **Never configure the box by hand**: edit
@@ -53,7 +53,7 @@ instance may carry it). While the server is off, the deploy job fails harmlessly
 phase 4's SG ingress removal (zero inbound) is done in code, pulled forward because the app now has
 no login; only deleting the old key pair remains. Phase 5 (Cognito removal) is done:
 code, and the pool, client, domain and SSM params deleted via Terraform. ECR keeps 3 images and the
-server is Spot.
+server is Spot-only, any 2 vCPU / 2–4 GB burstable type (EC2 Fleet).
 Every resource is catalogued in [`docs/infra-resources.md`](docs/infra-resources.md). TLS + a
 public URL stay **deferred**: never open the SG to `0.0.0.0/0`.
 

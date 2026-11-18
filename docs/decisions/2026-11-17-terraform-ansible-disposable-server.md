@@ -76,4 +76,6 @@ caused three problems:
   and SSM params deleted in two Terraform applies.
   See [`2026-11-17-remove-cognito-iam-only-access.md`](2026-11-17-remove-cognito-iam-only-access.md).
 - **Agreed additions: done in code** (2026-11-17): ECR keeps 3 images, and the server is a
-  **Spot** t3.small (`use_spot=false` falls back to on-demand).
+  **Spot** t3.small. *Amended 2026-11-18:* Spot-only via an instant EC2 Fleet with attribute-based
+  selection (2 vCPU, 2–4 GB, burstable), so a Spot shortage of one type means another type, not
+  paying on-demand; the `use_spot`/`instance_type` variables are gone.

@@ -21,7 +21,7 @@ there is **no instance, no disk and no public IP**, so the idle bill is just sto
 | **Not used at all** (server off all month) | **~$0.20–0.50** |
 | A few sessions (~10 h/mo) | under ~$1 |
 | Regular use (~30 h/mo) | ~$1 or less |
-| Left on 24×7 (don't) | ~$20 on-demand t3.small; less on Spot |
+| Left on 24×7 (don't) | well under ~$20 (Spot; ~$20 is the on-demand t3.small ceiling) |
 
 The in-use figures are upper bounds at the **on-demand** t3.small rate; the server runs on
 **Spot**, which is usually well below that. Check the current ap-south-1 Spot price in the EC2
@@ -34,7 +34,7 @@ console (Spot Requests → Pricing history) for the real number.
 ### Billed only while the server EXISTS (the variable part)
 | Resource | Rate (ap-south-1) | Notes |
 |---|---|---|
-| **EC2 `t3.small`** compute | ~**$0.0224/hr** on-demand; **Spot is usually far less** | Spot by default (`use_spot`); on-demand only as the fallback. One size up from the old t3.micro (~$0.0112/hr) for 2 GB RAM and a faster first image pull. |
+| **EC2** compute (t3.small-like, Spot) | Spot price, **capped** at on-demand (~**$0.0224/hr** for t3.small) | Spot only — an EC2 Fleet picks the cheapest 2 vCPU / 2–4 GB burstable type with capacity (t3/t3a small/medium, t2.medium); there is no on-demand fallback. One size up from the old t3.micro (~$0.0112/hr) for 2 GB RAM and a faster first image pull. |
 | **Public IPv4 address** | ~**$0.005/hr** | Released when the server is deleted. |
 | **EBS root volume** (8 GB gp3) | ~$0.0912/GB-mo, so ~$0.0010/hr | Deleted with the server. (A *stopped* server would still pay ~$0.70/mo for this, which is why the box is deleted, not stopped.) |
 | → **combined** | ≤ ~**$0.028/hr** | What each hour of use costs at most (on-demand rate; Spot lowers the EC2 part). |
@@ -67,8 +67,8 @@ console (Spot Requests → Pricing history) for the real number.
 ## What would push the bill UP
 1. **Forgetting to turn the server off.** That's the only way to a real bill (up to ~$20/mo 24×7).
    `terraform output` shows whether `instance_id` exists.
-2. **Running on-demand instead of Spot** (`use_spot=false`), or a bigger `instance_type`. Fine
-   as a fallback; just don't leave it that way.
+2. **Widening the instance shape** (the `server_*` locals in `ec2.tf`) to bigger types. The Fleet
+   picks the cheapest match, but a wider range can still land on a pricier box.
 3. **TLS + a public URL** (deferred): CloudFront is usage-billed, and an Elastic IP is billed
    while not attached to a running instance.
 4. **Large image volume in S3**, which grows slowly (~$0.025/GB-mo).

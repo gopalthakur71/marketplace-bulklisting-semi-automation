@@ -119,7 +119,7 @@ This is the part that gets the app from your laptop onto the internet. Three pie
 
 - **EC2** (Elastic Compute Cloud) is a **rented Amazon computer**. It pulls the `latest`
   container from ECR and runs it; this is the computer your live app runs on. To save money it's
-  a small machine (`t3.small`) rented as **Spot** (Amazon's spare capacity, sold cheap but which
+  a small machine (a `t3.small` or a similar 2-CPU, 2–4 GB type, whichever is cheapest that day) rented as **Spot** (Amazon's spare capacity, sold cheap but which
   Amazon can take back), and it **only exists while you're using the app**: it's built
   fresh when you need it and deleted when you're done (see §7b). When it doesn't exist, it costs
   nothing.

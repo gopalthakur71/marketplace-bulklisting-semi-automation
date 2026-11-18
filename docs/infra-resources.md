@@ -35,7 +35,7 @@ flowchart TB
         oidc["IAM OIDC provider\ntoken.actions.githubusercontent.com"]
         roleGH["IAM role: github-actions-ecr-push"]
         ecr["ECR: marketplace-bulklisting"]
-        ec2["EC2: listing-app — ONLY WHILE ON\n(app_running=true; Spot t3.small)"]
+        ec2["EC2: listing-app — ONLY WHILE ON\n(app_running=true; Spot, t3.small-like)"]
         roleEC2["IAM role: listing-app-ec2-role"]
         sg["SG: listing-app-sg"]
         ssm["SSM Parameter Store\n/marketplace-listing/* (4 params)"]
@@ -77,7 +77,8 @@ There is **no fixed instance ID**: every "on" creates a new one. Find the curren
 ### Compute & network
 | Resource | Identifier | Owned by | Notes |
 |---|---|---|---|
-| EC2 instance | Tag `Name=listing-app` (new ID on every build) | `infra/terraform/ec2.tf` (`aws_instance.server`) | **Spot** t3.small by default (`var.use_spot`, `var.instance_type`; one-time request, terminated on interruption; `use_spot=false` = on-demand), Amazon Linux 2023, 8 GB encrypted gp3, IMDSv2 only, CPU credits `standard`. **No SSH key.** Created/deleted by `var.app_running`. Configured by Ansible. The CI deploy job finds it by the `listing-app` tag, so **exactly one instance may carry that tag**. |
+| EC2 launch template | `listing-app` | `infra/terraform/ec2.tf` (`aws_launch_template.server`) | Everything about the box except its type: AL2023 AMI, subnet + SG, instance profile, IMDSv2, 8 GB gp3, `Name=listing-app` tag. Permanent, free. |
+| EC2 instance (via instant EC2 Fleet) | Tag `Name=listing-app` (new ID on every build) | `infra/terraform/ec2.tf` (`aws_ec2_fleet.server`) | **Spot only**, any type with 2 vCPU / 2–4 GB / burstable (AWS picks the cheapest with capacity: t3/t3a small/medium, t2.medium; `price-capacity-optimized`, terminated on interruption, never on-demand), Amazon Linux 2023, 8 GB encrypted gp3, IMDSv2 only, CPU credits `standard`. **No SSH key.** Created/deleted by `var.app_running`. Configured by Ansible. The CI deploy job finds it by the `listing-app` tag, so **exactly one instance may carry that tag**. |
 | Security group | `sg-06ceeb9a898378bb0` (`listing-app-sg`) | `infra/terraform/network.tf` | **Zero inbound** (since phase 4/5): the app has no login, so the network must have no path in. Access is the SSM port forward only, and the container binds to `127.0.0.1:80` on the box. **Never add an ingress rule.** Outbound: all (ECR, SSM, S3). ⚠️ At import (2026-11-17) it also had `0.0.0.0/0` on 22 and 80; those were removed the same day. |
 | ECR repository | `marketplace-bulklisting` | `infra/terraform/ecr.tf` | Tags `:latest` + `:<git-sha>`. Lifecycle: keep the last 3 images. Scan on push. |
 

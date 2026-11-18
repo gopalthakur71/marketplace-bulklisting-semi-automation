@@ -506,7 +506,7 @@ instance and the job fails, harmlessly. Least-privilege permissions: default `co
 
 | Path | Owns |
 |---|---|
-| `infra/terraform/` | Every AWS resource: `ec2.tf` (the create-when-needed Spot server, `var.app_running` / `use_spot` / `instance_type`), `network.tf` (SG, zero inbound), `iam.tf` (EC2 role + GitHub OIDC/deploy role), `ecr.tf`, `s3.tf` (`ijorethnicpartners`, `prevent_destroy`), `ssm.tf` (3 plain params + the Gemini SecureString, value ignored, never in code), `ansible_transfer.tf`, `imports.tf` (audit trail of what was adopted from the console). State: S3 `ijor-tfstate-048589483919`, S3-native lock. |
+| `infra/terraform/` | Every AWS resource: `ec2.tf` (the create-when-needed Spot server: launch template + instant EC2 Fleet, `var.app_running`), `network.tf` (SG, zero inbound), `iam.tf` (EC2 role + GitHub OIDC/deploy role), `ecr.tf`, `s3.tf` (`ijorethnicpartners`, `prevent_destroy`), `ssm.tf` (3 plain params + the Gemini SecureString, value ignored, never in code), `ansible_transfer.tf`, `imports.tf` (audit trail of what was adopted from the console). State: S3 `ijor-tfstate-048589483919`, S3-native lock. |
 | `infra/ansible/` | The server's setup over SSM (`community.aws.aws_ssm`; dynamic inventory by `Name` tag): roles `docker` (install + validated `daemon.json` log rotation), `journald` (cap drop-in), `listing_app` (systemd unit template, start, health check). Env vars live in `group_vars/all.yml`. |
 | `aws/cicd/*.json`, `S3/*.json` | The policies as first hand-applied in the console. **History only**; the live definitions are in `infra/terraform/`. |
 
@@ -529,7 +529,7 @@ Rationale in [decisions/2026-06-30-config-ssm-secrets-rationale.md](decisions/20
 ### Deploy
 
 **The server is disposable.** `terraform apply -var app_running=true` builds a fresh EC2
-**Spot** t3.small (Amazon Linux 2023, no SSH key; `use_spot=false` for on-demand); `ansible-playbook site.yml` installs Docker and the
+**Spot**-only server of any t3.small-like type (2 vCPU, 2–4 GB; AWS picks the cheapest with capacity) (Amazon Linux 2023, no SSH key); `ansible-playbook site.yml` installs Docker and the
 systemd unit, which pulls `:latest` on start (**start = deploy**); `app_running=false` deletes the
 box. While it's on, CI's `deploy` job restarts it via SSM Run Command on every push to `main`
 (full CD). Access is an **SSM port forward** to `localhost:8000`; the app has no login of its own
