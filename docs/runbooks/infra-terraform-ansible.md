@@ -54,7 +54,7 @@ Leave that window open and browse **http://localhost:8000**. Closing it (Ctrl+C)
 ```bash
 terraform apply -var app_running=false
 ```
-Check that the plan says **`1 to destroy`** and that the one resource is **`aws_instance.server[0]`**,
+Check that the plan says **`1 to destroy`** and that the one resource is **`aws_ec2_fleet.server[0]`**,
 then type `yes`. Nothing else is touched. Confirm with `terraform output`: `instance_id` is gone.
 
 > **Never run `terraform destroy`.** It targets *everything* (data bucket, IAM, ECR, SSM). The
@@ -82,7 +82,7 @@ rebuild, and Ansible overwrites managed files on the next run.
 | Instance type, disk, network, IAM, ECR, SSM, S3 settings | `infra/terraform/*.tf` | `terraform plan`, review, `terraform apply` |
 
 **Terraform rule:** read every plan before `yes`. If a plan shows `destroy` or `replace` on
-anything other than `aws_instance.server[0]`, stop and find out why.
+anything other than `aws_ec2_fleet.server[0]`, stop and find out why.
 
 ---
 

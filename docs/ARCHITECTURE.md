@@ -552,7 +552,7 @@ This is the section to read when something *outside* the code changes.
 | **S3 (images + ledger)** | `src/core/s3_upload.py`, `groupid_ledger.S3JsonStore`, `src/myntra/image_replace.py` (replacement leg) | Bucket `ijorethnicpartners`, region `ap-south-1`, image prefix `myntra/`, ledger key `state/myntra_groupid.json`. Images must be `.jpg` and public-read. Replacement images key as `{sku}/{slot}-{hash}.jpg` (content-addressed, not `{sku}/{n}.jpg`) — see §3. **Unverified:** the replacement upload leg has not yet been exercised against real AWS credentials, only against a fake/injected boto3 client in tests. |
 | **ECR (image registry)** | `ci-cd.yml`, the Ansible-managed unit | Repo `marketplace-bulklisting`, `:latest` pulled on every start; CI `deploy` job restarts via SSM. |
 | **SSM Parameter Store (config)** | `src/web/settings.py` | Per-field env→SSM fallback; prefix `/marketplace-listing/`; read on EC2 via instance role. Secrets are SecureStrings. No Secrets Manager. |
-| **AWS infrastructure** | `infra/terraform/`, `infra/ansible/` | Change AWS resources or the server's setup only here, never in the console or on the box. Read every `terraform plan`; a destroy/replace on anything but `aws_instance.server[0]` is a stop sign. |
+| **AWS infrastructure** | `infra/terraform/`, `infra/ansible/` | Change AWS resources or the server's setup only here, never in the console or on the box. Read every `terraform plan`; a destroy/replace on anything but `aws_ec2_fleet.server[0]` is a stop sign. |
 
 ---
 
